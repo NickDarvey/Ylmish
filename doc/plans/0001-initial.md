@@ -149,6 +149,19 @@ In `tests/Ylmish.Tests/Program.fs`, the "withYlmish persists initial list of val
 
 The goal is to make Ylmish functional enough that a developer can build a real collaborative application using the Elmish programming model with automatic Yjs synchronization. The following objectives are ordered by dependency (each builds on the previous).
 
+### Objective 0: Update dependencies and toolchain
+
+Before any feature work, bring the project onto supported, stable tooling:
+
+- Upgrade .NET SDK to a currently supported LTS version.
+- Upgrade Fable.Core from pre-release theta to a stable release (or the latest pre-release compatible with the current Fable compiler).
+- Upgrade Yjs to the latest 13.x.
+- Upgrade Mocha, concurrently, and other dev dependencies.
+- Evaluate Fable 4 compatibility and resolve any breaking changes.
+- Ensure the existing test suite still passes after upgrades.
+
+This de-risks all subsequent work by building on a stable foundation.
+
 ### Objective 1: Complete the Element↔Yjs bridge
 
 Implement the missing conversions in `src/Ylmish/Y.fs`:
@@ -193,15 +206,7 @@ Extend the `Decoder` type so that the `Decode.object` builder can access the cur
 
 Split `Text.attach` (and the future `Map.attach`, `Array.attach`) into one-way sync functions so that the encode path and decode path can use different schemas. This is needed for handling schema migrations when the app's model shape changes.
 
-### Objective 7: Update dependencies and toolchain
-
-- Upgrade .NET SDK to a currently supported LTS version.
-- Upgrade Fable.Core from pre-release theta to a stable release (or the latest pre-release compatible with the current Fable compiler).
-- Upgrade Yjs to the latest 13.x.
-- Upgrade Mocha, concurrently, and other dev dependencies.
-- Evaluate Fable 4 compatibility and resolve any breaking changes.
-
-### Objective 8: Provide a sample application
+### Objective 7: Provide a sample application
 
 Create a minimal but complete example application demonstrating:
 
