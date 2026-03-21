@@ -21,6 +21,8 @@ safe-outputs:
     max: 20
   add-comment:
     max: 5
+  update-issue:
+    max: 20
 ---
 
 # Break Down Plan Objectives into GitHub Issues
@@ -46,27 +48,34 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
 
 4. **Decompose the objective**: Break the objective into the smallest set of sequential sub-tasks. Each sub-task should be completable by an agent in ~15 minutes. Order them by dependency (each may depend on the one before it).
 
-5. **Create issues**: For each sub-task, create a GitHub issue following the skill template. Extract the plan number from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`).
+5. **Create a tracking issue**: Create a single parent tracking issue for this objective.
+   - **Title**: `[Plan <number> / Obj ${{ inputs.objective }}] <objective title>` — where `<number>` is extracted from the plan file name and `<objective title>` is the objective's heading from the plan.
+   - **Labels**: Add the label `planned`.
+   - **Body**: Include the objective description from the plan, a link to `${{ inputs.plan }}`, and a note that child issues will be linked as sub-issues.
+
+6. **Create child issues**: For each sub-task, create a GitHub issue following the skill template. Extract the plan number from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`).
    - **Title**: `[Plan <number> / Obj ${{ inputs.objective }}] <verb> <what>` — short, specific, searchable, where `<number>` is extracted from the plan file name.
    - **Labels**: Add the label `planned` to every issue.
    - **Body**: Follow the `.skills/write-plan-issue.md` template exactly:
-     - **Context**: Link to the plan document and objective. Summarize what prior objectives accomplished.
+     - **Context**: Link to the plan document and objective. Reference the tracking issue. Summarize what prior objectives accomplished.
      - **Task**: Numbered, concrete steps.
      - **Acceptance criteria**: Checkboxes per observable outcome, always including `npm test` passing.
      - **Scope boundaries**: Explicitly state what is in scope and out of scope.
      - **Files likely to change**: List specific file paths.
    - **Dependencies**: If an issue depends on a previous one, add a line in the Context section: `Depends on #<issue-number>` referencing the prior issue's number.
+   - **Sub-issues**: After creating each child issue, add it as a sub-issue of the tracking issue using GitHub's sub-issues feature. Use the GitHub API to add the sub-issue relationship so it appears in the tracking issue's sub-issue list in the GitHub UI.
 
-6. **Assign the first issue**: After creating all issues, add a comment on the very first issue (the one with no dependencies) that says exactly: `@copilot` — this assigns copilot to work on it automatically.
+7. **Assign copilot to the first child issue**: After creating all child issues and linking them as sub-issues, add a comment on the very first child issue (the one with no dependencies) that says exactly: `@copilot` — this assigns copilot to work on it automatically. Do NOT assign copilot to the tracking issue.
 
-7. **Summary comment**: Post a summary comment on the first issue listing all created issues in dependency order with their issue numbers, so there is a clear overview of the full breakdown. Do this as part of step 6 — combine the assignment and summary into a single comment to avoid partial-failure scenarios.
+8. **Summary comment**: Post a summary comment on the tracking issue listing all created child issues in dependency order with their issue numbers. Do this as the final step so the tracking issue has a complete overview.
 
 ## Important Rules
 
-- Create issues in dependency order (first issue has no dependencies, subsequent issues depend on prior ones).
-- Keep each issue small and focused. One objective may produce 2–10 issues.
-- Always label every issue with `planned`.
+- Always create a tracking issue first, then create child issues and link them as sub-issues of the tracking issue using GitHub's sub-issues feature.
+- Create child issues in dependency order (first child issue has no dependencies, subsequent ones depend on prior ones).
+- Keep each child issue small and focused. One objective may produce 2–10 child issues.
+- Always label every issue (tracking and child) with `planned`.
 - Always reference the plan document path and objective number in every issue.
-- The first issue must be assigned to copilot to commence work automatically.
+- Assign copilot to the first child issue only — not the tracking issue.
 - Do not create issues for objectives other than the one specified.
 - Use the exact verification command from AGENTS.md (typically `npm test`).
