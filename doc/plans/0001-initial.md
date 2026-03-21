@@ -134,7 +134,7 @@ When decoding state data back into app data, non-persisted fields need to be pre
 
 #### 8. Dependency versions are old
 
-- .NET SDK 6.0.100 (EOL; current LTS is 8.x)
+- .NET SDK 6.0.100 (.NET 6 reached end of support in November 2024)
 - Fable.Core 4.0.0-theta-007 (pre-release)
 - Yjs 13.5.35 (current is 13.6.x)
 - Mocha 10.2.0, various other packages at older versions
@@ -195,7 +195,7 @@ Split `Text.attach` (and the future `Map.attach`, `Array.attach`) into one-way s
 
 ### Objective 7: Update dependencies and toolchain
 
-- Upgrade .NET SDK to a supported LTS version (8.x).
+- Upgrade .NET SDK to a currently supported LTS version.
 - Upgrade Fable.Core from pre-release theta to a stable release (or the latest pre-release compatible with the current Fable compiler).
 - Upgrade Yjs to the latest 13.x.
 - Upgrade Mocha, concurrently, and other dev dependencies.
