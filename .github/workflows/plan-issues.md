@@ -46,8 +46,8 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
 
 4. **Decompose the objective**: Break the objective into the smallest set of sequential sub-tasks. Each sub-task should be completable by an agent in ~15 minutes. Order them by dependency (each may depend on the one before it).
 
-5. **Create issues**: For each sub-task, create a GitHub issue following the skill template:
-   - **Title**: `[Plan 0001 / Obj ${{ inputs.objective }}] <verb> <what>` — short, specific, searchable.
+5. **Create issues**: For each sub-task, create a GitHub issue following the skill template. Extract the plan number from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`).
+   - **Title**: `[Plan <number> / Obj ${{ inputs.objective }}] <verb> <what>` — short, specific, searchable, where `<number>` is extracted from the plan file name.
    - **Labels**: Add the label `planned` to every issue.
    - **Body**: Follow the `.skills/write-plan-issue.md` template exactly:
      - **Context**: Link to the plan document and objective. Summarize what prior objectives accomplished.
@@ -57,9 +57,9 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
      - **Files likely to change**: List specific file paths.
    - **Dependencies**: If an issue depends on a previous one, add a line in the Context section: `Depends on #<issue-number>` referencing the prior issue's number.
 
-6. **Assign the first issue**: After creating all issues, assign the very first issue (the one with no dependencies) to `@copilot` so that work begins automatically. Do this by adding a comment on the first issue that says: `/assign @copilot` — or by including `Assignees: copilot` if supported.
+6. **Assign the first issue**: After creating all issues, add a comment on the very first issue (the one with no dependencies) that says exactly: `@copilot` — this assigns copilot to work on it automatically.
 
-7. **Summary comment**: After all issues are created, post a summary comment on the first issue listing all created issues in dependency order, so there is a clear overview of the full breakdown.
+7. **Summary comment**: Post a summary comment on the first issue listing all created issues in dependency order with their issue numbers, so there is a clear overview of the full breakdown. Do this as part of step 6 — combine the assignment and summary into a single comment to avoid partial-failure scenarios.
 
 ## Important Rules
 
