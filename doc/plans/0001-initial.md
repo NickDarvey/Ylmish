@@ -228,3 +228,7 @@ Create a minimal but complete example application demonstrating:
 - Two Y.Doc instances syncing via `applyUpdate`/`encodeStateAsUpdate` to demonstrate collaboration.
 
 This would live in an `examples/` directory and serve as both documentation and a smoke test.
+
+---
+
+*Workflow note: the `plan-issues` agentic workflow fires on pushes to `master` matching `doc/plans/**`.*
