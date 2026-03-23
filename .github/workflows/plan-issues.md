@@ -1,15 +1,11 @@
 ---
 description: Break down plan objectives into agent-sized GitHub issues
 on:
-  workflow_dispatch:
-    inputs:
-      plan:
-        description: "Path to the plan document (e.g. doc/plans/0001-initial.md)"
-        required: true
-        default: "doc/plans/0001-initial.md"
-      objective:
-        description: "Objective number to break down (e.g. 0, 1, 2)"
-        required: true
+  push:
+    branches:
+      - main
+    paths:
+      - 'doc/plans/**'
 permissions:
   contents: read
   issues: read
@@ -27,12 +23,7 @@ safe-outputs:
 
 # Break Down Plan Objectives into GitHub Issues
 
-You are a project planning agent. Your job is to read a plan document from this repository and decompose a specific objective into small, focused GitHub issues that a coding agent can complete autonomously in roughly 15 minutes each.
-
-## Inputs
-
-- **Plan document**: `${{ inputs.plan }}`
-- **Objective number**: `${{ inputs.objective }}`
+You are a project planning agent. Your job is to respond to changes to plan documents in this repository and ensure every plan objective has a set of focused GitHub issues for a coding agent to complete.
 
 ## Task Writing Skill
 
@@ -40,42 +31,73 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
 
 ## Steps
 
-1. **Read the plan**: Open and read `${{ inputs.plan }}` from the repository. Identify the objective specified by number `${{ inputs.objective }}`.
+1. **Identify changed plan files**: Run `git diff-tree --no-commit-id --name-only -r HEAD -- 'doc/plans/**'` to find which plan files changed in this push. If none changed, stop immediately.
 
-2. **Read the skill**: Open and read `.skills/write-plan-issue.md` for the issue writing template and rules.
+2. **Read supporting files**: Open and read `.skills/write-plan-issue.md` for the issue writing template, and `AGENTS.md` for build/test conventions and project context.
 
-3. **Read AGENTS.md**: Open and read `AGENTS.md` for build/test conventions and project context.
+3. **For each changed plan file**, open and read it, then determine which case applies by searching GitHub Issues for existing tracking issues with titles matching `[Plan <number>` where `<number>` is extracted from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`):
 
-4. **Decompose the objective**: Break the objective into the smallest set of sequential sub-tasks. Each sub-task should be completable by an agent in ~15 minutes. Order them by dependency (each may depend on the one before it).
+   - **No tracking issues found → Initial Case**: follow the "Initial Case" section below.
+   - **Tracking issues already exist → Update Case**: follow the "Update Case" section below.
 
-5. **Create a tracking issue**: Create a single parent tracking issue for this objective.
-   - **Title**: `[Plan <number> / Obj ${{ inputs.objective }}] <objective title>` — where `<number>` is extracted from the plan file name and `<objective title>` is the objective's heading from the plan.
-   - **Labels**: Add the label `planned`.
-   - **Body**: Include the objective description from the plan, a link to `${{ inputs.plan }}`, and a note that child issues will be linked as sub-issues.
+---
 
-6. **Create child issues**: For each sub-task, create a GitHub issue following the skill template. Extract the plan number from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`).
-   - **Title**: `[Plan <number> / Obj ${{ inputs.objective }}] <verb> <what>` — short, specific, searchable, where `<number>` is extracted from the plan file name.
-   - **Labels**: Add the label `planned` to every issue.
-   - **Body**: Follow the `.skills/write-plan-issue.md` template exactly:
-     - **Context**: Link to the plan document and objective. Reference the tracking issue. Summarize what prior objectives accomplished.
-     - **Task**: Numbered, concrete steps.
-     - **Acceptance criteria**: Checkboxes per observable outcome, always including `npm test` passing.
-     - **Scope boundaries**: Explicitly state what is in scope and out of scope.
-     - **Files likely to change**: List specific file paths.
-   - **Dependencies**: If an issue depends on a previous one, add a line in the Context section: `Depends on #<issue-number>` referencing the prior issue's number.
-   - **Sub-issues**: After creating each child issue, add it as a sub-issue of the tracking issue using GitHub's sub-issues feature. Use the GitHub API to add the sub-issue relationship so it appears in the tracking issue's sub-issue list in the GitHub UI.
+## Initial Case: New Plan
 
-7. **Assign copilot to the first child issue**: After creating all child issues and linking them as sub-issues, add a comment on the very first child issue (the one with no dependencies) that says exactly: `@copilot` — this assigns copilot to work on it automatically. Do NOT assign copilot to the tracking issue.
+For each objective in the plan:
 
-8. **Summary comment**: Post a summary comment on the tracking issue listing all created child issues in dependency order with their issue numbers. Do this as the final step so the tracking issue has a complete overview.
+1. **Create a tracking issue** for this objective.
+   - **Title**: `[Plan <number> / Obj <n>] <objective title>` — where `<number>` is from the plan file name and `<objective title>` is the objective heading.
+   - **Labels**: `planned`.
+   - **Body**: Include the objective description from the plan, a link to the plan file, and a note that child issues will be linked as sub-issues.
+
+2. **Decompose the objective**: Break it into the smallest set of sequential sub-tasks completable by a coding agent in ~15 minutes each, ordered by dependency.
+
+3. **Create child issues**: For each sub-task, create a GitHub issue following the skill template.
+   - **Title**: `[Plan <number> / Obj <n>] <verb> <what>` — short, specific, searchable.
+   - **Labels**: `planned`.
+   - **Body**: Follow the `.skills/write-plan-issue.md` template exactly (Context, Task, Acceptance criteria, Scope boundaries, Files likely to change). Always include `npm test` passing as an acceptance criterion.
+   - **Dependencies**: If an issue depends on the previous one, add `Depends on #<issue-number>` in the Context section.
+   - **Sub-issues**: After creating each child issue, add it as a sub-issue of the tracking issue using GitHub's sub-issues API.
+
+4. **Summary comment on each tracking issue**: Post a comment listing all child issues in dependency order.
+
+5. **Assign copilot to the first unstarted child issue**: After all issues are created, add a comment on the very first child issue that has no dependencies (starting from Objective 0 and proceeding in order). That comment must say exactly: `@copilot`. Do NOT assign copilot to any tracking issue. If there are no objectives or no child issues were created, skip this step.
+
+---
+
+## Update Case: Revised Plan
+
+For each changed plan file where tracking issues already exist:
+
+1. **Read existing tracking issues**: Search GitHub Issues for all tracking issues matching `[Plan <number>`. For each one, read its current state and all of its sub-issues (child issues) along with their open/closed status and activity.
+
+2. **Compare plan to issues**: Compare the updated plan objectives against the existing tracking issues and child issues to identify:
+   - **New objectives** that have no tracking issue yet.
+   - **Objectives whose sub-tasks changed** (steps added, removed, or reworded).
+   - **Obsolete sub-tasks** no longer present in the updated plan.
+
+3. **New objectives**: For each objective with no tracking issue, apply the "Initial Case" steps for that objective only.
+
+4. **Changed objectives** (tracking issue already exists):
+   - **Update the tracking issue body** if the objective description changed.
+   - **Close obsolete child issues**: For any open child issue (labelled `planned`) whose sub-task is no longer in the plan, update it to close it and add a comment explaining it is superseded by the plan update.
+   - **Add new child issues**: For any new sub-task that lacks a corresponding issue, create a new child issue following the skill template and add it as a sub-issue of the tracking issue.
+   - **Preserve in-progress issues**: Do not close or modify child issues that already have a `@copilot` comment or other recent activity — those are being worked on.
+
+5. **Assign copilot to the next pending issue**: Find the first open child issue (label `planned`) across all tracking issues for this plan, in objective and dependency order, that has no `@copilot` comment anywhere in its comments or body. Add a comment `@copilot` on that issue only. If all open child issues already have a `@copilot` comment, skip this step.
+
+6. **Summary comment**: Post a comment on each affected tracking issue describing what changed (issues created, updated, or closed) in this run.
+
+---
 
 ## Important Rules
 
-- Always create a tracking issue first, then create child issues and link them as sub-issues of the tracking issue using GitHub's sub-issues feature.
-- Create child issues in dependency order (first child issue has no dependencies, subsequent ones depend on prior ones).
-- Keep each child issue small and focused. One objective may produce 2–10 child issues.
-- Always label every issue (tracking and child) with `planned`.
-- Always reference the plan document path and objective number in every issue.
-- Assign copilot to the first child issue only — not the tracking issue.
-- Do not create issues for objectives other than the one specified.
+- Always create a tracking issue first, then create child issues and link them as sub-issues using GitHub's sub-issues API.
+- Create child issues in dependency order (first child issue has no dependencies; subsequent ones depend on the prior one).
+- Keep each child issue small and focused — one objective may produce 2–10 child issues.
+- Label every issue (tracking and child) with `planned`.
+- Always reference the plan document path and objective number in every issue body.
+- Assign copilot to exactly ONE issue per run — the next unstarted child issue.
+- Do not create duplicate issues. Search for existing issues before creating.
 - Use the exact verification command from AGENTS.md (typically `npm test`).
