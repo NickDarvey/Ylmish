@@ -3,7 +3,7 @@ description: Break down plan objectives into agent-sized GitHub issues
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'doc/plans/**'
 permissions:

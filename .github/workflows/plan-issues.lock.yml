@@ -28,7 +28,7 @@ name: "Break Down Plan Objectives into GitHub Issues"
 "on":
   push:
     branches:
-    - main
+    - master
     paths:
     - doc/plans/**
 
