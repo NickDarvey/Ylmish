@@ -134,10 +134,16 @@ When decoding state data back into app data, non-persisted fields need to be pre
 
 #### 8. Dependency versions are old
 
-- .NET SDK 6.0.100 (.NET 6 reached end of support in November 2024)
-- Fable.Core 4.0.0-theta-007 (pre-release)
-- Yjs 13.5.35 (current is 13.6.x)
-- Mocha 10.2.0, various other packages at older versions
+- .NET SDK 6.0.100 (.NET 6 reached end of support in November 2024; .NET 8 is the current LTS)
+- Fable.Core 4.0.0-theta-007 (pre-release; stable 4.5.0 is available)
+- FSharp.Data.Adaptive 1.2.13 (current: 1.2.26)
+- Adaptify.Core 1.1.9 (current: 1.3.7)
+- Fable.Elmish 3.1.0 (current: 4.2.0)
+- Expecto 9.0.4 (current: 10.2.3)
+- Fable.Mocha 2.15.0 (current: 2.17.0)
+- Hedgehog 0.13.0 (current: 2.0.0; note: 2.0 has breaking API changes)
+- Yjs 13.5.35 (current: 13.6.x)
+- Mocha 10.2.0 (current: 11.x)
 
 #### 9. Some Program.fs test assertions look incorrect
 
@@ -153,12 +159,18 @@ The goal is to make Ylmish functional enough that a developer can build a real c
 
 Before any feature work, bring the project onto supported, stable tooling:
 
-- Upgrade .NET SDK to a currently supported LTS version.
-- Upgrade Fable.Core from pre-release theta to a stable release (or the latest pre-release compatible with the current Fable compiler).
-- Upgrade Yjs to the latest 13.x.
-- Upgrade Mocha, concurrently, and other dev dependencies.
-- Evaluate Fable 4 compatibility and resolve any breaking changes.
-- Ensure the existing test suite still passes after upgrades.
+- Upgrade .NET SDK from 6.0.100 to 8.0 (current LTS).
+- Upgrade Fable.Core from pre-release 4.0.0-theta-007 to stable 4.5.0.
+- Upgrade FSharp.Data.Adaptive from 1.2.13 to 1.2.26.
+- Upgrade Adaptify.Core from 1.1.9 to 1.3.7.
+- Upgrade Fable.Elmish from 3.1.0 to 4.2.0.
+- Upgrade Expecto from 9.0.4 to 10.2.3.
+- Upgrade Fable.Mocha from 2.15.0 to 2.17.0.
+- Upgrade Hedgehog from 0.13.0 to 2.0.0 (breaking API changes expected).
+- Upgrade Yjs from 13.5.35 to 13.6.x (latest 13.x stable).
+- Upgrade Mocha from 10.2.0 to 11.x and the `concurrently` npm package to latest.
+- Resolve any breaking changes arising from these upgrades.
+- Ensure the existing test suite still passes after all upgrades.
 
 This de-risks all subsequent work by building on a stable foundation.
 
