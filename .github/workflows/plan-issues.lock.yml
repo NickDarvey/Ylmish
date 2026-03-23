@@ -22,29 +22,27 @@
 #
 # Break down plan objectives into agent-sized GitHub issues
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"25452b218caf0332f48f81e78ce077775e3e10e4e67a15ae6df36d91ae921134","compiler_version":"v0.62.5","strict":true,"agent_id":"copilot"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"a852c0d9c3265170df849e52dd84c6cf1857f03671007927fbe42e40add39a83","compiler_version":"v0.62.5","strict":true,"agent_id":"copilot"}
 
 name: "Break Down Plan Objectives into GitHub Issues"
 "on":
-  workflow_dispatch:
-    inputs:
-      objective:
-        description: Objective number to break down (e.g. 0, 1, 2)
-        required: true
-      plan:
-        default: doc/plans/0001-initial.md
-        description: Path to the plan document (e.g. doc/plans/0001-initial.md)
-        required: true
+  push:
+    branches:
+    - main
+    paths:
+    - doc/plans/**
 
 permissions: {}
 
 concurrency:
-  group: "gh-aw-${{ github.workflow }}"
+  group: "gh-aw-${{ github.workflow }}-${{ github.ref || github.run_id }}"
 
 run-name: "Break Down Plan Objectives into GitHub Issues"
 
 jobs:
   activation:
+    needs: pre_activation
+    if: needs.pre_activation.outputs.activated == 'true'
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -121,8 +119,6 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
-          GH_AW_INPUTS_OBJECTIVE: ${{ inputs.objective }}
-          GH_AW_INPUTS_PLAN: ${{ inputs.plan }}
         run: |
           bash ${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh
           {
@@ -178,8 +174,6 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
-          GH_AW_INPUTS_OBJECTIVE: ${{ inputs.objective }}
-          GH_AW_INPUTS_PLAN: ${{ inputs.plan }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -198,8 +192,7 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
-          GH_AW_INPUTS_OBJECTIVE: ${{ inputs.objective }}
-          GH_AW_INPUTS_PLAN: ${{ inputs.plan }}
+          GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: ${{ needs.pre_activation.outputs.activated }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -219,8 +212,7 @@ jobs:
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
                 GH_AW_GITHUB_RUN_ID: process.env.GH_AW_GITHUB_RUN_ID,
                 GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
-                GH_AW_INPUTS_OBJECTIVE: process.env.GH_AW_INPUTS_OBJECTIVE,
-                GH_AW_INPUTS_PLAN: process.env.GH_AW_INPUTS_PLAN
+                GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED: process.env.GH_AW_NEEDS_PRE_ACTIVATION_OUTPUTS_ACTIVATED
               }
             });
       - name: Validate prompt placeholders
@@ -1025,6 +1017,29 @@ jobs:
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/handle_noop_message.cjs');
+            await main();
+
+  pre_activation:
+    runs-on: ubuntu-slim
+    outputs:
+      activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
+      matched_command: ''
+    steps:
+      - name: Setup Scripts
+        uses: github/gh-aw-actions/setup@dc50be57c94373431b49d3d0927f318ac2bb5c4c # v0.62.5
+        with:
+          destination: ${{ runner.temp }}/gh-aw/actions
+      - name: Check team membership for workflow
+        id: check_membership
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_REQUIRED_ROLES: admin,maintainer,write
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/check_membership.cjs');
             await main();
 
   safe_outputs:
