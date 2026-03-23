@@ -1,5 +1,6 @@
 ---
 description: Break down plan objectives into agent-sized GitHub issues
+engine: claude
 on:
   push:
     branches:
