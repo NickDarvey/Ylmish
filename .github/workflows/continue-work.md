@@ -17,6 +17,10 @@ safe-outputs:
   close-issue:
     max: 10
     target: "*"
+  assign-to-agent:
+    name: "copilot"
+    max: 1
+    target: "*"
 ---
 
 # Continue Work: Assign Copilot to Next Task
@@ -39,7 +43,7 @@ Tasks are ordered by objective number and dependency. When a task completes, the
 
 3. **Check if all tasks in this tracking issue are closed**:
    - List all sub-issues (child tasks) of the parent tracking issue.
-   - If **any child task is still open**: find the first open child task (in issue number order, which reflects dependency order) that does NOT already have a `@copilot` comment anywhere in its comments. If found, add a comment with exactly `@copilot` on that issue. Then stop.
+   - If **any child task is still open**: find the first open child task (in issue number order, which reflects dependency order) that is NOT already assigned to copilot. If found, use the `assign-to-agent` safe output to assign copilot to that issue. Then stop.
    - If **all child tasks are closed**: proceed to step 4.
 
 4. **Close the tracking issue**: Since all child tasks are complete, close the parent tracking issue with a comment: `All child tasks are complete. Closing this tracking issue.`
@@ -48,17 +52,17 @@ Tasks are ordered by objective number and dependency. When a task completes, the
 
 6. **Assign copilot to the first task of the next tracking issue**:
    - If a next tracking issue is found, read its sub-issues (child tasks).
-   - Find the first open child task (in issue number order) that does NOT already have a `@copilot` comment.
-   - Add a comment with exactly `@copilot` on that issue.
-   - If no open child tasks exist or all already have `@copilot`, stop.
+   - Find the first open child task (in issue number order) that is NOT already assigned to copilot.
+   - Use the `assign-to-agent` safe output to assign copilot to that issue.
+   - If no open child tasks exist or all are already assigned to copilot, stop.
 
 7. **If no next tracking issue exists**: All objectives in the plan are complete. Stop — no further action needed.
 
 ## Important Rules
 
 - Only act on task issues (child issues of tracking issues). Ignore issues that are not part of the plan structure.
-- Only add `@copilot` to exactly ONE issue per run.
-- Always check for existing `@copilot` comments before adding a new one to avoid duplicates.
+- Only assign copilot to exactly ONE issue per run using the `assign-to-agent` safe output.
+- Always check if an issue is already assigned to copilot before assigning to avoid duplicates.
 - Close tracking issues only when ALL of their child tasks are closed.
 - When searching for the next tracking issue, maintain objective number order (Obj 0 → Obj 1 → Obj 2 → ...).
-- Do not modify or close task issues — only add comments and close tracking issues.
+- Do not modify or close task issues — only assign copilot and close tracking issues.

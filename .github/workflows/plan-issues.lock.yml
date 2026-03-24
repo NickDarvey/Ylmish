@@ -22,7 +22,7 @@
 #
 # Break down plan objectives into agent-sized GitHub issues
 #
-# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"fe188b8afdb9860ae168fb07d451e1681992d79c6a20898b4feee49f1d1306c3","compiler_version":"v0.63.0","strict":true,"agent_id":"claude"}
+# gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"ceae42d3e37af917d690d3ebb11eb94e9f4554285cc0b2b7e28f3e795004b702","compiler_version":"v0.63.0","strict":true,"agent_id":"claude"}
 
 name: "Break Down Plan Objectives into GitHub Issues"
 "on":
@@ -131,7 +131,7 @@ jobs:
           cat "${RUNNER_TEMP}/gh-aw/prompts/safe_outputs_prompt.md"
           cat << 'GH_AW_PROMPT_EOF'
           <safe-output-tools>
-          Tools: add_comment, create_issue, update_issue, add_labels, missing_tool, missing_data, noop
+          Tools: add_comment, create_issue, update_issue, add_labels, assign_to_agent, missing_tool, missing_data, noop
           </safe-output-tools>
           <github-context>
           The following GitHub context information is available for this workflow:
@@ -328,7 +328,7 @@ jobs:
           mkdir -p /tmp/gh-aw/safeoutputs
           mkdir -p /tmp/gh-aw/mcp-logs/safeoutputs
           cat > ${RUNNER_TEMP}/gh-aw/safeoutputs/config.json << 'GH_AW_SAFE_OUTPUTS_CONFIG_EOF'
-          {"add_comment":{"max":60},"add_labels":{"max":60,"target":"*"},"create_issue":{"max":60},"missing_data":{},"missing_tool":{},"noop":{"max":1},"update_issue":{"max":60}}
+          {"add_comment":{"max":60},"add_labels":{"max":60,"target":"*"},"assign_to_agent":{"default_agent":"copilot","max":1,"target":"*"},"create_issue":{"max":60},"missing_data":{},"missing_tool":{},"noop":{"max":1},"update_issue":{"max":60}}
           GH_AW_SAFE_OUTPUTS_CONFIG_EOF
       - name: Write Safe Outputs Tools
         run: |
@@ -337,6 +337,7 @@ jobs:
             "description_suffixes": {
               "add_comment": " CONSTRAINTS: Maximum 60 comment(s) can be added.",
               "add_labels": " CONSTRAINTS: Maximum 60 label(s) can be added. Target: *.",
+              "assign_to_agent": " CONSTRAINTS: Maximum 1 issue(s) can be assigned to agent.",
               "create_issue": " CONSTRAINTS: Maximum 60 issue(s) can be created.",
               "update_issue": " CONSTRAINTS: Maximum 60 issue(s) can be updated."
             },
@@ -382,6 +383,31 @@ jobs:
                   "maxLength": 256
                 }
               }
+            },
+            "assign_to_agent": {
+              "defaultMax": 1,
+              "fields": {
+                "agent": {
+                  "type": "string",
+                  "sanitize": true,
+                  "maxLength": 128
+                },
+                "issue_number": {
+                  "issueNumberOrTemporaryId": true
+                },
+                "pull_number": {
+                  "optionalPositiveInteger": true
+                },
+                "pull_request_repo": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "repo": {
+                  "type": "string",
+                  "maxLength": 256
+                }
+              },
+              "customValidation": "requiresOneOf:issue_number,pull_number"
             },
             "create_issue": {
               "defaultMax": 1,
@@ -1067,6 +1093,8 @@ jobs:
           GH_AW_WORKFLOW_ID: "plan-issues"
           GH_AW_SECRET_VERIFICATION_RESULT: ${{ needs.activation.outputs.secret_verification_result }}
           GH_AW_CHECKOUT_PR_SUCCESS: ${{ needs.agent.outputs.checkout_pr_success }}
+          GH_AW_ASSIGNMENT_ERRORS: ${{ needs.safe_outputs.outputs.assign_to_agent_assignment_errors }}
+          GH_AW_ASSIGNMENT_ERROR_COUNT: ${{ needs.safe_outputs.outputs.assign_to_agent_assignment_error_count }}
           GH_AW_LOCKDOWN_CHECK_FAILED: ${{ needs.activation.outputs.lockdown_check_failed }}
           GH_AW_GROUP_REPORTS: "false"
           GH_AW_FAILURE_REPORT_AS_ISSUE: "true"
@@ -1136,6 +1164,9 @@ jobs:
       GH_AW_WORKFLOW_ID: "plan-issues"
       GH_AW_WORKFLOW_NAME: "Break Down Plan Objectives into GitHub Issues"
     outputs:
+      assign_to_agent_assigned: ${{ steps.assign_to_agent.outputs.assigned }}
+      assign_to_agent_assignment_error_count: ${{ steps.assign_to_agent.outputs.assignment_error_count }}
+      assign_to_agent_assignment_errors: ${{ steps.assign_to_agent.outputs.assignment_errors }}
       code_push_failure_count: ${{ steps.process_safe_outputs.outputs.code_push_failure_count }}
       code_push_failure_errors: ${{ steps.process_safe_outputs.outputs.code_push_failure_errors }}
       comment_id: ${{ steps.process_safe_outputs.outputs.comment_id }}
@@ -1182,13 +1213,30 @@ jobs:
           GH_AW_ALLOWED_DOMAINS: "*.githubusercontent.com,anthropic.com,api.anthropic.com,api.github.com,api.snapcraft.io,archive.ubuntu.com,azure.archive.ubuntu.com,cdn.playwright.dev,codeload.github.com,crl.geotrust.com,crl.globalsign.com,crl.identrust.com,crl.sectigo.com,crl.thawte.com,crl.usertrust.com,crl.verisign.com,crl3.digicert.com,crl4.digicert.com,crls.ssl.com,files.pythonhosted.org,ghcr.io,github-cloud.githubusercontent.com,github-cloud.s3.amazonaws.com,github.com,host.docker.internal,json-schema.org,json.schemastore.org,keyserver.ubuntu.com,lfs.github.com,objects.githubusercontent.com,ocsp.digicert.com,ocsp.geotrust.com,ocsp.globalsign.com,ocsp.identrust.com,ocsp.sectigo.com,ocsp.ssl.com,ocsp.thawte.com,ocsp.usertrust.com,ocsp.verisign.com,packagecloud.io,packages.cloud.google.com,packages.microsoft.com,playwright.download.prss.microsoft.com,ppa.launchpad.net,pypi.org,raw.githubusercontent.com,registry.npmjs.org,s.symcb.com,s.symcd.com,security.ubuntu.com,sentry.io,statsig.anthropic.com,ts-crl.ws.symantec.com,ts-ocsp.ws.symantec.com,www.googleapis.com"
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_API_URL: ${{ github.api_url }}
-          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":60},\"add_labels\":{\"max\":60,\"target\":\"*\"},\"create_issue\":{\"max\":60},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"true\"},\"update_issue\":{\"allow_body\":true,\"max\":60}}"
+          GH_AW_SAFE_OUTPUTS_HANDLER_CONFIG: "{\"add_comment\":{\"max\":60},\"add_labels\":{\"max\":60,\"target\":\"*\"},\"assign_to_agent\":{\"max\":1,\"name\":\"copilot\",\"target\":\"*\"},\"create_issue\":{\"max\":60},\"missing_data\":{},\"missing_tool\":{},\"noop\":{\"max\":1,\"report-as-issue\":\"true\"},\"update_issue\":{\"allow_body\":true,\"max\":60}}"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
             setupGlobals(core, github, context, exec, io);
             const { main } = require('${{ runner.temp }}/gh-aw/actions/safe_output_handler_manager.cjs');
+            await main();
+      - name: Assign to Agent
+        id: assign_to_agent
+        if: (!cancelled()) && needs.agent.result != 'skipped' && contains(needs.agent.outputs.output_types, 'assign_to_agent')
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_AW_AGENT_OUTPUT: ${{ steps.setup-agent-output-env.outputs.GH_AW_AGENT_OUTPUT }}
+          GH_AW_AGENT_MAX_COUNT: 1
+          GH_AW_AGENT_DEFAULT: "copilot"
+          GH_AW_AGENT_TARGET: "*"
+          GH_AW_TEMPORARY_ID_MAP: ${{ steps.process_safe_outputs.outputs.temporary_id_map }}
+        with:
+          github-token: ${{ secrets.GH_AW_AGENT_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('${{ runner.temp }}/gh-aw/actions/assign_to_agent.cjs');
             await main();
       - name: Upload safe output items
         if: always()

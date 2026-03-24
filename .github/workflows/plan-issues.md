@@ -23,6 +23,10 @@ safe-outputs:
   add-labels:
     max: 60
     target: "*"
+  assign-to-agent:
+    name: "copilot"
+    max: 1
+    target: "*"
 ---
 
 # Break Down Plan Objectives into GitHub Issues
@@ -66,7 +70,7 @@ For each objective in the plan:
 
 4. **Summary comment on each tracking issue**: Post a comment listing all child issues in dependency order.
 
-5. **Assign copilot to the first unstarted child issue**: After all issues are created, add a comment on the very first child issue that has no dependencies (starting from Objective 0 and proceeding in order). That comment must say exactly: `@copilot`. Do NOT assign copilot to any tracking issue. If there are no objectives or no child issues were created, skip this step.
+5. **Assign copilot to the first unstarted child issue**: After all issues are created, assign copilot to the very first child issue that has no dependencies (starting from Objective 0 and proceeding in order) using the `assign-to-agent` safe output. Do NOT assign copilot to any tracking issue. If there are no objectives or no child issues were created, skip this step.
 
 ---
 
@@ -87,9 +91,9 @@ For each changed plan file where tracking issues already exist:
    - **Update the tracking issue body** if the objective description changed.
    - **Close obsolete child issues**: For any open child issue (labelled `task`) whose sub-task is no longer in the plan, update it to close it and add a comment explaining it is superseded by the plan update.
    - **Add new child issues**: For any new sub-task that lacks a corresponding issue, create a new child issue following the skill template and add it as a sub-issue of the tracking issue.
-   - **Preserve in-progress issues**: Do not close or modify child issues that already have a `@copilot` comment or other recent activity — those are being worked on.
+   - **Preserve in-progress issues**: Do not close or modify child issues that are already assigned to copilot or have other recent activity — those are being worked on.
 
-5. **Assign copilot to the next pending issue**: Find the first open child issue (label `task`) across all tracking issues for this plan, in objective and dependency order, that has no `@copilot` comment anywhere in its comments or body. Add a comment `@copilot` on that issue only. If all open child issues already have a `@copilot` comment, skip this step.
+5. **Assign copilot to the next pending issue**: Find the first open child issue (label `task`) across all tracking issues for this plan, in objective and dependency order, that is not already assigned to copilot. Use the `assign-to-agent` safe output to assign copilot to that issue only. If all open child issues are already assigned to copilot, skip this step.
 
 6. **Summary comment**: Post a comment on each affected tracking issue describing what changed (issues created, updated, or closed) in this run.
 
