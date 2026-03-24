@@ -32,7 +32,7 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
 
 ## Steps
 
-1. **Identify changed plan files**: First run `git fetch --deepen=1` to ensure the parent commit is available (the checkout is a shallow clone), then run `git diff-tree --no-commit-id --name-only -r HEAD -- 'doc/plans/**'` to find which plan files changed in this push. If none changed, stop immediately.
+1. **Identify changed plan files**: First run `git fetch --deepen=2` to ensure the parent commits are available (the checkout is a shallow clone), then run `git diff-tree --no-commit-id --name-only -r -m --first-parent HEAD -- 'doc/plans/**'` to find which plan files changed in this push (the `-m --first-parent` flags are required so that merge commits are compared against the previous master state instead of producing an empty combined diff). If none changed, stop immediately.
 
 2. **Read supporting files**: Open and read `.skills/write-plan-issue.md` for the issue writing template, and `AGENTS.md` for build/test conventions and project context.
 
