@@ -15,11 +15,11 @@ tools:
     toolsets: [issues]
 safe-outputs:
   create-issue:
-    max: 20
+    max: 60
   add-comment:
-    max: 5
+    max: 60
   update-issue:
-    max: 20
+    max: 60
   add-labels:
     max: 60
     target: "*"
