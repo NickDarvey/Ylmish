@@ -4,25 +4,25 @@
     ".NETStandard,Version=v2.0": {
       "Fable.Elmish": {
         "type": "Direct",
-        "requested": "[3.1.0, )",
-        "resolved": "3.1.0",
-        "contentHash": "g6oAwxcKz4mIYvVlaPSrF+YoHrraJf8zpCK7cZpwtAHcbJdZkCmX9jaCYc85PaGOXywbUsulBOH5794HelUqZg==",
+        "requested": "[4.2.0, )",
+        "resolved": "4.2.0",
+        "contentHash": "A8lDcHbz2AKcwFa6IlnK8I/21nbsxBcP5Vxq6Gp+jT8dU7Vjpnk8Pbry5+zQrlqjwt1XHU/S5Oo0KZqaGemPUA==",
         "dependencies": {
-          "FSharp.Core": "4.6.2",
-          "Fable.Core": "3.0.0"
+          "FSharp.Core": "4.7.2",
+          "Fable.Core": "3.7.1"
         }
       },
       "FSharp.Core": {
         "type": "Direct",
-        "requested": "[6.0.5, )",
-        "resolved": "6.0.5",
-        "contentHash": "FwdQVtpj34xt8vKyFUUeNIS+obWlEnSrSW7y1ivRVts/ZsrUsKyOd0bZehgFhWdnB/NBsa9DCWvNFMTO0XDFcg=="
+        "requested": "[7.0.200, )",
+        "resolved": "7.0.200",
+        "contentHash": "NmgUnpNH6Zu9B0SPIhojyo38gnPdkdYFYQfbd6zosEH32kbGY/g/Klk7PfOWe1NAe/O1YOMmK9KhwQ2OWsWEbg=="
       },
       "FSharp.Data.Adaptive": {
         "type": "Direct",
-        "requested": "[1.2.13, )",
-        "resolved": "1.2.13",
-        "contentHash": "9g1qwlyxH/ymKSK9WBGbAO7+4UGd9L4GN+uqxk0ju1mGiJTaMNYbrbKvWnhvPyDs9d2mfeS9lydwYdjtHF7pew==",
+        "requested": "[1.2.26, )",
+        "resolved": "1.2.26",
+        "contentHash": "rVpjefX62kAMYfdy2G/0ouX7glevjg8jQOmfnhaxSO5HVVbvR62cWEv0EqSx70Oyp+bP4xliToWN0UhPxBZNSQ==",
         "dependencies": {
           "FSharp.Core": "4.7.0",
           "System.Reflection.Emit.Lightweight": "4.6.0"
@@ -96,9 +96,9 @@
       "fable.yjs": {
         "type": "Project",
         "dependencies": {
-          "FSharp.Core": "[6.0.5, )",
+          "FSharp.Core": "[7.0.200, )",
           "Fable.Browser.Dom": "[2.10.1, )",
-          "Fable.Core": "[4.0.0-theta-007, )"
+          "Fable.Core": "[4.5.0, )"
         }
       },
       "Fable.Browser.Dom": {
@@ -116,9 +116,9 @@
       },
       "Fable.Core": {
         "type": "CentralTransitive",
-        "requested": "[4.0.0-theta-007, )",
-        "resolved": "4.0.0-theta-007",
-        "contentHash": "9nDQRQfhz6/NjoXLBMqixCjRYvx8jgHAuGjJow4W0vHoFWNauPhTex+psQsw9FRRuQF2AhIwuhHoh9Tb8JoCfw=="
+        "requested": "[4.5.0, )",
+        "resolved": "4.5.0",
+        "contentHash": "ZcX8XN5sQZGCbrS8VYnsa/ynhrCBfpDyqDkTl33GTXOpgfKibxoq0+W0hCSbRzuukVNoLtqGL/B6+8yTNDXbNA=="
       }
     }
   }

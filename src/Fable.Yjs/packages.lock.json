@@ -17,15 +17,15 @@
       },
       "Fable.Core": {
         "type": "Direct",
-        "requested": "[4.0.0-theta-007, )",
-        "resolved": "4.0.0-theta-007",
-        "contentHash": "9nDQRQfhz6/NjoXLBMqixCjRYvx8jgHAuGjJow4W0vHoFWNauPhTex+psQsw9FRRuQF2AhIwuhHoh9Tb8JoCfw=="
+        "requested": "[4.5.0, )",
+        "resolved": "4.5.0",
+        "contentHash": "ZcX8XN5sQZGCbrS8VYnsa/ynhrCBfpDyqDkTl33GTXOpgfKibxoq0+W0hCSbRzuukVNoLtqGL/B6+8yTNDXbNA=="
       },
       "FSharp.Core": {
         "type": "Direct",
-        "requested": "[6.0.5, )",
-        "resolved": "6.0.5",
-        "contentHash": "FwdQVtpj34xt8vKyFUUeNIS+obWlEnSrSW7y1ivRVts/ZsrUsKyOd0bZehgFhWdnB/NBsa9DCWvNFMTO0XDFcg=="
+        "requested": "[7.0.200, )",
+        "resolved": "7.0.200",
+        "contentHash": "NmgUnpNH6Zu9B0SPIhojyo38gnPdkdYFYQfbd6zosEH32kbGY/g/Klk7PfOWe1NAe/O1YOMmK9KhwQ2OWsWEbg=="
       },
       "NETStandard.Library": {
         "type": "Direct",

@@ -69,8 +69,8 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             m, c
 
     let subs userSubscribe model =
-        Cmd.batch [
-            userSubscribe model |> Cmd.map User 
+        Sub.batch [
+            userSubscribe model |> Sub.map "ylmish" User
         ]
 
     let init userInit arg =
@@ -85,9 +85,17 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
 
     let view userView model dispatch =
         userView model (User >> dispatch)
-    
+
+    let termination (userTerminationPredicate, userTerminationAction) =
+        (fun msg ->
+            match msg with
+            | Set _ -> false
+            | User userMsg -> userTerminationPredicate userMsg
+        ),
+        userTerminationAction
+
     program
-    |> Program.map init update view setState subs
+    |> Program.map init update view setState subs termination
 
 // module Yjs.Adaptive.Elmish
 
