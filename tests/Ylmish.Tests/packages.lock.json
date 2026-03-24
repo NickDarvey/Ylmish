@@ -1,7 +1,7 @@
 {
   "version": 2,
   "dependencies": {
-    "net6.0": {
+    "net8.0": {
       "Adaptify.Core": {
         "type": "Direct",
         "requested": "[1.3.4, )",
@@ -39,11 +39,12 @@
       },
       "Hedgehog": {
         "type": "Direct",
-        "requested": "[0.13.0, )",
-        "resolved": "0.13.0",
-        "contentHash": "R0QARj4V33FkqHP3f9LOUkPacq2DjpwG+BMMVfHEnJ06kVg/bL5gPccu960SrQgZGfEfoIbcGZ9oFD5oZo+raQ==",
+        "requested": "[2.0.3, )",
+        "resolved": "2.0.3",
+        "contentHash": "0e2DQpYOJeiOlvk+8aaAcBJgE945TACISm5ngN8SkygGiLg0m1sWYsZkKOphoQLC0A3lMxEdVe2LmNc3WRERsA==",
         "dependencies": {
-          "FSharp.Core": "[4.3.4, 99.0.0]"
+          "FSharp.Core": "8.0.403",
+          "TypeShape": "9.0.0"
         }
       },
       "Microsoft.NET.Test.Sdk": {
@@ -165,6 +166,14 @@
         "type": "Transitive",
         "resolved": "6.0.0",
         "contentHash": "/iUeP3tq1S0XdNNoMz5C9twLSrM/TH+qElHkXWaPvuNOt+99G75NrV0OS2EqHx5wMN7popYjpc8oTjC1y16DLg=="
+      },
+      "TypeShape": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "TFBwzUVpnJT8W4UAGNb0uQ+ZtA9wKUOZA9a825DzOZ0ejUFmLKF/QOVhMt6x9d1TsP1TxuUs/aYilKPCnttryg==",
+        "dependencies": {
+          "FSharp.Core": "4.3.2"
+        }
       },
       "fable.yjs": {
         "type": "Project",
