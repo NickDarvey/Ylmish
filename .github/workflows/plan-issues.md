@@ -36,7 +36,7 @@ Read the file `.skills/write-plan-issue.md` in this repository for the issue tem
 
 2. **Read supporting files**: Open and read `.skills/write-plan-issue.md` for the issue writing template, and `AGENTS.md` for build/test conventions and project context.
 
-3. **For each changed plan file**, open and read it, then determine which case applies by searching GitHub Issues for existing tracking issues with titles matching `[Plan <number>` where `<number>` is extracted from the plan file name (e.g. `0001` from `doc/plans/0001-initial.md`):
+3. **For each changed plan file**, open and read it, then determine which case applies by searching GitHub Issues for existing tracking issues with titles matching `[Plan <number>` where `<number>` is extracted from the plan file name (e.g. `0001` from `doc/plans/0001-making-ylmish-functional.md`):
 
    - **No tracking issues found → Initial Case**: follow the "Initial Case" section below.
    - **Tracking issues already exist → Update Case**: follow the "Update Case" section below.

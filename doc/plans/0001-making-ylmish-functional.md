@@ -1,4 +1,4 @@
-# 0001 — Initial Plan: Making Ylmish Functional
+# 0001 — Making Ylmish Functional
 
 ## Current State
 

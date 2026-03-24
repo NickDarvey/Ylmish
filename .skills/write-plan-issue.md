@@ -9,7 +9,7 @@ Break down a plan objective into a focused GitHub issue that an agent can comple
 <verb> <what> — short, specific, searchable
 
 ## Context
-- Link to the plan: `doc/plans/0001-initial.md`, Objective N
+- Link to the plan: `doc/plans/0001-making-ylmish-functional.md`, Objective N
 - One sentence on why this task exists (the goal it serves)
 - What has already been done (prior objectives, existing code)
 

@@ -2,7 +2,7 @@
 
 ## What this project is
 
-Ylmish bridges **Elmish** (F# MVU) ↔ **FSharp.Data.Adaptive** (incremental) ↔ **Yjs** (CRDT sync), compiled to JavaScript via **Fable**. See `README.md` for design and `doc/plans/0001-initial.md` for the roadmap.
+Ylmish bridges **Elmish** (F# MVU) ↔ **FSharp.Data.Adaptive** (incremental) ↔ **Yjs** (CRDT sync), compiled to JavaScript via **Fable**. See `README.md` for design and `doc/plans/0001-making-ylmish-functional.md` for the roadmap.
 
 ## Build & test
 
