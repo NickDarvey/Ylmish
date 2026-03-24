@@ -2,7 +2,6 @@ module Ylmish.Adaptive.Codec
 
 open FSharp.Data.Adaptive
 open Hedgehog
-open Hedgehog.FSharp
 
 open Ylmish.Adaptive.Codec
 

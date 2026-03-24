@@ -13,7 +13,11 @@
     <PackageVersion Include="FSharp.Core" Version="7.0.200" />
     <PackageVersion Include="FSharp.Data.Adaptive" Version="1.2.26" />
 
-    <PackageVersion Include="Hedgehog" Version="2.0.3" />
+    <!-- Pinned to 0.13.0 because Hedgehog 2.0.x has a Fable packaging bug.
+         The Hedgehog.fsproj in /fable/ references Autogen/* and Linq/* files with
+         conditional compilation, but these files don't exist in the fable package.
+         This causes Fable compilation to fail. Waiting for Hedgehog 2.0.4+ fix. -->
+    <PackageVersion Include="Hedgehog" Version="0.13.0" />
 
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.4.1" />
 
