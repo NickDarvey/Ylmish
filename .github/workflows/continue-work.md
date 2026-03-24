@@ -33,7 +33,7 @@ Tasks are ordered by objective number and dependency. When a task completes, the
 
 ## Steps
 
-1. **Identify the closed issue**: Read the closed issue `${{ github.event.issue.number }}`. Determine if it is a task issue by checking if its title matches the pattern `[Plan <number> / Obj <n>]` and it has sub-issue parents (i.e. it is a child of a tracking issue). If it doesn't match this pattern or is itself a tracking issue (a tracking issue has sub-issues as children, not parents), stop — no action needed.
+1. **Identify the closed issue**: Read the closed issue `${{ github.event.issue.number }}`. Check if it is a task issue by verifying: (1) its title matches the pattern `[Plan <number> / Obj <n>]`, and (2) it has sub-issue parents (i.e., is a child of a tracking issue). If either condition fails, or if the issue is itself a tracking issue (has sub-issues as children rather than parents), stop — no action needed.
 
 2. **Find the parent tracking issue**: Using the GitHub sub-issues API, find the parent tracking issue of the closed task. Read the tracking issue and all of its sub-issues (child tasks) with their open/closed status.
 

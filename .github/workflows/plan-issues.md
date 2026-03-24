@@ -52,7 +52,6 @@ For each objective in the plan:
 
 1. **Create a tracking issue** for this objective.
    - **Title**: `[Plan <number> / Obj <n>] <objective title>` — where `<number>` is from the plan file name and `<objective title>` is the objective heading.
-   - **Labels**: `feature`.
    - **Body**: Include the objective description from the plan, a link to the plan file, and a note that child issues will be linked as sub-issues.
    - After creating the issue, add the `feature` label to it using the add-labels safe output.
 
@@ -60,7 +59,6 @@ For each objective in the plan:
 
 3. **Create child issues**: For each sub-task, create a GitHub issue following the skill template.
    - **Title**: `[Plan <number> / Obj <n>] <verb> <what>` — short, specific, searchable.
-   - **Labels**: `task`.
    - **Body**: Follow the `.skills/write-plan-issue.md` template exactly (Context, Task, Acceptance criteria, Scope boundaries, Files likely to change). Always include `npm test` passing as an acceptance criterion.
    - After creating the issue, add the `task` label to it using the add-labels safe output.
    - **Dependencies**: If an issue depends on the previous one, add `Depends on #<issue-number>` in the Context section.
