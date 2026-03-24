@@ -20,6 +20,9 @@ safe-outputs:
     max: 60
   update-issue:
     max: 60
+  add-labels:
+    max: 60
+    target: "*"
 ---
 
 # Break Down Plan Objectives into GitHub Issues
@@ -49,15 +52,15 @@ For each objective in the plan:
 
 1. **Create a tracking issue** for this objective.
    - **Title**: `[Plan <number> / Obj <n>] <objective title>` — where `<number>` is from the plan file name and `<objective title>` is the objective heading.
-   - **Labels**: `planned`.
    - **Body**: Include the objective description from the plan, a link to the plan file, and a note that child issues will be linked as sub-issues.
+   - After creating the issue, add the `feature` label to it using the add-labels safe output.
 
 2. **Decompose the objective**: Break it into the smallest set of sequential sub-tasks completable by a coding agent in ~15 minutes each, ordered by dependency.
 
 3. **Create child issues**: For each sub-task, create a GitHub issue following the skill template.
    - **Title**: `[Plan <number> / Obj <n>] <verb> <what>` — short, specific, searchable.
-   - **Labels**: `planned`.
    - **Body**: Follow the `.skills/write-plan-issue.md` template exactly (Context, Task, Acceptance criteria, Scope boundaries, Files likely to change). Always include `npm test` passing as an acceptance criterion.
+   - After creating the issue, add the `task` label to it using the add-labels safe output.
    - **Dependencies**: If an issue depends on the previous one, add `Depends on #<issue-number>` in the Context section.
    - **Sub-issues**: After creating each child issue, add it as a sub-issue of the tracking issue using GitHub's sub-issues API.
 
@@ -82,11 +85,11 @@ For each changed plan file where tracking issues already exist:
 
 4. **Changed objectives** (tracking issue already exists):
    - **Update the tracking issue body** if the objective description changed.
-   - **Close obsolete child issues**: For any open child issue (labelled `planned`) whose sub-task is no longer in the plan, update it to close it and add a comment explaining it is superseded by the plan update.
+   - **Close obsolete child issues**: For any open child issue (labelled `task`) whose sub-task is no longer in the plan, update it to close it and add a comment explaining it is superseded by the plan update.
    - **Add new child issues**: For any new sub-task that lacks a corresponding issue, create a new child issue following the skill template and add it as a sub-issue of the tracking issue.
    - **Preserve in-progress issues**: Do not close or modify child issues that already have a `@copilot` comment or other recent activity — those are being worked on.
 
-5. **Assign copilot to the next pending issue**: Find the first open child issue (label `planned`) across all tracking issues for this plan, in objective and dependency order, that has no `@copilot` comment anywhere in its comments or body. Add a comment `@copilot` on that issue only. If all open child issues already have a `@copilot` comment, skip this step.
+5. **Assign copilot to the next pending issue**: Find the first open child issue (label `task`) across all tracking issues for this plan, in objective and dependency order, that has no `@copilot` comment anywhere in its comments or body. Add a comment `@copilot` on that issue only. If all open child issues already have a `@copilot` comment, skip this step.
 
 6. **Summary comment**: Post a comment on each affected tracking issue describing what changed (issues created, updated, or closed) in this run.
 
@@ -97,7 +100,7 @@ For each changed plan file where tracking issues already exist:
 - Always create a tracking issue first, then create child issues and link them as sub-issues using GitHub's sub-issues API.
 - Create child issues in dependency order (first child issue has no dependencies; subsequent ones depend on the prior one).
 - Keep each child issue small and focused — one objective may produce 2–10 child issues.
-- Label every issue (tracking and child) with `planned`.
+- Label every tracking issue with `feature` and every child issue with `task`.
 - Always reference the plan document path and objective number in every issue body.
 - Assign copilot to exactly ONE issue per run — the next unstarted child issue.
 - Do not create duplicate issues. Search for existing issues before creating.
