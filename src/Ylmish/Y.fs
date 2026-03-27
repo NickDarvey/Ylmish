@@ -391,7 +391,7 @@ module Map =
 
         new CompositeDisposable (disposeYObserver, disposeAdaptiveCallback)
 
-    let toAdaptive (ymap : Y.Map<Y.Element option>) : amap<string, A.Element option> =
+    let toAdaptive (ymap : Y.Map<Y.Element option>) : cmap<string, A.Element option> =
         let amap = cmap ()
         ymap.forEach(fun value key _map ->
             match value with
@@ -399,34 +399,28 @@ module Map =
             | None -> amap.[key] <- None
         ) |> ignore
         let _ = attach amap ymap
-        amap :> amap<_, _>
+        amap
 
-    let ofAdaptive (amap : cmap<string, A.Element option>) : Y.Map<Y.Element option> =
+    let ofAdaptive (amap : amap<string, A.Element option>) : Y.Map<Y.Element option> =
         let ymap = Y.Map.Create ()
-        // Initialize the ymap with current values from amap
-        amap |> Seq.iter (fun (key, value) ->
+        // Create a plain snapshot from the adaptive map without attaching observers
+        AMap.force amap
+        |> HashMap.iter (fun key value ->
             ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
         )
-        // Now attach for future synchronization
-        let _ = attach amap ymap
         ymap
 
 module Element =
     let toAdaptive (yelement : Y.Element) : A.Element =
         match yelement with
         | Y.Element.Array yarray -> A.Element.AList (Array.toAdaptive yarray)
-        | Y.Element.Map ymap -> A.Element.AMap (Map.toAdaptive ymap)
+        | Y.Element.Map ymap -> A.Element.AMap (Map.toAdaptive ymap :> amap<_, _>)
         | Y.Element.String str -> A.Element.Value (A.Value.String str)
 
     let ofAdaptive (aelement : A.Element) : Y.Element =
         match aelement with
         | A.Element.AList alist -> Y.Element.Array (Array.ofAdaptive alist)
-        | A.Element.AMap amap ->
-            // Convert amap to cmap for ofAdaptive
-            let camap = cmap ()
-            AMap.force amap
-            |> HashMap.iter (fun key value -> camap.[key] <- value)
-            Y.Element.Map (Map.ofAdaptive camap)
+        | A.Element.AMap amap -> Y.Element.Map (Map.ofAdaptive amap)
         | A.Element.Value (A.Value.String str) -> Y.Element.String str
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
