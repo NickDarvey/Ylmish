@@ -6,6 +6,7 @@ let tests = [
    Adaptive.Codec.tests
    Y.Delta.tests
    Y.Text.tests
+   Y.Map.tests
 ]
 
 #if FABLE_COMPILER

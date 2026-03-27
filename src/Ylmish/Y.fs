@@ -324,17 +324,117 @@ module Array =
         yarray
 
 module Map =
-    let toAdaptive (ymap : Y.Map<Y.Element>) : amap<string, A.Element> =
-        failwith "not implemented"
+    let private attach (amap : cmap<string, A.Element option>) (ymap : Y.Map<Y.Element option>) : IDisposable =
+        let mutable active = false // Prevent reentrancy with a flag
 
-    let ofAdaptive (amap : amap<string, A.Element>) : Y.Map<Y.Element> =
-        failwith "not impl"
+        let disposeYObserver =
+            let observeY (e : Yjs.Types.YMap.YMapEvent<Y.Element option>) (_ : Y.Transaction) =
+                if not active then
+                    active <- true
+                    try
+                        transact (fun () ->
+                            // JS.Set.forEach has signature: (value, value2, set) -> unit
+                            // But we can also convert it to an array
+                            let keysSet : Fable.Core.JS.Set<obj option> = e.keysChanged
+                            keysSet.forEach(fun key _ _ ->
+                                match key with
+                                | Some k ->
+                                    let keyStr = string k
+                                    match ymap.get keyStr with
+                                    | Some (Some yelement) ->
+                                        amap.[keyStr] <- Some (Element.toAdaptive yelement)
+                                    | Some None ->
+                                        amap.[keyStr] <- None
+                                    | None ->
+                                        amap.Remove keyStr |> ignore
+                                | None -> ()
+                            )
+                        )
+                    finally
+                        active <- false
+
+            ymap.observe observeY
+            {
+                new System.IDisposable with
+                    member _.Dispose () = ymap.unobserve observeY
+            }
+
+        let disposeAdaptiveCallback =
+            let mutable initialisationCallback = true
+
+            amap.AddCallback(fun _ delta ->
+                if initialisationCallback then
+                    initialisationCallback <- false
+                else if not active then
+                    active <- true
+                    try
+                        match ymap.doc with
+                        | Some doc ->
+                            doc.transact(fun _tr ->
+                                // Iterate over HashMapDelta - it's a seq of (key, operation) tuples
+                                delta
+                                |> Seq.iter (fun (key, op) ->
+                                    match op with
+                                    | Set (Some value) ->
+                                        let yelement = Element.ofAdaptive value
+                                        ymap.set(key, Some yelement) |> ignore
+                                    | Set None ->
+                                        ymap.set(key, None) |> ignore
+                                    | Remove ->
+                                        ymap.delete key
+                                )
+                            )
+                        | None -> failwith $"ymap is not associated with a document"
+                    finally
+                        active <- false
+            )
+
+        new CompositeDisposable (disposeYObserver, disposeAdaptiveCallback)
+
+    let toAdaptive (ymap : Y.Map<Y.Element option>) : cmap<string, A.Element option> =
+        let amap = cmap ()
+        ymap.forEach(fun value key _map ->
+            match value with
+            | Some yelement -> amap.[key] <- Some (Element.toAdaptive yelement)
+            | None -> amap.[key] <- None
+        ) |> ignore
+        let _ = attach amap ymap
+        amap
+
+    /// Convert a read-only adaptive map to a Y.Map (one-way, no observers).
+    /// Used internally for element conversion.
+    let internal ofAMap (amap : amap<string, A.Element option>) : Y.Map<Y.Element option> =
+        let ymap = Y.Map.Create ()
+        AMap.force amap
+        |> HashMap.iter (fun key value ->
+            ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
+        )
+        ymap
+
+    /// Convert a changeable adaptive map to a Y.Map with bi-directional synchronization.
+    let ofAdaptive (amap : cmap<string, A.Element option>) : Y.Map<Y.Element option> =
+        let ymap = Y.Map.Create ()
+        // Initialize with current contents
+        AMap.force amap
+        |> HashMap.iter (fun key value ->
+            ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
+        )
+        // Attach observers for bi-directional synchronization
+        let _ = attach amap ymap
+        ymap
 
 module Element =
     let toAdaptive (yelement : Y.Element) : A.Element =
         match yelement with
-        | Y.Element.Array yarray -> A.Element.AList <| Array.toAdaptive yarray
+        | Y.Element.Array yarray -> A.Element.AList (Array.toAdaptive yarray)
+        | Y.Element.Map ymap -> A.Element.AMap (Map.toAdaptive ymap :> amap<_, _>)
+        | Y.Element.String str -> A.Element.Value (A.Value.String str)
 
     let ofAdaptive (aelement : A.Element) : Y.Element =
         match aelement with
-        | A.Element.AList alist -> Y.Element.Array <| Array.ofAdaptive alist
+        | A.Element.AList alist -> Y.Element.Array (Array.ofAdaptive alist)
+        | A.Element.AMap amap -> Y.Element.Map (Map.ofAMap amap)
+        | A.Element.Value (A.Value.String str) -> Y.Element.String str
+        | A.Element.Value (A.Value.Text text) ->
+            // Convert Text (IndexList<char>) to String for Y.Element
+            Y.Element.String (System.String.Concat(text))
