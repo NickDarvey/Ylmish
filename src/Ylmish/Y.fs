@@ -362,7 +362,7 @@ module Map =
         let disposeAdaptiveCallback =
             let mutable initialisationCallback = true
 
-            amap.AddCallback(fun map delta ->
+            amap.AddCallback(fun _ delta ->
                 if initialisationCallback then
                     initialisationCallback <- false
                 else if not active then
