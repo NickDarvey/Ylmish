@@ -401,13 +401,26 @@ module Map =
         let _ = attach amap ymap
         amap
 
-    let ofAdaptive (amap : amap<string, A.Element option>) : Y.Map<Y.Element option> =
+    /// Convert a read-only adaptive map to a Y.Map (one-way, no observers).
+    /// Used internally for element conversion.
+    let internal ofAMap (amap : amap<string, A.Element option>) : Y.Map<Y.Element option> =
         let ymap = Y.Map.Create ()
-        // Create a plain snapshot from the adaptive map without attaching observers
         AMap.force amap
         |> HashMap.iter (fun key value ->
             ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
         )
+        ymap
+
+    /// Convert a changeable adaptive map to a Y.Map with bi-directional synchronization.
+    let ofAdaptive (amap : cmap<string, A.Element option>) : Y.Map<Y.Element option> =
+        let ymap = Y.Map.Create ()
+        // Initialize with current contents
+        AMap.force amap
+        |> HashMap.iter (fun key value ->
+            ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
+        )
+        // Attach observers for bi-directional synchronization
+        let _ = attach amap ymap
         ymap
 
 module Element =
@@ -420,7 +433,7 @@ module Element =
     let ofAdaptive (aelement : A.Element) : Y.Element =
         match aelement with
         | A.Element.AList alist -> Y.Element.Array (Array.ofAdaptive alist)
-        | A.Element.AMap amap -> Y.Element.Map (Map.ofAdaptive amap)
+        | A.Element.AMap amap -> Y.Element.Map (Map.ofAMap amap)
         | A.Element.Value (A.Value.String str) -> Y.Element.String str
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
