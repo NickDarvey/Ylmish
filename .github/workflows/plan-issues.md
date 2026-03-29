@@ -27,6 +27,7 @@ safe-outputs:
     name: "copilot"
     max: 1
     target: "*"
+    ignore-if-error: true
 ---
 
 # Break Down Plan Objectives into GitHub Issues
