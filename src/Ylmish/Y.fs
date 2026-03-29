@@ -433,17 +433,23 @@ module Element =
     [<Fable.Core.Import("Array", "yjs")>]
     let private jsYArray : obj = obj()
 
+    [<Fable.Core.Import("Map", "yjs")>]
+    let private jsYMap : obj = obj()
+
     [<Fable.Core.Emit("$0 instanceof $1")>]
     let private jsInstanceOf (_x: obj) (_ctor: obj) : bool = false
 
     let toAdaptive (yelement : Y.Element) : A.Element =
         let value : obj = unbox yelement
-        if isString value then
+        match () with
+        | _ when isString value ->
             A.Element.Value (A.Value.String (unbox value))
-        elif jsInstanceOf value jsYArray then
+        | _ when jsInstanceOf value jsYArray ->
             A.Element.AList (Array.toAdaptive (unbox value))
-        else
+        | _ when jsInstanceOf value jsYMap ->
             A.Element.AMap (Map.toAdaptive (unbox value) :> amap<_, _>)
+        | _ ->
+            failwith $"Element.toAdaptive: unsupported Y.Element runtime type: %A{value}"
 #else
     let toAdaptive (yelement : Y.Element) : A.Element =
         match yelement with
