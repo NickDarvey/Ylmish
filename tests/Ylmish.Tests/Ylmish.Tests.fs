@@ -7,6 +7,7 @@ let tests = [
    Y.Delta.tests
    Y.Text.tests
    Y.Map.tests
+   Y.Element.tests
 ]
 
 #if FABLE_COMPILER

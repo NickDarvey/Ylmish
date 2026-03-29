@@ -11,6 +11,7 @@
     <Compile Include="Y.Delta.fs" />
     <Compile Include="Y.Text.fs" />
     <Compile Include="Y.Map.fs" />
+    <Compile Include="Y.Element.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
