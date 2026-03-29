@@ -424,11 +424,33 @@ module Map =
         ymap
 
 module Element =
+#if FABLE_COMPILER
+    // Fable cannot perform runtime type tests on erased union cases that wrap
+    // interface types (YArray, YMap), so we use explicit JS instanceof checks.
+    [<Fable.Core.Emit("typeof $0 === 'string'")>]
+    let private isString (_x: obj) : bool = false
+
+    [<Fable.Core.Import("Array", "yjs")>]
+    let private jsYArray : obj = obj()
+
+    [<Fable.Core.Emit("$0 instanceof $1")>]
+    let private jsInstanceOf (_x: obj) (_ctor: obj) : bool = false
+
+    let toAdaptive (yelement : Y.Element) : A.Element =
+        let value : obj = unbox yelement
+        if isString value then
+            A.Element.Value (A.Value.String (unbox value))
+        elif jsInstanceOf value jsYArray then
+            A.Element.AList (Array.toAdaptive (unbox value))
+        else
+            A.Element.AMap (Map.toAdaptive (unbox value) :> amap<_, _>)
+#else
     let toAdaptive (yelement : Y.Element) : A.Element =
         match yelement with
         | Y.Element.Array yarray -> A.Element.AList (Array.toAdaptive yarray)
         | Y.Element.Map ymap -> A.Element.AMap (Map.toAdaptive ymap :> amap<_, _>)
         | Y.Element.String str -> A.Element.Value (A.Value.String str)
+#endif
 
     let ofAdaptive (aelement : A.Element) : Y.Element =
         match aelement with
