@@ -21,6 +21,7 @@ safe-outputs:
     name: "copilot"
     max: 1
     target: "*"
+    ignore-if-error: true
 ---
 
 # Continue Work: Assign Claude to Next Task
