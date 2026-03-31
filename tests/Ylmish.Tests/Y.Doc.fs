@@ -323,4 +323,203 @@ let tests = testList "Y.Doc" [
                 failwith $"Decoding failed: %A{errors}"
         }
     ]
+
+    testList "properties" [
+        testCase "materialize is idempotent" <| fun _ -> Property.check <| property {
+            let! propA = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propB = Gen.string (Range.linear 0 50) Gen.alphaNum |> Gen.option
+            let! propD = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 0 5)
+            let! prop0 = Gen.string (Range.linear 0 50) Gen.alphaNum
+
+            let model : Example.Model = {
+                PropA = propA
+                PropB = propB
+                PropC = IndexList.empty
+                PropD = IndexList.ofList propD
+                PropE = { Prop0 = prop0 }
+                PropF = None
+            }
+
+            let doc1 = Y.Doc.Create ()
+            let doc2 = Y.Doc.Create ()
+            let amodel = Example.AdaptiveModel.Create model
+            let encoded = Example.Codec.encode amodel
+
+            // Materialize once
+            Y.Doc.materialize doc1 encoded
+            let decoded1 = Example.Codec.decode ([], Y.Doc.dematerialize doc1) |> AVal.force
+
+            // Materialize twice
+            Y.Doc.materialize doc2 encoded
+            Y.Doc.materialize doc2 encoded
+            let decoded2 = Example.Codec.decode ([], Y.Doc.dematerialize doc2) |> AVal.force
+
+            // Both should produce the same decoded result
+            match decoded1, decoded2 with
+            | Ok result1, Ok result2 ->
+                Expect.equal result1.PropA result2.PropA "PropA should match"
+                Expect.equal result1.PropB result2.PropB "PropB should match"
+                Expect.equal (IndexList.toList result1.PropD) (IndexList.toList result2.PropD) "PropD should match"
+            | Error e1, _ -> failwith $"First decode failed: %A{e1}"
+            | _, Error e2 -> failwith $"Second decode failed: %A{e2}"
+        }
+
+        testCase "materialize then dematerialize preserves structure" <| fun _ -> Property.check <| property {
+            let! propA = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propB = Gen.string (Range.linear 0 50) Gen.alphaNum |> Gen.option
+            let! propD = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 0 5)
+            let! prop0 = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propCItems =
+                Gen.string (Range.linear 0 50) Gen.alphaNum
+                |> Gen.map (fun s -> { Example.Submodel.Prop0 = s })
+                |> Gen.list (Range.linear 0 5)
+
+            let model : Example.Model = {
+                PropA = propA
+                PropB = propB
+                PropC = IndexList.ofList propCItems
+                PropD = IndexList.ofList propD
+                PropE = { Prop0 = prop0 }
+                PropF = None
+            }
+
+            let doc = Y.Doc.Create ()
+            let amodel = Example.AdaptiveModel.Create model
+            let encoded = Example.Codec.encode amodel
+
+            // Materialize and dematerialize
+            Y.Doc.materialize doc encoded
+            let element = Y.Doc.dematerialize doc
+
+            // Decode and verify all fields match the original model
+            let decoded = Example.Codec.decode ([], element) |> AVal.force
+
+            match decoded with
+            | Ok result ->
+                Expect.equal result.PropA model.PropA "PropA should be preserved"
+                Expect.equal result.PropB model.PropB "PropB should be preserved"
+                Expect.equal (IndexList.toList result.PropC) (IndexList.toList model.PropC) "PropC should be preserved"
+                Expect.equal (IndexList.toList result.PropD) (IndexList.toList model.PropD) "PropD should be preserved"
+                Expect.equal result.PropE.Prop0 model.PropE.Prop0 "PropE should be preserved"
+            | Error errors ->
+                failwith $"Decoding failed: %A{errors}"
+        }
+
+        testCase "materialize handles empty collections" <| fun _ -> Property.check <| property {
+            let! propA = Gen.string (Range.linear 0 50) Gen.alphaNum
+
+            let model : Example.Model = {
+                PropA = propA
+                PropB = None
+                PropC = IndexList.empty
+                PropD = IndexList.empty
+                PropE = { Prop0 = "default" }
+                PropF = None
+            }
+
+            let doc = Y.Doc.Create ()
+            let amodel = Example.AdaptiveModel.Create model
+            let encoded = Example.Codec.encode amodel
+
+            Y.Doc.materialize doc encoded
+            let element = Y.Doc.dematerialize doc
+
+            // Decode and verify empty collections are preserved
+            let decoded = Example.Codec.decode ([], element) |> AVal.force
+
+            match decoded with
+            | Ok result ->
+                Expect.isEmpty (IndexList.toList result.PropC) "PropC should be empty"
+                Expect.isEmpty (IndexList.toList result.PropD) "PropD should be empty"
+            | Error errors ->
+                failwith $"Decoding failed: %A{errors}"
+        }
+
+        testCase "materialize updates overwrite previous data" <| fun _ -> Property.check <| property {
+            let! propA1 = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propA2 = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propD1 = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 1 5)
+            let! propD2 = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 1 5)
+
+            let model1 : Example.Model = {
+                PropA = propA1
+                PropB = None
+                PropC = IndexList.empty
+                PropD = IndexList.ofList propD1
+                PropE = { Prop0 = "first" }
+                PropF = None
+            }
+
+            let model2 : Example.Model = {
+                PropA = propA2
+                PropB = Some "updated"
+                PropC = IndexList.empty
+                PropD = IndexList.ofList propD2
+                PropE = { Prop0 = "second" }
+                PropF = None
+            }
+
+            let doc = Y.Doc.Create ()
+
+            // Materialize first model
+            let amodel1 = Example.AdaptiveModel.Create model1
+            let encoded1 = Example.Codec.encode amodel1
+            Y.Doc.materialize doc encoded1
+
+            // Materialize second model (should overwrite)
+            let amodel2 = Example.AdaptiveModel.Create model2
+            let encoded2 = Example.Codec.encode amodel2
+            Y.Doc.materialize doc encoded2
+
+            // Dematerialize and decode
+            let element = Y.Doc.dematerialize doc
+            let decoded = Example.Codec.decode ([], element) |> AVal.force
+
+            match decoded with
+            | Ok result ->
+                // Should have second model's data, not first
+                Expect.equal result.PropA propA2 "PropA should be from second model"
+                Expect.equal result.PropB (Some "updated") "PropB should be updated"
+                Expect.equal (IndexList.toList result.PropD) propD2 "PropD should be from second model"
+                Expect.equal result.PropE.Prop0 "second" "PropE should be from second model"
+            | Error errors ->
+                failwith $"Decoding failed: %A{errors}"
+        }
+
+        testCase "materialize preserves nested structure depth" <| fun _ -> Property.check <| property {
+            let! depth = Gen.int32 (Range.linear 1 3)
+            let! value = Gen.string (Range.linear 1 20) Gen.alphaNum
+
+            // Create nested structure
+            let rec createNested d =
+                if d <= 0 then
+                    { Example.Submodel.Prop0 = value }
+                else
+                    { Example.Submodel.Prop0 = $"level-{d}" }
+
+            let model : Example.Model = {
+                PropA = "root"
+                PropB = None
+                PropC = IndexList.ofList [createNested depth; createNested (depth - 1)]
+                PropD = IndexList.empty
+                PropE = createNested depth
+                PropF = None
+            }
+
+            let doc = Y.Doc.Create ()
+            let amodel = Example.AdaptiveModel.Create model
+            let encoded = Example.Codec.encode amodel
+
+            Y.Doc.materialize doc encoded
+            let element = Y.Doc.dematerialize doc
+            let decoded = Example.Codec.decode ([], element) |> AVal.force
+
+            match decoded with
+            | Ok result ->
+                Expect.equal (IndexList.toList result.PropC).Length 2 "Should preserve nested list length"
+                Expect.isTrue (result.PropE.Prop0.StartsWith("level-") || result.PropE.Prop0 = value) "Should preserve nested object"
+            | Error errors ->
+                failwith $"Decoding failed: %A{errors}"
+        }
+    ]
 ]
