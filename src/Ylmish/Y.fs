@@ -466,3 +466,174 @@ module Element =
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
             Y.Element.String (System.String.Concat(text))
+
+module Doc =
+    open FSharp.Data.Adaptive
+
+    #if FABLE_COMPILER
+    // Fable cannot perform runtime type tests on erased union cases
+    [<Fable.Core.Emit("typeof $0 === 'string'")>]
+    let private isString (_x: obj) : bool = false
+
+    [<Fable.Core.Import("Array", "yjs")>]
+    let private jsYArray : obj = obj()
+
+    [<Fable.Core.Import("Map", "yjs")>]
+    let private jsYMap : obj = obj()
+
+    [<Fable.Core.Emit("$0 instanceof $1")>]
+    let private jsInstanceOf (_x: obj) (_ctor: obj) : bool = false
+    #endif
+
+    /// Convert an Element<string> tree to a Y.Element tree
+    let rec private elementToY (element : Codec.Element<string>) : Y.Element =
+        match element with
+        | Codec.Element.Value str -> Y.Element.String str
+        | Codec.Element.AList alist ->
+            let yarray = Y.Array.Create<Y.Element option> ()
+            let items = AList.force alist |> IndexList.toList
+            items |> List.iter (fun item ->
+                match item with
+                | Some e -> yarray.push [| Some (elementToY e) |] |> ignore
+                | None -> yarray.push [| None |] |> ignore
+            )
+            Y.Element.Array yarray
+        | Codec.Element.AMap amap ->
+            let ymap = Y.Map.Create<Y.Element option> ()
+            AMap.force amap
+            |> HashMap.iter (fun key value ->
+                match value with
+                | Some e -> ymap.set(key, Some (elementToY e)) |> ignore
+                | None -> ymap.set(key, None) |> ignore
+            )
+            Y.Element.Map ymap
+
+    /// Convert a Y.Element tree to an Element<string> tree
+    let rec private yToElement (yelement : Y.Element) : Codec.Element<string> =
+        match yelement with
+        | Y.Element.String str -> Codec.Element.Value str
+        | Y.Element.Array yarray ->
+            let items =
+                yarray.toArray()
+                |> Seq.mapi (fun _ item ->
+                    match item with
+                    | Some ye -> Some (yToElement ye)
+                    | None -> None
+                )
+                |> Seq.toList
+                |> IndexList.ofList
+            Codec.Element.AList (AList.ofIndexList items)
+        | Y.Element.Map ymap ->
+            let mutable items = HashMap.empty<string, Codec.Element<string> option>
+            ymap.forEach (fun value key _ ->
+                match value with
+                | Some ye -> items <- HashMap.add key (Some (yToElement ye)) items
+                | None -> items <- HashMap.add key None items
+            ) |> ignore
+            Codec.Element.AMap (AMap.ofHashMap items)
+
+    /// Helper to convert any Y value to Y.Element
+    let rec private valueToYElement (value : obj) : Y.Element =
+        #if FABLE_COMPILER
+        match () with
+        | _ when isString value -> Y.Element.String (unbox value)
+        | _ when jsInstanceOf value jsYMap ->
+            // It's a Y.Map, need to convert to Y.Map<Y.Element option>
+            let sourceMap : Y.Map<obj> = unbox value
+            let targetMap = Y.Map.Create<Y.Element option>()
+            sourceMap.forEach (fun v k _ ->
+                if isNull v then
+                    targetMap.set(k, None) |> ignore
+                else
+                    targetMap.set(k, Some (valueToYElement v)) |> ignore
+            ) |> ignore
+            Y.Element.Map targetMap
+        | _ when jsInstanceOf value jsYArray ->
+            // It's a Y.Array, need to convert to Y.Array<Y.Element option>
+            let sourceArray : Y.Array<obj> = unbox value
+            let targetArray = Y.Array.Create<Y.Element option>()
+            sourceArray.toArray()
+            |> Seq.iter (fun v ->
+                if isNull v then
+                    targetArray.push [| None |] |> ignore
+                else
+                    targetArray.push [| Some (valueToYElement v) |] |> ignore
+            )
+            Y.Element.Array targetArray
+        | _ -> failwith $"valueToYElement: unsupported value type: %A{value}"
+        #else
+        match value with
+        | :? string as s -> Y.Element.String s
+        | :? Y.Map<obj> as sourceMap ->
+            let targetMap = Y.Map.Create<Y.Element option>()
+            sourceMap.forEach (fun v k _ ->
+                if isNull v then
+                    targetMap.set(k, None) |> ignore
+                else
+                    targetMap.set(k, Some (valueToYElement v)) |> ignore
+            ) |> ignore
+            Y.Element.Map targetMap
+        | :? Y.Array<obj> as sourceArray ->
+            let targetArray = Y.Array.Create<Y.Element option>()
+            sourceArray.toArray()
+            |> Seq.iter (fun v ->
+                if isNull v then
+                    targetArray.push [| None |] |> ignore
+                else
+                    targetArray.push [| Some (valueToYElement v) |] |> ignore
+            )
+            Y.Element.Array targetArray
+        | _ -> failwith $"valueToYElement: unsupported value type: %A{value}"
+        #endif
+
+    /// Materialize an Encoded Element tree into a Y.Doc's root map
+    let materialize (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : unit =
+        let rootMap = doc.getMap()
+
+        // Force the encoded value to get the actual element tree
+        match AVal.force encoded with
+        | None -> ()  // Nothing to materialize
+        | Some element ->
+            // The root element should be an AMap (object)
+            match element with
+            | Codec.Element.AMap amap ->
+                doc.transact(fun _ ->
+                    // Clear existing keys that aren't in the new map
+                    let newKeys = AMap.force amap |> HashMap.toSeq |> Seq.map fst |> Set.ofSeq
+                    let mutable keysToDelete = []
+                    rootMap.forEach (fun _ key _ ->
+                        if not (Set.contains key newKeys) then
+                            keysToDelete <- key :: keysToDelete
+                    ) |> ignore
+
+                    keysToDelete |> List.iter (fun key -> rootMap.delete key)
+
+                    // Set all keys from the map
+                    AMap.force amap
+                    |> HashMap.iter (fun key value ->
+                        match value with
+                        | Some e ->
+                            let yelement = elementToY e
+                            rootMap.set(key, yelement) |> ignore
+                        | None ->
+                            rootMap.delete key
+                    )
+                )
+            | _ -> failwith "Root element must be an AMap (object)"
+
+    /// Dematerialize a Y.Doc's root map into an Element<string> tree
+    let dematerialize (doc : Y.Doc) : Codec.Element<string> =
+        let rootMap = doc.getMap()
+        let mutable items = HashMap.empty<string, Codec.Element<string> option>
+
+        rootMap.forEach (fun value key _ ->
+            // Check if value is null/undefined
+            if isNull (box value) then
+                items <- HashMap.add key None items
+            else
+                // Convert the value to Y.Element first, then to Codec.Element
+                let yelement = valueToYElement value
+                items <- HashMap.add key (Some (yToElement yelement)) items
+        ) |> ignore
+
+        Codec.Element.AMap (AMap.ofHashMap items)

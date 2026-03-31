@@ -8,6 +8,7 @@ let tests = [
    Y.Text.tests
    Y.Map.tests
    Y.Element.tests
+   Y.Doc.tests
 ]
 
 #if FABLE_COMPILER

@@ -12,6 +12,7 @@
     <Compile Include="Y.Text.fs" />
     <Compile Include="Y.Map.fs" />
     <Compile Include="Y.Element.fs" />
+    <Compile Include="Y.Doc.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
