@@ -9,3 +9,6 @@ build/
 
 # Visual Studio
 .vs/
+
+# Agentic workflow logs
+.github/aw/logs/

@@ -25,8 +25,10 @@ safe-outputs:
     target: "*"
   assign-to-agent:
     name: "copilot"
+    model: "claude-opus-4.6"
     max: 1
     target: "*"
+    github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
 ---
 
 # Break Down Plan Objectives into GitHub Issues
