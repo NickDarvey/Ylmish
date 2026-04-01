@@ -466,3 +466,151 @@ module Element =
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
             Y.Element.String (System.String.Concat(text))
+
+module Doc =
+    open FSharp.Data.Adaptive
+
+    #if FABLE_COMPILER
+    // Fable cannot perform runtime type tests on erased union cases
+    [<Fable.Core.Emit("typeof $0 === 'string'")>]
+    let private isString (_x: obj) : bool = false
+
+    [<Fable.Core.Import("Array", "yjs")>]
+    let private jsYArray : obj = obj()
+
+    [<Fable.Core.Import("Map", "yjs")>]
+    let private jsYMap : obj = obj()
+
+    [<Fable.Core.Emit("$0 instanceof $1")>]
+    let private jsInstanceOf (_x: obj) (_ctor: obj) : bool = false
+    #endif
+
+    /// Convert an Element<string> tree to a Y.Element tree
+    let rec private elementToY (element : Codec.Element<string>) : Y.Element =
+        match element with
+        | Codec.Element.Value str -> Y.Element.String str
+        | Codec.Element.AList alist ->
+            let yarray = Y.Array.Create<Y.Element option> ()
+            let items = AList.force alist |> IndexList.toList
+            items |> List.iter (fun item ->
+                match item with
+                | Some e -> yarray.push [| Some (elementToY e) |] |> ignore
+                | None -> yarray.push [| None |] |> ignore
+            )
+            Y.Element.Array yarray
+        | Codec.Element.AMap amap ->
+            let ymap = Y.Map.Create<Y.Element option> ()
+            AMap.force amap
+            |> HashMap.iter (fun key value ->
+                match value with
+                | Some e -> ymap.set(key, Some (elementToY e)) |> ignore
+                | None -> ymap.set(key, None) |> ignore
+            )
+            Y.Element.Map ymap
+
+    /// Helper to convert any Y value (string, Y.Map, Y.Array) to Codec.Element
+    let rec private valueToElement (value : obj) : Codec.Element<string> =
+        #if FABLE_COMPILER
+        match () with
+        | _ when isString value -> Codec.Element.Value (unbox value)
+        | _ when jsInstanceOf value jsYMap ->
+            // It's a Y.Map<'T>, recursively convert its values
+            let sourceMap = unbox<Y.Map<obj>> value
+            let mutable items = HashMap.empty<string, Codec.Element<string> option>
+            sourceMap.forEach (fun v k _ ->
+                if isNull v then
+                    items <- HashMap.add k None items
+                else
+                    items <- HashMap.add k (Some (valueToElement v)) items
+            ) |> ignore
+            Codec.Element.AMap (AMap.ofHashMap items)
+        | _ when jsInstanceOf value jsYArray ->
+            // It's a Y.Array<'T>, recursively convert its values
+            let sourceArray = unbox<Y.Array<obj>> value
+            let items =
+                sourceArray.toArray()
+                |> Seq.map (fun v ->
+                    if isNull v then None
+                    else Some (valueToElement v)
+                )
+                |> Seq.toList
+                |> IndexList.ofList
+            Codec.Element.AList (AList.ofIndexList items)
+        | _ -> failwith $"valueToElement: unsupported value type: %A{value}"
+        #else
+        match value with
+        | :? string as s -> Codec.Element.Value s
+        | _ when value.GetType().Name.StartsWith("YMap") ->
+            let sourceMap = unbox<Y.Map<obj>> value
+            let mutable items = HashMap.empty<string, Codec.Element<string> option>
+            sourceMap.forEach (fun v k _ ->
+                if isNull v then
+                    items <- HashMap.add k None items
+                else
+                    items <- HashMap.add k (Some (valueToElement v)) items
+            ) |> ignore
+            Codec.Element.AMap (AMap.ofHashMap items)
+        | _ when value.GetType().Name.StartsWith("YArray") ->
+            let sourceArray = unbox<Y.Array<obj>> value
+            let items =
+                sourceArray.toArray()
+                |> Seq.map (fun v ->
+                    if isNull v then None
+                    else Some (valueToElement v)
+                )
+                |> Seq.toList
+                |> IndexList.ofList
+            Codec.Element.AList (AList.ofIndexList items)
+        | _ -> failwith $"valueToElement: unsupported value type: %A{value}"
+        #endif
+
+    /// Materialize an Encoded Element tree into a Y.Doc's root map
+    let materialize (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : unit =
+        let rootMap = doc.getMap()
+
+        // Force the encoded value to get the actual element tree
+        match AVal.force encoded with
+        | None -> ()  // Nothing to materialize
+        | Some element ->
+            // The root element should be an AMap (object)
+            match element with
+            | Codec.Element.AMap amap ->
+                doc.transact(fun _ ->
+                    // Clear existing keys that aren't in the new map
+                    let newKeys = AMap.force amap |> HashMap.toSeq |> Seq.map fst |> Set.ofSeq
+                    let mutable keysToDelete = []
+                    rootMap.forEach (fun _ key _ ->
+                        if not (Set.contains key newKeys) then
+                            keysToDelete <- key :: keysToDelete
+                    ) |> ignore
+
+                    keysToDelete |> List.iter (fun key -> rootMap.delete key)
+
+                    // Set all keys from the map
+                    AMap.force amap
+                    |> HashMap.iter (fun key value ->
+                        match value with
+                        | Some e ->
+                            let yelement = elementToY e
+                            rootMap.set(key, yelement) |> ignore
+                        | None ->
+                            rootMap.delete key
+                    )
+                )
+            | _ -> failwith "Root element must be an AMap (object)"
+
+    /// Dematerialize a Y.Doc's root map into an Element<string> tree
+    let dematerialize (doc : Y.Doc) : Codec.Element<string> =
+        let rootMap = doc.getMap()
+        let mutable items = HashMap.empty<string, Codec.Element<string> option>
+
+        rootMap.forEach (fun value key _ ->
+            // Check if value is null/undefined
+            if isNull (box value) then
+                items <- HashMap.add key None items
+            else
+                // Convert the value directly to Codec.Element
+                items <- HashMap.add key (Some (valueToElement value)) items
+        ) |> ignore
+
+        Codec.Element.AMap (AMap.ofHashMap items)
