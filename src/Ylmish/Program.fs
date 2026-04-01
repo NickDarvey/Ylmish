@@ -2,6 +2,7 @@
 module Ylmish.Program
 
 open Elmish
+open FSharp.Data.Adaptive
 open Yjs
 
 open Ylmish.Adaptive.Codec
@@ -55,17 +56,26 @@ type Message<'model, 'msg> =
 
 [<GeneralizableValue>]
 let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg, 'model, 'msg, 'view>) =
-    //let mutable amodel : 'amodel = Unchecked.defaultof<_>
+    let mutable amodel : 'amodel option = None
+    let mutable encoded : Encoded<Element<string>> option = None
 
     let update userUpdate msg model =
         match msg with
         | Set m ->
-            //amodel <- options.Update amodel m
+            match amodel with
+            | Some am -> options.Update am m
+            | None -> ()
             m, Cmd.none
         | User userMsg ->
             let m, c = userUpdate userMsg model
             let c = c |> Cmd.map User
-            //amodel <- options.Update amodel m
+            match amodel with
+            | Some am ->
+                options.Update am m
+                match encoded with
+                | Some enc -> Y.Doc.materialize options.Doc enc
+                | None -> ()
+            | None -> ()
             m, c
 
     let subs userSubscribe model =
@@ -75,10 +85,34 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
 
     let init userInit arg =
         let m, c = userInit arg
-        //do amodel <- options.Create m
-        //let asdf = options.Encode amodel
-        let c = c |> Cmd.map User
-        m, c
+        let am = options.Create m
+        amodel <- Some am
+        let enc = options.Encode am
+        encoded <- Some enc
+
+        // Check if Y.Doc already has state
+        let rootMap = options.Doc.getMap ()
+        let mutable hasExistingState = false
+        rootMap.forEach(fun _ _ _ -> hasExistingState <- true) |> ignore
+
+        if hasExistingState then
+            // Dematerialize existing Y.Doc state and decode it
+            let element = Y.Doc.dematerialize options.Doc
+            let decoded = Decode.run options.Decode (AVal.constant (Some element))
+            match AVal.force decoded with
+            | Ok restoredModel ->
+                options.Update am restoredModel
+                let c = Cmd.batch [ c |> Cmd.map User; Cmd.ofMsg (Set restoredModel) ]
+                m, c
+            | Error _ ->
+                Y.Doc.materialize options.Doc enc
+                let c = c |> Cmd.map User
+                m, c
+        else
+            // No existing state, materialize into Y.Doc
+            Y.Doc.materialize options.Doc enc
+            let c = c |> Cmd.map User
+            m, c
 
     let setState userSetState model dispatch =
         userSetState model (User >> dispatch)
