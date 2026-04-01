@@ -471,4 +471,51 @@ let tests = testList "Program" [
         
     }
 
+    test "withYlmish falls back to init model when Y.Doc has incompatible state" {
+        let doc = Y.Doc.Create ()
+        // Pre-populate Y.Doc with an incompatible shape: a string value where
+        // the decoder expects a nested object (propE -> { prop0: string }).
+        doc.getMap().set("propE", "not-an-object") |> ignore
+
+        use dispatcher = Example.program {|
+            Init = {
+                PropA = "init-value"
+                PropB = None
+                PropC = IndexList.empty
+                PropD = IndexList.empty
+                PropE = { Prop0 = "init-prop0" }
+                PropF = None
+            }
+            Doc = doc
+            Encode = fun m -> Encode.object [
+                "propE", Encode.object [
+                    "prop0", m.PropE.Prop0 |> Encode.value id
+                ]
+            ]
+            Decode = Decode.object {
+                let! propE = Decode.object.required "propE" <| Decode.object {
+                    let! prop0 = Decode.object.required "prop0" Decode.value
+                    return {
+                        Example.Prop0 = prop0
+                    }
+                }
+                return {
+                    PropA = "init-value"
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = propE
+                    PropF = None
+                }
+            }
+        |}
+
+        // Should fall back to init model since decode fails
+        Expect.equal "init-value" (dispatcher.Model.PropA) "Model PropA should be from init"
+        Expect.equal "init-prop0" (dispatcher.Model.PropE.Prop0) "Model PropE.Prop0 should be from init"
+        // Y.Doc should be re-materialized with the init model's encoded data
+        let root : Y.Map<Y.Map<string>> = doc.getMap ()
+        Expect.equal (Some "init-prop0") (root.get("propE").Value.get("prop0")) "Y.Doc should be re-materialized"
+    }
+
 ]

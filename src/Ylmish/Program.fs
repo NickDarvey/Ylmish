@@ -64,7 +64,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
         | Set m ->
             match amodel with
             | Some am -> options.Update am m
-            | None -> ()
+            | None -> invalidOp "withYlmish: amodel not initialized. init must run before update."
             m, Cmd.none
         | User userMsg ->
             let m, c = userUpdate userMsg model
@@ -74,8 +74,8 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                 options.Update am m
                 match encoded with
                 | Some enc -> Y.Doc.materialize options.Doc enc
-                | None -> ()
-            | None -> ()
+                | None -> invalidOp "withYlmish: encoded not initialized. init must run before update."
+            | None -> invalidOp "withYlmish: amodel not initialized. init must run before update."
             m, c
 
     let subs userSubscribe model =
@@ -103,10 +103,9 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             match AVal.force decoded with
             | Ok restoredModel ->
                 options.Update am restoredModel
-                let c = c |> Cmd.map User
-                restoredModel, c
-            | Error _ ->
-                // Decode failed (e.g. schema mismatch); fall back to materializing initial model
+                restoredModel, Cmd.none
+            | Error errors ->
+                eprintfn "withYlmish: failed to decode existing Y.Doc state, falling back to initial model. %s" (Error.printAll errors)
                 Y.Doc.materialize options.Doc enc
                 let c = c |> Cmd.map User
                 m, c
