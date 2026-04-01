@@ -486,23 +486,67 @@ let tests = testList "Y.Doc" [
                 failwith $"Decoding failed: %A{errors}"
         }
 
-        testCase "materialize preserves nested structure depth" <| fun _ -> Property.check <| property {
-            let! depth = Gen.int32 (Range.linear 1 3)
-            let! value = Gen.string (Range.linear 1 20) Gen.alphaNum
-
-            // Create nested structure
-            let rec createNested d =
-                if d <= 0 then
-                    { Example.Submodel.Prop0 = value }
-                else
-                    { Example.Submodel.Prop0 = $"level-{d}" }
+        testCase "dematerialize preserves element structural kinds" <| fun _ -> Property.check <| property {
+            // This tests the structural type mapping invariant directly:
+            // Value → Element.Value, list → Element.AList, object → Element.AMap
+            let! propA = Gen.string (Range.linear 0 50) Gen.alphaNum
+            let! propB = Gen.string (Range.linear 0 50) Gen.alphaNum |> Gen.option
+            let! propCItems =
+                Gen.string (Range.linear 0 20) Gen.alphaNum
+                |> Gen.map (fun s -> { Example.Submodel.Prop0 = s })
+                |> Gen.list (Range.linear 0 5)
+            let! propDItems = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 0 5)
 
             let model : Example.Model = {
-                PropA = "root"
+                PropA = propA
+                PropB = propB
+                PropC = IndexList.ofList propCItems
+                PropD = IndexList.ofList propDItems
+                PropE = { Prop0 = "nested" }
+                PropF = None
+            }
+
+            let doc = Y.Doc.Create ()
+            let amodel = Example.AdaptiveModel.Create model
+            let encoded = Example.Codec.encode amodel
+
+            Y.Doc.materialize doc encoded
+            let dematerialized = Y.Doc.dematerialize doc
+
+            // The dematerialized root must be an AMap, and each field must have
+            // the correct element kind regardless of the specific values
+            match dematerialized with
+            | Element.AMap root ->
+                let items = AMap.force root
+                match HashMap.tryFind "propA" items with
+                | Some (Some (Element.Value _)) -> ()
+                | v -> failwith $"propA should be Element.Value, got %A{v}"
+                match HashMap.tryFind "propB" items with
+                | None | Some None | Some (Some (Element.Value _)) -> ()
+                | v -> failwith $"propB should be Element.Value or absent, got %A{v}"
+                match HashMap.tryFind "propC" items with
+                | Some (Some (Element.AList _)) -> ()
+                | v -> failwith $"propC should be Element.AList, got %A{v}"
+                match HashMap.tryFind "propD" items with
+                | Some (Some (Element.AList _)) -> ()
+                | v -> failwith $"propD should be Element.AList, got %A{v}"
+                match HashMap.tryFind "propE" items with
+                | Some (Some (Element.AMap _)) -> ()
+                | v -> failwith $"propE should be Element.AMap, got %A{v}"
+            | _ -> failwith "dematerialized root should be Element.AMap"
+        }
+
+        testCase "materialize preserves list item order" <| fun _ -> Property.check <| property {
+            // List ordering is a fundamental invariant: Y.Array is ordered so
+            // items must survive materialize/dematerialize in the original order
+            let! items = Gen.string (Range.linear 0 20) Gen.alphaNum |> Gen.list (Range.linear 0 10)
+
+            let model : Example.Model = {
+                PropA = ""
                 PropB = None
-                PropC = IndexList.ofList [createNested depth; createNested (depth - 1)]
-                PropD = IndexList.empty
-                PropE = createNested depth
+                PropC = IndexList.empty
+                PropD = IndexList.ofList items
+                PropE = { Prop0 = "" }
                 PropF = None
             }
 
@@ -516,8 +560,7 @@ let tests = testList "Y.Doc" [
 
             match decoded with
             | Ok result ->
-                Expect.equal (IndexList.toList result.PropC).Length 2 "Should preserve nested list length"
-                Expect.isTrue (result.PropE.Prop0.StartsWith("level-") || result.PropE.Prop0 = value) "Should preserve nested object"
+                Expect.equal (IndexList.toList result.PropD) items "List item order must be preserved"
             | Error errors ->
                 failwith $"Decoding failed: %A{errors}"
         }
