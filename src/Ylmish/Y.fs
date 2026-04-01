@@ -508,30 +508,6 @@ module Doc =
             )
             Y.Element.Map ymap
 
-    /// Convert a Y.Element tree to an Element<string> tree
-    let rec private yToElement (yelement : Y.Element) : Codec.Element<string> =
-        match yelement with
-        | Y.Element.String str -> Codec.Element.Value str
-        | Y.Element.Array yarray ->
-            let items =
-                yarray.toArray()
-                |> Seq.mapi (fun _ item ->
-                    match item with
-                    | Some ye -> Some (yToElement ye)
-                    | None -> None
-                )
-                |> Seq.toList
-                |> IndexList.ofList
-            Codec.Element.AList (AList.ofIndexList items)
-        | Y.Element.Map ymap ->
-            let mutable items = HashMap.empty<string, Codec.Element<string> option>
-            ymap.forEach (fun value key _ ->
-                match value with
-                | Some ye -> items <- HashMap.add key (Some (yToElement ye)) items
-                | None -> items <- HashMap.add key None items
-            ) |> ignore
-            Codec.Element.AMap (AMap.ofHashMap items)
-
     /// Helper to convert any Y value (string, Y.Map, Y.Array) to Codec.Element
     let rec private valueToElement (value : obj) : Codec.Element<string> =
         #if FABLE_COMPILER
