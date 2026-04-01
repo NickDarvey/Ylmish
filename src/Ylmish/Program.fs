@@ -91,6 +91,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
         encoded <- Some enc
 
         // Check if Y.Doc already has state
+        // (Yjs Fable bindings do not expose a size property on Y.Map, so we use forEach)
         let rootMap = options.Doc.getMap ()
         let mutable hasExistingState = false
         rootMap.forEach(fun _ _ _ -> hasExistingState <- true) |> ignore
@@ -102,9 +103,10 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             match AVal.force decoded with
             | Ok restoredModel ->
                 options.Update am restoredModel
-                let c = Cmd.batch [ c |> Cmd.map User; Cmd.ofMsg (Set restoredModel) ]
-                m, c
+                let c = c |> Cmd.map User
+                restoredModel, c
             | Error _ ->
+                // Decode failed (e.g. schema mismatch); fall back to materializing initial model
                 Y.Doc.materialize options.Doc enc
                 let c = c |> Cmd.map User
                 m, c
