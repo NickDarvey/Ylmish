@@ -58,12 +58,13 @@ type Message<'model, 'msg> =
 let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg, 'model, 'msg, 'view>) =
     let mutable amodel : 'amodel option = None
     let mutable encoded : Encoded<Element<string>> option = None
+    let mutable isWritingToYDoc = false
 
     let update userUpdate msg model =
         match msg with
         | Set m ->
             match amodel with
-            | Some am -> options.Update am m
+            | Some am -> transact (fun () -> options.Update am m)
             | None -> invalidOp "withYlmish: amodel not initialized. init must run before update."
             m, Cmd.none
         | User userMsg ->
@@ -71,9 +72,12 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             let c = c |> Cmd.map User
             match amodel with
             | Some am ->
-                options.Update am m
+                transact (fun () -> options.Update am m)
                 match encoded with
-                | Some enc -> Y.Doc.materialize options.Doc enc
+                | Some enc ->
+                    isWritingToYDoc <- true
+                    try Y.Doc.materialize options.Doc enc
+                    finally isWritingToYDoc <- false
                 | None -> invalidOp "withYlmish: encoded not initialized. init must run before update."
             | None -> invalidOp "withYlmish: amodel not initialized. init must run before update."
             m, c
@@ -81,6 +85,19 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     let subs userSubscribe model =
         Sub.batch [
             userSubscribe model |> Sub.map "ylmish" User
+            [ ["ylmish-ydoc"], fun dispatch ->
+                let rootMap = options.Doc.getMap()
+                let handler _ _ =
+                    if not isWritingToYDoc then
+                        let element = Y.Doc.dematerialize options.Doc
+                        let decoded = Decode.run options.Decode (AVal.constant (Some element))
+                        match AVal.force decoded with
+                        | Ok restoredModel -> dispatch (Set restoredModel)
+                        | Error errors -> eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
+                rootMap.observeDeep handler
+                { new System.IDisposable with
+                    member _.Dispose() = rootMap.unobserveDeep handler }
+            ]
         ]
 
     let init userInit arg =

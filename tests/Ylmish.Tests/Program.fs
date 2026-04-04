@@ -361,7 +361,7 @@ let tests = testList "Program" [
             }
             Doc = doc
             Encode = fun m -> Encode.object [
-                "propD", m.PropD |> Encode.list (fun _ -> failwith "not impl")
+                "propD", m.PropD |> Encode.list (fun s -> Encode.value id (AVal.constant s))
             ]
             Decode = Decode.object {
                 let! propD = Decode.object.required "propD" (Decode.list.required Decode.value)
@@ -378,9 +378,9 @@ let tests = testList "Program" [
 
         //Promise.awaitAnimationFrame ()
 
-        let root : Y.Map<Y.Array<Y.Map<string>>> = doc.getMap ()
-        Expect.equal value (dispatcher.Model.PropC[0].Prop0) "Model value"
-        Expect.equal (Some value) (root.get("propC").Value.get(0).get("prop0")) "Y.Doc value"       
+        let root : Y.Map<Y.Array<string>> = doc.getMap ()
+        Expect.equal value (dispatcher.Model.PropD[0]) "Model value"
+        Expect.equal value (root.get("propD").Value.get(0)) "Y.Doc value"       
     }
 
     test "withYlmish persists initial object" {
@@ -423,7 +423,7 @@ let tests = testList "Program" [
         
         let root : Y.Map<Y.Map<string>> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propA").Value.get("prop0")) "Y.Doc value"
+        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
         
     }
 
@@ -467,7 +467,7 @@ let tests = testList "Program" [
         
         let root : Y.Map<Y.Map<string>> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propA").Value.get("prop0")) "Y.Doc value"
+        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
         
     }
 
