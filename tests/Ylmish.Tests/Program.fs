@@ -361,7 +361,7 @@ let tests = testList "Program" [
             }
             Doc = doc
             Encode = fun m -> Encode.object [
-                "propD", m.PropD |> Encode.list (fun _ -> failwith "not impl")
+                "propD", m.PropD |> Encode.list (fun s -> Encode.value id (AVal.constant s))
             ]
             Decode = Decode.object {
                 let! propD = Decode.object.required "propD" (Decode.list.required Decode.value)
@@ -378,9 +378,9 @@ let tests = testList "Program" [
 
         //Promise.awaitAnimationFrame ()
 
-        let root : Y.Map<Y.Array<Y.Map<string>>> = doc.getMap ()
-        Expect.equal value (dispatcher.Model.PropC[0].Prop0) "Model value"
-        Expect.equal (Some value) (root.get("propC").Value.get(0).get("prop0")) "Y.Doc value"       
+        let root : Y.Map<Y.Array<string>> = doc.getMap ()
+        Expect.equal value (dispatcher.Model.PropD[0]) "Model value"
+        Expect.equal value (root.get("propD").Value.get(0)) "Y.Doc value"       
     }
 
     test "withYlmish persists initial object" {
@@ -423,7 +423,7 @@ let tests = testList "Program" [
         
         let root : Y.Map<Y.Map<string>> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propA").Value.get("prop0")) "Y.Doc value"
+        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
         
     }
 
@@ -467,7 +467,7 @@ let tests = testList "Program" [
         
         let root : Y.Map<Y.Map<string>> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propA").Value.get("prop0")) "Y.Doc value"
+        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
         
     }
 
@@ -516,6 +516,83 @@ let tests = testList "Program" [
         // Y.Doc should be re-materialized with the init model's encoded data
         let root : Y.Map<Y.Map<string>> = doc.getMap ()
         Expect.equal (Some "init-prop0") (root.get("propE").Value.get("prop0")) "Y.Doc should be re-materialized"
+    }
+
+    test "withYlmish observes Y.Doc changes and updates model" {
+        let doc = Y.Doc.Create ()
+        use dispatcher = Example.program {|
+            Init = {
+                PropA = "initial"
+                PropB = None
+                PropC = IndexList.empty
+                PropD = IndexList.empty
+                PropE = { Prop0 = "not-used" }
+                PropF = None
+            }
+            Doc = doc
+            Encode = fun m -> Encode.object [
+                "propA", m.PropA |> Encode.value id
+            ]
+            Decode = Decode.object {
+                let! propA = Decode.object.required "propA" Decode.value
+                return {
+                    PropA = propA
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+            }
+        |}
+
+        // Mutate the Y.Doc directly after the program has started.
+        // The observeDeep handler should decode the new state and dispatch Set.
+        doc.getMap().set("propA", "from-ydoc") |> ignore
+
+        Expect.equal "from-ydoc" (dispatcher.Model.PropA) "Model should be updated by Y.Doc observer"
+        Expect.equal (Some "from-ydoc") (doc.getMap().get("propA")) "Y.Doc value should be unchanged"
+    }
+
+    test "withYlmish reentrancy guard prevents Y.Doc observer firing on user updates" {
+        let doc = Y.Doc.Create ()
+        let mutable observerFiredCount = 0
+        use dispatcher = Example.program {|
+            Init = {
+                PropA = "initial"
+                PropB = None
+                PropC = IndexList.empty
+                PropD = IndexList.empty
+                PropE = { Prop0 = "not-used" }
+                PropF = None
+            }
+            Doc = doc
+            Encode = fun m -> Encode.object [
+                "propA", m.PropA |> Encode.value id
+            ]
+            Decode = Decode.object {
+                let! propA = Decode.object.required "propA" Decode.value
+                observerFiredCount <- observerFiredCount + 1
+                return {
+                    PropA = propA
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+            }
+        |}
+
+        // Reset count after init (which decodes once when pre-existing state is present, or 0 times on fresh doc)
+        observerFiredCount <- 0
+
+        // A user update writes to Y.Doc; the reentrancy guard should suppress the observer
+        Example.dispatch dispatcher <| Example.SetPropA "user-updated"
+
+        Expect.equal "user-updated" (dispatcher.Model.PropA) "Model value"
+        // Decoder should not have been called again via the Y.Doc observer
+        Expect.equal 0 observerFiredCount "Reentrancy guard should prevent observer from firing on user updates"
     }
 
 ]

@@ -9,6 +9,7 @@ let tests = [
    Y.Map.tests
    Y.Element.tests
    Y.Doc.tests
+   Program.tests
 ]
 
 #if FABLE_COMPILER
