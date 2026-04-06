@@ -126,27 +126,18 @@ module private Decode =
         | Error e -> invalidOp e
 
 let tests = testList "Ylmish.Adaptive.Codec" [
-    // Currently failing:
-    //
-    // https://github.com/fable-compiler/Fable/issues/3328
-    //
-    // Tracking issue:
-    //
-    // https://github.com/primacydotco/Ylmish/issues/10
-    //
-    //test "roundtrips" {
-    //    let example : Example.Thing = {
-    //        name = "Example Thing"
-    //        value = 42
-    //    }
-    //    let actual =
-    //        example
-    //        |> Example.AdaptiveThing
-    //        |> Example.Codec.Things.encode
-    //        |> Decode.force Example.Codec.Things.decode
+    testCase "roundtrips" <| fun _ ->
+        let example : Example.Thing = {
+            name = "Example Thing"
+            value = 42
+        }
+        let actual =
+            example
+            |> Example.AdaptiveThing
+            |> Example.Codec.Things.encode
+            |> Decode.force Example.Codec.Things.decode
 
-    //    Expect.equal actual example ""
-    //}
+        Expect.equal actual example ""
 
     testCase "basic updates work" <| fun _ -> Property.check <| property {
         let! model = Example.Thing.gen |> Gen.map Example.AdaptiveThing
@@ -178,34 +169,26 @@ let tests = testList "Ylmish.Adaptive.Codec" [
         Expect.equal (actual) (expected) ""
     }
 
-    // Currently failing:
-    //
-    // https://github.com/fable-compiler/Fable/issues/3328
-    //
-    // Tracking issue:
-    //
-    // https://github.com/primacydotco/Ylmish/issues/10
-    //
-    // testCase "roundtrips updates" <| fun _ -> Property.check <| property {
-    //    let! model = Example.Thing.gen |> Gen.map Example.AdaptiveThing
-    //    let model' =
-    //        model
-    //        |> Example.Codec.Things.encode
-    //        |> Decode.run Example.Codec.Things.decode
-    //        |> Decoded.mapError Error.printAll
-    //        |> AVal.map (function
-    //        | Ok r -> r
-    //        | Error e -> invalidOp e)
+    testCase "roundtrips updates" <| fun _ -> Property.check <| property {
+        let! model = Example.Thing.gen |> Gen.map Example.AdaptiveThing
+        let model' =
+            model
+            |> Example.Codec.Things.encode
+            |> Decode.run Example.Codec.Things.decode
+            |> Decoded.mapError Error.printAll
+            |> AVal.map (function
+            | Ok r -> r
+            | Error e -> invalidOp e)
 
-    //    let! updates = Example.Thing.gen |> Gen.list (Range.linear 0 100)
-    //    transact (fun () ->
-    //    for update in updates do
-    //        model.Update update
+        let! updates = Example.Thing.gen |> Gen.list (Range.linear 0 100)
+        transact (fun () ->
+        for update in updates do
+            model.Update update
 
-    //        let value1 = AVal.force model'
-    //        let value2 = AVal.force model.Current
+            let value1 = AVal.force model'
+            let value2 = AVal.force model.Current
 
-    //        Expect.equal value1 value2 ""
-    //     )
-    // }
+            Expect.equal value1 value2 ""
+         )
+    }
 ]
