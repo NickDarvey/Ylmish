@@ -160,7 +160,7 @@ module Error =
         sb.ToString ()
 
 type Decoded<'Result> = Validation<'Result, Error> aval
-type Decoder<'Element, 'Result> = Path * 'Element -> Decoded<'Result>
+type Decoder<'Model, 'Element, 'Result> = 'Model -> Path * 'Element -> Decoded<'Result>
 //type Decoder<'Result> = Decoder<Element<string>, 'Result>
 type Encoded<'Element> = 'Element option aval
 type Encoder<'Input, 'Element> = 'Input -> Encoded<'Element>
@@ -251,32 +251,36 @@ module Decoded =
 
 module Decoder =
     /// Lift a Validation<'a, Failure> to a Decoder<'a>.
-    let ofValidation (result : Validation<'Result, Error>) : Decoder<_,'Result> =
-        fun _ -> Decoded.ofValidation result
+    let ofValidation (result : Validation<'Result, Error>) : Decoder<_,_,'Result> =
+        fun _ _ -> Decoded.ofValidation result
 
     /// Creates a Decoder<'a> from an 'a.
-    let ok c : Decoder<_,_> =
-        fun _ -> Decoded.ok c
+    let ok c : Decoder<_,_,_> =
+        fun _ _ -> Decoded.ok c
 
     /// Creates a Decoder<_> from an error.
-    let error e : Decoder<_,_> =
-        fun _ -> Decoded.error e
+    let error e : Decoder<_,_,_> =
+        fun _ _ -> Decoded.error e
 
     /// Creates a Decoder<_> from an error, passing the current path.
-    let errorAt e : Decoder<_,_> =
-        fun (p, _) -> Decoded.error (e p)
+    let errorAt e : Decoder<_,_,_> =
+        fun _ (p, _) -> Decoded.error (e p)
 
-    let map (f : 'a -> 'b) (a : Decoder<_, 'a>) : Decoder<_, 'b> =
-        a >> Decoded.map f
+    let map (f : 'a -> 'b) (a : Decoder<_, _, 'a>) : Decoder<_, _, 'b> =
+        fun model dep -> a model dep |> Decoded.map f
 
-    let bind (f : 'a -> Decoder<_,'b>) (a : Decoder<_,'a>) : Decoder<_,'b> =
-        fun dep -> a dep |> Decoded.bind (fun x -> f x dep)
+    let bind (f : 'a -> Decoder<_,_,'b>) (a : Decoder<_,_,'a>) : Decoder<_,_,'b> =
+        fun model dep -> a model dep |> Decoded.bind (fun x -> f x model dep)
 
-    let id : Decoder<'a, 'a> =
-        fun (_, e) -> Decoded.ok e
+    let id : Decoder<_, 'a, 'a> =
+        fun _ (_, e) -> Decoded.ok e
+
+    /// Returns the current model from the Reader environment.
+    let ask : Decoder<'model, _, 'model> =
+        fun model _ -> Decoded.ok model
 
     /// Tries to parse a value to the inferred type using the built-in System parser.
-    let inline tryParse (path : Path, element : 'a) : Decoded<'b> =
+    let inline tryParse (_model : 'm) (path : Path, element : 'a) : Decoded<'b> =
         let mutable value = Unchecked.defaultof< ^b>
         let result = (^b: (static member TryParse: 'a * byref< ^b> -> bool) element, &value)
         if result then Decoded.ok value
@@ -284,10 +288,10 @@ module Decoder =
 
 module Decode = 
     module Element =        
-        let value (f : Decoder<_,_>) : Decoder<_,_> = fun (path, el) ->
+        let value (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
             match el with
             | Element.Value v ->
-                f (path, v)
+                f model (path, v)
             | el ->
                 Decoded.error <| UnexpectedKind {|
                     Path = path
@@ -295,11 +299,11 @@ module Decode =
                     Expected = [ Kind.Value ]
                 |}
 
-        let list (f : Decoder<_,_>) : Decoder<_,_> = fun (path, el) ->
-            let f i el = f (ArrayIndex i :: path, el)
+        let list (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
+            let decodeAt i el = f model (ArrayIndex i :: path, el)
             match el with
             | Element.AList v ->
-                v |> Decoded.traversei f
+                v |> Decoded.traversei decodeAt
             | el ->
                 Decoded.error <| UnexpectedKind {|
                     Path = path
@@ -307,23 +311,23 @@ module Decode =
                     Expected = [ Kind.List ]
                 |}
 
-    let optional (f : Decoder<_,_>) : Decoder<_,_> = fun (path, el) ->
+    let optional (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
         match el with
         | Some el ->
-            f (path, el) |> Decoded.map (fun i -> Some i)
+            f model (path, el) |> Decoded.map (fun i -> Some i)
         | None ->
             Decoded.ok None
 
-    let required (f : Decoder<_,_>) : Decoder<_,_> = fun (path, el) ->
+    let required (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
         match el with
-        | Some el -> f (path, el)
+        | Some el -> f model (path, el)
         | None -> Decoded.error <| MissingProperty {| Path = path |}
 
     let value x = Element.value Decoder.id x
 
     let inline tryParse x = Element.value Decoder.tryParse x
 
-    let key key (f : Decoder<_,_>) : Decoder<_,_> = fun (path, el) ->
+    let key key (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
         match el with
         | Element.AMap v -> adaptive {
                 let path = ObjectKey key :: path
@@ -334,7 +338,7 @@ module Decode =
                 // we flatten them here, but we could instead keep these separate so developers can handle them separately.
                 let value = value |> Option.flatten
 
-                return! f (path, value)
+                return! f model (path, value)
             }
         | el ->
             Decoded.error <| UnexpectedKind {|
@@ -343,8 +347,8 @@ module Decode =
                 Expected = [ Kind.Map ]
             |}
 
-    let run (decoder : Decoder<Element<'a>, 'b>) (input : Encoded<Element<'a>>) : Decoded<'b> =
-        input |> AVal.bind (fun i -> required decoder ([], i))
+    let run (model : 'model) (decoder : Decoder<'model, Element<'a>, 'b>) (input : Encoded<Element<'a>>) : Decoded<'b> =
+        input |> AVal.bind (fun i -> required decoder model ([], i))
 
     type ObjectBuilder () =
         member _.Return x = Decoder.ok x
@@ -352,6 +356,9 @@ module Decode =
         member _.ReturnFrom m = m
         member _.Zero () = Decoder.ok ()
         member _.Run f = f
+
+        /// Returns the current model from the Reader environment.
+        member _.ask () = Decoder.ask
 
         /// Decodes a property of the object, by its key, which is required.
         member _.required (k : string) f =

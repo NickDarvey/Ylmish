@@ -31,7 +31,7 @@ type YlmishOptions<'model, 'amodel> = {
     Create : 'model -> 'amodel
     Update : 'amodel -> 'model -> unit
     Encode : Encoder<'amodel, Element<string>>
-    Decode : Decoder<Element<string>, 'model>
+    Decode : Decoder<'model, Element<string>, 'model>
     Doc : Y.Doc
 }
 
@@ -59,8 +59,10 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     let mutable amodel : 'amodel option = None
     let mutable encoded : Encoded<Element<string>> option = None
     let mutable isWritingToYDoc = false
+    let mutable currentModel : 'model option = None
 
     let update userUpdate msg model =
+        currentModel <- Some model
         match msg with
         | Set m ->
             match amodel with
@@ -90,10 +92,13 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                 let handler _ _ =
                     if not isWritingToYDoc then
                         let element = Y.Doc.dematerialize options.Doc
-                        let decoded = Decode.run options.Decode (AVal.constant (Some element))
-                        match AVal.force decoded with
-                        | Ok restoredModel -> dispatch (Set restoredModel)
-                        | Error errors -> eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
+                        match currentModel with
+                        | Some m ->
+                            let decoded = Decode.run m options.Decode (AVal.constant (Some element))
+                            match AVal.force decoded with
+                            | Ok restoredModel -> dispatch (Set restoredModel)
+                            | Error errors -> eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
+                        | None -> eprintfn "withYlmish: Y.Doc change observed before model initialized, ignoring."
                 rootMap.observeDeep handler
                 { new System.IDisposable with
                     member _.Dispose() = rootMap.unobserveDeep handler }
@@ -116,18 +121,21 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
         if hasExistingState then
             // Dematerialize existing Y.Doc state and decode it
             let element = Y.Doc.dematerialize options.Doc
-            let decoded = Decode.run options.Decode (AVal.constant (Some element))
+            let decoded = Decode.run m options.Decode (AVal.constant (Some element))
             match AVal.force decoded with
             | Ok restoredModel ->
+                currentModel <- Some restoredModel
                 options.Update am restoredModel
                 restoredModel, Cmd.none
             | Error errors ->
                 eprintfn "withYlmish: failed to decode existing Y.Doc state, falling back to initial model. %s" (Error.printAll errors)
+                currentModel <- Some m
                 Y.Doc.materialize options.Doc enc
                 let c = c |> Cmd.map User
                 m, c
         else
             // No existing state, materialize into Y.Doc
+            currentModel <- Some m
             Y.Doc.materialize options.Doc enc
             let c = c |> Cmd.map User
             m, c
