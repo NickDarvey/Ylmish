@@ -126,8 +126,7 @@ module private Decode =
         | Error e -> invalidOp e
 
 let tests = testList "Ylmish.Adaptive.Codec" [
-    // Pending: Fable SRTP TryParse constraint is broken (https://github.com/fable-compiler/Fable/issues/3328)
-    ptestCase "roundtrips" <| fun _ ->
+    testCase "roundtrips" <| fun _ ->
         let example : Example.Thing = {
             name = "Example Thing"
             value = 42
@@ -170,8 +169,7 @@ let tests = testList "Ylmish.Adaptive.Codec" [
         Expect.equal (actual) (expected) ""
     }
 
-    // Pending: Fable SRTP TryParse constraint is broken (https://github.com/fable-compiler/Fable/issues/3328)
-    ptestCase "roundtrips updates" <| fun _ -> Property.check <| property {
+    testCase "roundtrips updates" <| fun _ -> Property.check <| property {
         let! model = Example.Thing.gen |> Gen.map Example.AdaptiveThing
         let model' =
             model
