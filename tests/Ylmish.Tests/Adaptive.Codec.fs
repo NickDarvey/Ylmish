@@ -206,8 +206,10 @@ let tests = testList "Ylmish.Adaptive.Codec" [
     }
 
     testCase "ask preserves non-persisted field" <| fun _ ->
-        let currentModel : Example.ModelWithTransient = { persisted = "old"; transient = 42 }
-        let am = cval currentModel
+        // Encode from one model, but decode with a different current model
+        let encodedFrom : Example.ModelWithTransient = { persisted = "from-encoded"; transient = 99 }
+        let currentModel : Example.ModelWithTransient = { persisted = "stale"; transient = 42 }
+        let am = cval encodedFrom
         let encoded = Example.Codec.WithTransient.encode am
         let decoded =
             Decode.run currentModel Example.Codec.WithTransient.decode encoded
@@ -216,7 +218,7 @@ let tests = testList "Ylmish.Adaptive.Codec" [
 
         match decoded with
         | Ok result ->
-            Expect.equal result.persisted "old" "persisted field should come from encoded data"
+            Expect.equal result.persisted "from-encoded" "persisted field should come from encoded data"
             Expect.equal result.transient 42 "transient field should be preserved from current model via ask"
         | Error e -> invalidOp e
 ]
