@@ -23,7 +23,7 @@ module Example =
                 "prop0", asubmodel.Prop0 |> Encode.value id
             ]
 
-            let decode : Decoder<_, Submodel> = Decode.object {
+            let decode : Decoder<_, _, Submodel> = Decode.object {
                 let! prop0 = Decode.object.required "prop0" Decode.value
                 return { Prop0 = prop0 }
             }
@@ -36,7 +36,7 @@ module Example =
             "propE", Submodel.encode amodel.PropE
         ]
 
-        let decode : Decoder<_, Model> = Decode.object {
+        let decode : Decoder<_, _, Model> = Decode.object {
             let! propA = Decode.object.required "propA" Decode.value
             let! propB = Decode.object.optional "propB" Decode.value
             let! propC = Decode.object.required "propC" (Decode.list.required Submodel.decode)
@@ -269,7 +269,7 @@ let tests = testList "Y.Doc" [
             let element = Y.Doc.dematerialize doc
 
             // Decode
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->
@@ -310,7 +310,7 @@ let tests = testList "Y.Doc" [
             let element = Y.Doc.dematerialize doc
 
             // Decode
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->
@@ -347,12 +347,12 @@ let tests = testList "Y.Doc" [
 
             // Materialize once
             Y.Doc.materialize doc1 encoded
-            let decoded1 = Example.Codec.decode ([], Y.Doc.dematerialize doc1) |> AVal.force
+            let decoded1 = Example.Codec.decode () ([], Y.Doc.dematerialize doc1) |> AVal.force
 
             // Materialize twice
             Y.Doc.materialize doc2 encoded
             Y.Doc.materialize doc2 encoded
-            let decoded2 = Example.Codec.decode ([], Y.Doc.dematerialize doc2) |> AVal.force
+            let decoded2 = Example.Codec.decode () ([], Y.Doc.dematerialize doc2) |> AVal.force
 
             // Both should produce the same decoded result
             match decoded1, decoded2 with
@@ -392,7 +392,7 @@ let tests = testList "Y.Doc" [
             let element = Y.Doc.dematerialize doc
 
             // Decode and verify all fields match the original model
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->
@@ -425,7 +425,7 @@ let tests = testList "Y.Doc" [
             let element = Y.Doc.dematerialize doc
 
             // Decode and verify empty collections are preserved
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->
@@ -473,7 +473,7 @@ let tests = testList "Y.Doc" [
 
             // Dematerialize and decode
             let element = Y.Doc.dematerialize doc
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->
@@ -556,7 +556,7 @@ let tests = testList "Y.Doc" [
 
             Y.Doc.materialize doc encoded
             let element = Y.Doc.dematerialize doc
-            let decoded = Example.Codec.decode ([], element) |> AVal.force
+            let decoded = Example.Codec.decode () ([], element) |> AVal.force
 
             match decoded with
             | Ok result ->

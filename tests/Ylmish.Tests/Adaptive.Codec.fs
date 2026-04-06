@@ -81,7 +81,9 @@ module private Example =
         member __.bar = _bar_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.string>
         member __.things = _things_ :> FSharp.Data.Adaptive.alist<AdaptiveThing>
 
-    // Written by hand.
+    // A model with a persisted and a non-persisted field, used to test `ask`.
+    type ModelWithTransient = { persisted : string; transient : int }
+
     module Codec =
         module Things =
             let encode (athing : AdaptiveThing) = Encode.object [
@@ -89,7 +91,7 @@ module private Example =
                 "value", athing.value |> Encode.value string
             ]
 
-            let decode : Decoder<_,Thing> = Decode.object {
+            let decode : Decoder<_,_,Thing> = Decode.object {
                 let! name = Decode.object.required "name" Decode.value
                 let! value = Decode.object.required "value" Decode.tryParse
                 return {
@@ -104,7 +106,7 @@ module private Example =
             "things", amodel.things |> Encode.list Things.encode
         ]
 
-        let decode : Decoder<_,_> = Decode.object {
+        let decode : Decoder<_,_,_> = Decode.object {
             let! things = Decode.object.required "things" (Decode.list.required Things.decode)
             let! foo = Decode.object.required "foo" Decode.tryParse
             let! bar = Decode.object.required "bar" Decode.value
@@ -115,10 +117,21 @@ module private Example =
             }
         }
 
+        module WithTransient =
+            let encode (am : ModelWithTransient cval) = Encode.object [
+                "persisted", am |> AVal.map (fun m -> m.persisted) |> Encode.value id
+            ]
+
+            let decode : Decoder<ModelWithTransient, _, ModelWithTransient> = Decode.object {
+                let! current = Decode.object.ask ()
+                let! persisted = Decode.object.required "persisted" Decode.value
+                return { persisted = persisted; transient = current.transient }
+            }
+
 
 module private Decode =
     let inline force decoder encoded =
-        Decode.run decoder encoded
+        Decode.run () decoder encoded
         |> Decoded.mapError Error.printAll
         |> AVal.force
         |> function
@@ -174,7 +187,7 @@ let tests = testList "Ylmish.Adaptive.Codec" [
         let model' =
             model
             |> Example.Codec.Things.encode
-            |> Decode.run Example.Codec.Things.decode
+            |> Decode.run () Example.Codec.Things.decode
             |> Decoded.mapError Error.printAll
             |> AVal.map (function
             | Ok r -> r
@@ -191,4 +204,19 @@ let tests = testList "Ylmish.Adaptive.Codec" [
             Expect.equal value1 value2 ""
          )
     }
+
+    testCase "ask preserves non-persisted field" <| fun _ ->
+        let currentModel : Example.ModelWithTransient = { persisted = "old"; transient = 42 }
+        let am = cval currentModel
+        let encoded = Example.Codec.WithTransient.encode am
+        let decoded =
+            Decode.run currentModel Example.Codec.WithTransient.decode encoded
+            |> Decoded.mapError Error.printAll
+            |> AVal.force
+
+        match decoded with
+        | Ok result ->
+            Expect.equal result.persisted "old" "persisted field should come from encoded data"
+            Expect.equal result.transient 42 "transient field should be preserved from current model via ask"
+        | Error e -> invalidOp e
 ]

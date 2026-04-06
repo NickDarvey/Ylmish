@@ -31,7 +31,7 @@ type YlmishOptions<'model, 'amodel> = {
     Create : 'model -> 'amodel
     Update : 'amodel -> 'model -> unit
     Encode : Encoder<'amodel, Element<string>>
-    Decode : Decoder<Element<string>, 'model>
+    Decode : Decoder<'model, Element<string>, 'model>
     Doc : Y.Doc
 }
 
@@ -90,7 +90,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                 let handler _ _ =
                     if not isWritingToYDoc then
                         let element = Y.Doc.dematerialize options.Doc
-                        let decoded = Decode.run options.Decode (AVal.constant (Some element))
+                        let decoded = Decode.run model options.Decode (AVal.constant (Some element))
                         match AVal.force decoded with
                         | Ok restoredModel -> dispatch (Set restoredModel)
                         | Error errors -> eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
@@ -116,7 +116,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
         if hasExistingState then
             // Dematerialize existing Y.Doc state and decode it
             let element = Y.Doc.dematerialize options.Doc
-            let decoded = Decode.run options.Decode (AVal.constant (Some element))
+            let decoded = Decode.run m options.Decode (AVal.constant (Some element))
             match AVal.force decoded with
             | Ok restoredModel ->
                 options.Update am restoredModel
