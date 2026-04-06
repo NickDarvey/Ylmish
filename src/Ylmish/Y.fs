@@ -194,45 +194,43 @@ module Text =
     //  > we could arguably hide this implementation behind a combinator AList.observe : action : (State<'a> -> Delta<'a> -> unit) -> list : alist<'a> -> IDisposable
     // Alternatively, a different kind of wrapping:
     //  https://github.com/krauthaufen/Fable.Elmish.Adaptive/blob/master/src/Fable.React.Adaptive/AdaptiveHelpers.fs
-    let private attach (atext : char clist) (ytext : Y.Text) : IDisposable =
-        let mutable active = false // Prevent reentrancy with a flag
-        let disposeYObserver =
-            // https://docs.yjs.dev/api/delta-format
-            let observeY (e : Y.Text.Event) (_ : Y.Transaction) =
-                if not active then
-                    active <- true
-                    try
-                        transact (fun () -> Impl.applyYDelta e.delta atext)
-                    finally
-                        active <- false
+    /// Attach Yjs→Adaptive (decode) direction: observes changes on the Y.Text and applies them to the clist.
+    let attachDecode (active : bool ref) (atext : char clist) (ytext : Y.Text) : IDisposable =
+        // https://docs.yjs.dev/api/delta-format
+        let observeY (e : Y.Text.Event) (_ : Y.Transaction) =
+            if not active.Value then
+                active.Value <- true
+                try
+                    transact (fun () -> Impl.applyYDelta e.delta atext)
+                finally
+                    active.Value <- false
 
-            ytext.observe observeY
-            {
-                new System.IDisposable with
-                    member _.Dispose () = ytext.unobserve observeY
-            }
+        ytext.observe observeY
+        {
+            new System.IDisposable with
+                member _.Dispose () = ytext.unobserve observeY
+        }
 
-        let disposeAdaptiveCallback =
-            let mutable initialisationCallback = true
+    /// Attach Adaptive→Yjs (encode) direction: observes changes on the clist and applies them to the Y.Text.
+    let attachEncode (active : bool ref) (atext : char clist) (ytext : Y.Text) : IDisposable =
+        let mutable initialisationCallback = true
 
-            atext.AddCallback(fun list delta ->
-                if initialisationCallback then
-                    // Skip the first callback - it's to perform initialisation, which we've already done
-                    // before this function is called
-                    initialisationCallback <- false
-                else if not active then
-                    active <- true
-                    try
-                    match ytext.doc with
-                    | Some doc ->
-                        doc.transact(fun _tr -> Impl.applyAdaptiveDelta list delta ytext)
-                    | None -> failwith $"ytext is not associated with a document"
+        atext.AddCallback(fun list delta ->
+            if initialisationCallback then
+                // Skip the first callback - it's to perform initialisation, which we've already done
+                // before this function is called
+                initialisationCallback <- false
+            else if not active.Value then
+                active.Value <- true
+                try
+                match ytext.doc with
+                | Some doc ->
+                    doc.transact(fun _tr -> Impl.applyAdaptiveDelta list delta ytext)
+                | None -> failwith $"ytext is not associated with a document"
 
-                    finally
-                        active <- false
-            )
-
-        new CompositeDisposable (disposeYObserver, disposeAdaptiveCallback)
+                finally
+                    active.Value <- false
+        )
 
     let ofAdaptive (atext : char clist) : Y.Text =
         let initial = System.String.Concat(atext)
@@ -245,12 +243,16 @@ module Text =
         //  But then I realised the subject would never be cleaned-up _because_ of our subscription.
         //  Is this useful?
         //  https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakRef
-        let _ = attach atext ytext
+        let active = ref false
+        let _ = attachDecode active atext ytext
+        let _ = attachEncode active atext ytext
         ytext
 
     let toAdaptive (ytext : Y.Text) : char clist =
         let atext : char clist = ytext.toString () :> _ seq |> clist
-        let _ = attach atext ytext
+        let active = ref false
+        let _ = attachDecode active atext ytext
+        let _ = attachEncode active atext ytext
         atext
 
 [<RequireQualifiedAccess>]
@@ -266,53 +268,52 @@ module Array =
                 (fun  y i length         -> y.delete(i, length))
                 list delta y
 
-    // TODO: this is almost duplicated from Text.attach - unify them?
-    let private attach (alist : clist<A.Element option>) (yarray : Y.Array<Y.Element option>) : IDisposable =
-        let mutable active = false // Prevent reentrancy with a flag
-        let disposeYObserver =
-            // https://docs.yjs.dev/api/delta-format
-            let observeY (e : Y.Array.Event<Y.Element option>) (_ : Y.Transaction) =
-                if not active then
-                    active <- true
-                    try
-                        transact (fun () -> Impl.applyYDelta e.delta alist)
-                    finally
-                        active <- false
+    /// Attach Yjs→Adaptive (decode) direction: observes changes on the Y.Array and applies them to the clist.
+    let attachDecode (active : bool ref) (alist : clist<A.Element option>) (yarray : Y.Array<Y.Element option>) : IDisposable =
+        // https://docs.yjs.dev/api/delta-format
+        let observeY (e : Y.Array.Event<Y.Element option>) (_ : Y.Transaction) =
+            if not active.Value then
+                active.Value <- true
+                try
+                    transact (fun () -> Impl.applyYDelta e.delta alist)
+                finally
+                    active.Value <- false
 
-            yarray.observe observeY
-            {
-                new System.IDisposable with
-                    member _.Dispose () = yarray.unobserve observeY
-            }
+        yarray.observe observeY
+        {
+            new System.IDisposable with
+                member _.Dispose () = yarray.unobserve observeY
+        }
 
-        let disposeAdaptiveCallback =
-            let mutable initialisationCallback = true
+    /// Attach Adaptive→Yjs (encode) direction: observes changes on the clist and applies them to the Y.Array.
+    let attachEncode (active : bool ref) (alist : clist<A.Element option>) (yarray : Y.Array<Y.Element option>) : IDisposable =
+        let mutable initialisationCallback = true
 
-            alist.AddCallback(fun list delta ->
-                if initialisationCallback then
-                    // Skip the first callback - it's to perform initialisation, which we've already done
-                    // before this function is called
-                    initialisationCallback <- false
-                else if not active then
-                    active <- true
-                    try
-                    match yarray.doc with
-                    | Some doc ->
-                        doc.transact(fun _tr -> Impl.applyAdaptiveDelta list delta yarray)
-                    | None -> failwith $"yarray is not associated with a document"
+        alist.AddCallback(fun list delta ->
+            if initialisationCallback then
+                // Skip the first callback - it's to perform initialisation, which we've already done
+                // before this function is called
+                initialisationCallback <- false
+            else if not active.Value then
+                active.Value <- true
+                try
+                match yarray.doc with
+                | Some doc ->
+                    doc.transact(fun _tr -> Impl.applyAdaptiveDelta list delta yarray)
+                | None -> failwith $"yarray is not associated with a document"
 
-                    finally
-                        active <- false
-            )
-
-        new CompositeDisposable (disposeYObserver, disposeAdaptiveCallback)
+                finally
+                    active.Value <- false
+        )
 
     let toAdaptive (yarray : Y.Array<Y.Element option>) : clist<A.Element option> =
         let alist =
             yarray
             |> Seq.map (Option.map Element.toAdaptive)
             |> clist
-        let _ = attach alist yarray
+        let active = ref false
+        let _ = attachDecode active alist yarray
+        let _ = attachEncode active alist yarray
         alist
 
     let ofAdaptive (alist : alist<A.Element option>) : Y.Array<Y.Element option> =
@@ -324,72 +325,69 @@ module Array =
         yarray
 
 module Map =
-    let private attach (amap : cmap<string, A.Element option>) (ymap : Y.Map<Y.Element option>) : IDisposable =
-        let mutable active = false // Prevent reentrancy with a flag
+    /// Attach Yjs→Adaptive (decode) direction: observes changes on the Y.Map and applies them to the cmap.
+    let attachDecode (active : bool ref) (amap : cmap<string, A.Element option>) (ymap : Y.Map<Y.Element option>) : IDisposable =
+        let observeY (e : Yjs.Types.YMap.YMapEvent<Y.Element option>) (_ : Y.Transaction) =
+            if not active.Value then
+                active.Value <- true
+                try
+                    transact (fun () ->
+                        // JS.Set.forEach has signature: (value, value2, set) -> unit
+                        // But we can also convert it to an array
+                        let keysSet : Fable.Core.JS.Set<obj option> = e.keysChanged
+                        keysSet.forEach(fun key _ _ ->
+                            match key with
+                            | Some k ->
+                                let keyStr = string k
+                                match ymap.get keyStr with
+                                | Some (Some yelement) ->
+                                    amap.[keyStr] <- Some (Element.toAdaptive yelement)
+                                | Some None ->
+                                    amap.[keyStr] <- None
+                                | None ->
+                                    amap.Remove keyStr |> ignore
+                            | None -> ()
+                        )
+                    )
+                finally
+                    active.Value <- false
 
-        let disposeYObserver =
-            let observeY (e : Yjs.Types.YMap.YMapEvent<Y.Element option>) (_ : Y.Transaction) =
-                if not active then
-                    active <- true
-                    try
-                        transact (fun () ->
-                            // JS.Set.forEach has signature: (value, value2, set) -> unit
-                            // But we can also convert it to an array
-                            let keysSet : Fable.Core.JS.Set<obj option> = e.keysChanged
-                            keysSet.forEach(fun key _ _ ->
-                                match key with
-                                | Some k ->
-                                    let keyStr = string k
-                                    match ymap.get keyStr with
-                                    | Some (Some yelement) ->
-                                        amap.[keyStr] <- Some (Element.toAdaptive yelement)
-                                    | Some None ->
-                                        amap.[keyStr] <- None
-                                    | None ->
-                                        amap.Remove keyStr |> ignore
-                                | None -> ()
+        ymap.observe observeY
+        {
+            new System.IDisposable with
+                member _.Dispose () = ymap.unobserve observeY
+        }
+
+    /// Attach Adaptive→Yjs (encode) direction: observes changes on the cmap and applies them to the Y.Map.
+    let attachEncode (active : bool ref) (amap : cmap<string, A.Element option>) (ymap : Y.Map<Y.Element option>) : IDisposable =
+        let mutable initialisationCallback = true
+
+        amap.AddCallback(fun _ delta ->
+            if initialisationCallback then
+                initialisationCallback <- false
+            else if not active.Value then
+                active.Value <- true
+                try
+                    match ymap.doc with
+                    | Some doc ->
+                        doc.transact(fun _tr ->
+                            // Iterate over HashMapDelta - it's a seq of (key, operation) tuples
+                            delta
+                            |> Seq.iter (fun (key, op) ->
+                                match op with
+                                | Set (Some value) ->
+                                    let yelement = Element.ofAdaptive value
+                                    ymap.set(key, Some yelement) |> ignore
+                                | Set None ->
+                                    ymap.set(key, None) |> ignore
+                                | Remove ->
+                                    ymap.delete key
                             )
                         )
-                    finally
-                        active <- false
-
-            ymap.observe observeY
-            {
-                new System.IDisposable with
-                    member _.Dispose () = ymap.unobserve observeY
-            }
-
-        let disposeAdaptiveCallback =
-            let mutable initialisationCallback = true
-
-            amap.AddCallback(fun _ delta ->
-                if initialisationCallback then
-                    initialisationCallback <- false
-                else if not active then
-                    active <- true
-                    try
-                        match ymap.doc with
-                        | Some doc ->
-                            doc.transact(fun _tr ->
-                                // Iterate over HashMapDelta - it's a seq of (key, operation) tuples
-                                delta
-                                |> Seq.iter (fun (key, op) ->
-                                    match op with
-                                    | Set (Some value) ->
-                                        let yelement = Element.ofAdaptive value
-                                        ymap.set(key, Some yelement) |> ignore
-                                    | Set None ->
-                                        ymap.set(key, None) |> ignore
-                                    | Remove ->
-                                        ymap.delete key
-                                )
-                            )
-                        | None -> failwith $"ymap is not associated with a document"
-                    finally
-                        active <- false
-            )
-
-        new CompositeDisposable (disposeYObserver, disposeAdaptiveCallback)
+                    | None -> failwith $"ymap is not associated with a document"
+                finally
+                    active.Value <- false
+        )
 
     let toAdaptive (ymap : Y.Map<Y.Element option>) : cmap<string, A.Element option> =
         let amap = cmap ()
@@ -398,7 +396,9 @@ module Map =
             | Some yelement -> amap.[key] <- Some (Element.toAdaptive yelement)
             | None -> amap.[key] <- None
         ) |> ignore
-        let _ = attach amap ymap
+        let active = ref false
+        let _ = attachDecode active amap ymap
+        let _ = attachEncode active amap ymap
         amap
 
     /// Convert a read-only adaptive map to a Y.Map (one-way, no observers).
@@ -420,7 +420,9 @@ module Map =
             ymap.set(key, Option.map Element.ofAdaptive value) |> ignore
         )
         // Attach observers for bi-directional synchronization
-        let _ = attach amap ymap
+        let active = ref false
+        let _ = attachDecode active amap ymap
+        let _ = attachEncode active amap ymap
         ymap
 
 module Element =
