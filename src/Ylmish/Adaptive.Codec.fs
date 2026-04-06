@@ -300,10 +300,10 @@ module Decode =
                 |}
 
         let list (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
-            let f i el = f model (ArrayIndex i :: path, el)
+            let decodeAt i el = f model (ArrayIndex i :: path, el)
             match el with
             | Element.AList v ->
-                v |> Decoded.traversei f
+                v |> Decoded.traversei decodeAt
             | el ->
                 Decoded.error <| UnexpectedKind {|
                     Path = path
