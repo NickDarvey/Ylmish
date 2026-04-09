@@ -232,6 +232,18 @@ module Text =
                     active.Value <- false
         )
 
+    /// Attach bi-directional synchronization between an adaptive clist and a Y.Text.
+    /// Returns a combined IDisposable that will unsubscribe both directions when disposed.
+    let attach (active : bool ref) (atext : char clist) (ytext : Y.Text) : IDisposable =
+        let decodeDisposable = attachDecode active atext ytext
+        let encodeDisposable = attachEncode active atext ytext
+        {
+            new System.IDisposable with
+                member _.Dispose () =
+                    decodeDisposable.Dispose()
+                    encodeDisposable.Dispose()
+        }
+
     let ofAdaptive (atext : char clist) : Y.Text =
         let initial = System.String.Concat(atext)
         let ytext = Y.Text.Create (initial)
@@ -244,15 +256,13 @@ module Text =
         //  Is this useful?
         //  https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/WeakRef
         let active = ref false
-        let _ = attachDecode active atext ytext
-        let _ = attachEncode active atext ytext
+        let _ = attach active atext ytext
         ytext
 
     let toAdaptive (ytext : Y.Text) : char clist =
         let atext : char clist = ytext.toString () :> _ seq |> clist
         let active = ref false
-        let _ = attachDecode active atext ytext
-        let _ = attachEncode active atext ytext
+        let _ = attach active atext ytext
         atext
 
 [<RequireQualifiedAccess>]
@@ -306,14 +316,25 @@ module Array =
                     active.Value <- false
         )
 
+    /// Attach bi-directional synchronization between an adaptive clist and a Y.Array.
+    /// Returns a combined IDisposable that will unsubscribe both directions when disposed.
+    let attach (active : bool ref) (alist : clist<A.Element option>) (yarray : Y.Array<Y.Element option>) : IDisposable =
+        let decodeDisposable = attachDecode active alist yarray
+        let encodeDisposable = attachEncode active alist yarray
+        {
+            new System.IDisposable with
+                member _.Dispose () =
+                    decodeDisposable.Dispose()
+                    encodeDisposable.Dispose()
+        }
+
     let toAdaptive (yarray : Y.Array<Y.Element option>) : clist<A.Element option> =
         let alist =
             yarray
             |> Seq.map (Option.map Element.toAdaptive)
             |> clist
         let active = ref false
-        let _ = attachDecode active alist yarray
-        let _ = attachEncode active alist yarray
+        let _ = attach active alist yarray
         alist
 
     let ofAdaptive (alist : alist<A.Element option>) : Y.Array<Y.Element option> =
@@ -389,6 +410,18 @@ module Map =
                     active.Value <- false
         )
 
+    /// Attach bi-directional synchronization between an adaptive cmap and a Y.Map.
+    /// Returns a combined IDisposable that will unsubscribe both directions when disposed.
+    let attach (active : bool ref) (amap : cmap<string, A.Element option>) (ymap : Y.Map<Y.Element option>) : IDisposable =
+        let decodeDisposable = attachDecode active amap ymap
+        let encodeDisposable = attachEncode active amap ymap
+        {
+            new System.IDisposable with
+                member _.Dispose () =
+                    decodeDisposable.Dispose()
+                    encodeDisposable.Dispose()
+        }
+
     let toAdaptive (ymap : Y.Map<Y.Element option>) : cmap<string, A.Element option> =
         let amap = cmap ()
         ymap.forEach(fun value key _map ->
@@ -397,8 +430,7 @@ module Map =
             | None -> amap.[key] <- None
         ) |> ignore
         let active = ref false
-        let _ = attachDecode active amap ymap
-        let _ = attachEncode active amap ymap
+        let _ = attach active amap ymap
         amap
 
     /// Convert a read-only adaptive map to a Y.Map (one-way, no observers).
@@ -421,8 +453,7 @@ module Map =
         )
         // Attach observers for bi-directional synchronization
         let active = ref false
-        let _ = attachDecode active amap ymap
-        let _ = attachEncode active amap ymap
+        let _ = attach active amap ymap
         ymap
 
 module Element =

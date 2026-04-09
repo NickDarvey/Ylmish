@@ -6,6 +6,7 @@ let tests = [
    Adaptive.Codec.tests
    Y.Delta.tests
    Y.Text.tests
+   Y.Array.tests
    Y.Map.tests
    Y.Element.tests
    Y.Doc.tests

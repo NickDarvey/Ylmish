@@ -196,4 +196,147 @@ let tests = testList "Y.Map" [
             Expect.isFalse (ymap.has "a") "ymap should not contain 'a'"
         }
     ]
+
+    testList "attachDecode (decode-only)" [
+        test "attachDecode observes Y.Map changes and updates adaptive cmap" {
+            let ydoc = Y.Doc.Create ()
+            let ymap = ydoc.getMap "test"
+            ymap.set("a", Some (Y.Y.Element.String "value1")) |> ignore
+
+            let amap = cmap ()
+            ymap.forEach(fun value key _map ->
+                match value with
+                | Some yelement -> amap.[key] <- Some (Y.Element.toAdaptive yelement)
+                | None -> amap.[key] <- None
+            ) |> ignore
+
+            let active = ref false
+            let _ = Y.Map.attachDecode active amap ymap
+
+            // Insert from Yjs side should be reflected in adaptive
+            ymap.set("b", Some (Y.Y.Element.String "value2")) |> ignore
+
+            Expect.equal (amap.["b"]) (Some (Y.A.Element.Value (Y.A.Value.String "value2"))) "amap should reflect Y.Map change"
+        }
+
+        test "attachDecode does not sync Adaptive→Yjs (encode direction is not attached)" {
+            let ydoc = Y.Doc.Create ()
+            let ymap = ydoc.getMap "test"
+            ymap.set("a", Some (Y.Y.Element.String "value1")) |> ignore
+
+            let amap = cmap ()
+            ymap.forEach(fun value key _map ->
+                match value with
+                | Some yelement -> amap.[key] <- Some (Y.Element.toAdaptive yelement)
+                | None -> amap.[key] <- None
+            ) |> ignore
+
+            let active = ref false
+            let _ = Y.Map.attachDecode active amap ymap
+
+            // Insert from adaptive side should NOT be reflected in ymap
+            transact (fun () -> amap.["b"] <- Some (Y.A.Element.Value (Y.A.Value.String "value2")))
+
+            Expect.equal (amap.["b"]) (Some (Y.A.Element.Value (Y.A.Value.String "value2"))) "amap should have the new key"
+            Expect.isFalse (ymap.has "b") "ymap should NOT have the new key (encode not attached)"
+        }
+    ]
+
+    testList "attachEncode (encode-only)" [
+        test "attachEncode observes adaptive changes and updates Y.Map" {
+            let ydoc = Y.Doc.Create ()
+            let amap = cmap [ "a", Some (Y.A.Element.Value (Y.A.Value.String "value1")) ]
+            let ymap = Y.Map.Create ()
+            AMap.force amap
+            |> HashMap.iter (fun key value ->
+                ymap.set(key, Option.map Y.Element.ofAdaptive value) |> ignore
+            )
+            let _ = ydoc.getMap("container").set("test", ymap)
+
+            let active = ref false
+            let _ = Y.Map.attachEncode active amap ymap
+
+            // Insert from adaptive side should be reflected in Yjs
+            transact (fun () -> amap.["b"] <- Some (Y.A.Element.Value (Y.A.Value.String "value2")))
+
+            match ymap.get "b" with
+            | Some (Some (Y.Y.Element.String s)) -> Expect.equal s "value2" "ymap should reflect adaptive change"
+            | _ -> failwith "ymap 'b' should be a string 'value2'"
+        }
+
+        test "attachEncode does not sync Yjs→Adaptive (decode direction is not attached)" {
+            let ydoc = Y.Doc.Create ()
+            let amap = cmap [ "a", Some (Y.A.Element.Value (Y.A.Value.String "value1")) ]
+            let ymap = Y.Map.Create ()
+            AMap.force amap
+            |> HashMap.iter (fun key value ->
+                ymap.set(key, Option.map Y.Element.ofAdaptive value) |> ignore
+            )
+            let _ = ydoc.getMap("container").set("test", ymap)
+
+            let active = ref false
+            let _ = Y.Map.attachEncode active amap ymap
+
+            // Insert from Yjs side should NOT be reflected in amap
+            ymap.set("b", Some (Y.Y.Element.String "value2")) |> ignore
+
+            Expect.isFalse (amap.ContainsKey "b") "amap should NOT have the new key (decode not attached)"
+            Expect.isTrue (ymap.has "b") "ymap should have the new key"
+        }
+    ]
+
+    testList "attach (bi-directional helper)" [
+        test "attach synchronizes both directions with shared reentrancy guard" {
+            let ydoc = Y.Doc.Create ()
+            let ymap = ydoc.getMap "test"
+            ymap.set("a", Some (Y.Y.Element.String "value1")) |> ignore
+
+            let amap = cmap ()
+            ymap.forEach(fun value key _map ->
+                match value with
+                | Some yelement -> amap.[key] <- Some (Y.Element.toAdaptive yelement)
+                | None -> amap.[key] <- None
+            ) |> ignore
+
+            let active = ref false
+            use disposable = Y.Map.attach active amap ymap
+
+            // Insert from Yjs side
+            ymap.set("b", Some (Y.Y.Element.String "value2")) |> ignore
+            Expect.equal (amap.["b"]) (Some (Y.A.Element.Value (Y.A.Value.String "value2"))) "amap should reflect Y.Map change"
+
+            // Insert from adaptive side
+            transact (fun () -> amap.["c"] <- Some (Y.A.Element.Value (Y.A.Value.String "value3")))
+            match ymap.get "c" with
+            | Some (Some (Y.Y.Element.String s)) -> Expect.equal s "value3" "ymap should reflect adaptive change"
+            | _ -> failwith "ymap 'c' should be a string"
+
+            // Dispose should work correctly
+            disposable.Dispose()
+        }
+
+        test "attach prevents feedback loops with shared reentrancy guard" {
+            let ydoc = Y.Doc.Create ()
+            let ymap = ydoc.getMap "test"
+            ymap.set("a", Some (Y.Y.Element.String "value1")) |> ignore
+
+            let amap = cmap ()
+            ymap.forEach(fun value key _map ->
+                match value with
+                | Some yelement -> amap.[key] <- Some (Y.Element.toAdaptive yelement)
+                | None -> amap.[key] <- None
+            ) |> ignore
+
+            let active = ref false
+            let _ = Y.Map.attach active amap ymap
+
+            // This should not cause infinite loop
+            transact (fun () -> amap.["b"] <- Some (Y.A.Element.Value (Y.A.Value.String "value2")))
+
+            Expect.equal (amap.["b"]) (Some (Y.A.Element.Value (Y.A.Value.String "value2"))) "amap should have expected value"
+            match ymap.get "b" with
+            | Some (Some (Y.Y.Element.String s)) -> Expect.equal s "value2" "ymap should have expected value"
+            | _ -> failwith "ymap 'b' should be a string"
+        }
+    ]
 ]
