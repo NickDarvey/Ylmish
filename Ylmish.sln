@@ -26,6 +26,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_", "_", "{536FB20B-F8AA-49
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Fable.Yjs", "src\Fable.Yjs\Fable.Yjs.fsproj", "{BD70D1A1-5352-4DAF-BA5C-319E6255538F}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{4B1822F8-FD59-488E-B0ED-FDBDE19FEB3F}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "TodoCollaborative", "examples\TodoCollaborative\TodoCollaborative.fsproj", "{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -44,6 +48,10 @@ Global
 		{BD70D1A1-5352-4DAF-BA5C-319E6255538F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BD70D1A1-5352-4DAF-BA5C-319E6255538F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BD70D1A1-5352-4DAF-BA5C-319E6255538F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -52,6 +60,7 @@ Global
 		{7A90BC6B-8DAE-4044-9496-4C7CFDF9AE45} = {2A69D5AF-F713-4968-9403-8953450C8BD0}
 		{FE4454EA-DA30-4F8B-A268-01CF891C351B} = {AC09B653-3BA2-4D37-9943-1808FA52D8C5}
 		{BD70D1A1-5352-4DAF-BA5C-319E6255538F} = {2A69D5AF-F713-4968-9403-8953450C8BD0}
+		{6894FDE3-9C7E-4A03-98A0-F91DFFEF5790} = {4B1822F8-FD59-488E-B0ED-FDBDE19FEB3F}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {1F39FF07-7313-4138-8789-B339316713C4}
