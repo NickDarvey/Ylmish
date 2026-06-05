@@ -67,6 +67,7 @@ let tests = testList "TodoCollaborative" [
         let decoded1 = Codec.decode model2 ([], element1) |> AVal.force
         match decoded1 with
         | Ok result ->
+            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc1 after sync"
             Expect.equal result.NewItem "" "NewItem should be empty after sync"
         | Error errors ->
             failwithf "Failed to decode doc1 after bidirectional sync: %s" (Error.printAll errors)
@@ -75,6 +76,7 @@ let tests = testList "TodoCollaborative" [
         let decoded2 = Codec.decode model2 ([], element2) |> AVal.force
         match decoded2 with
         | Ok result ->
+            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc2 after sync"
             Expect.equal result.NewItem "" "NewItem should be empty on doc2"
         | Error errors ->
             failwithf "Failed to decode doc2 after bidirectional sync: %s" (Error.printAll errors)
