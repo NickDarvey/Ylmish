@@ -13,9 +13,9 @@
   "scripts": {
     "install": "dotnet restore && dotnet tool restore",
     "adaptify": "dotnet msbuild tests/Ylmish.Tests/Ylmish.Tests.fsproj /t:AdaptifyLocal",
-    "mocha": "dotnet fable tests/Ylmish.Tests/Ylmish.Tests.fsproj -o build/tests/Ylmish.Tests --sourceMaps --run node_modules/.bin/mocha",
+    "mocha": "dotnet fable tests/Ylmish.Tests/Ylmish.Tests.fsproj -o build/tests/Ylmish.Tests --sourceMaps --run mocha",
     "watch-adaptify-tests": "dotnet watch --verbose --project tests/Ylmish.Tests/Ylmish.Tests.fsproj -- msbuild Ylmish.Tests.fsproj /t:AdaptifyLocal",
-    "watch-fable-and-mocha": "dotnet fable watch tests/Ylmish.Tests/Ylmish.Tests.fsproj -o build/tests/Ylmish.Tests --sourceMaps --run node_modules/.bin/mocha --watch",
+    "watch-fable-and-mocha": "dotnet fable watch tests/Ylmish.Tests/Ylmish.Tests.fsproj -o build/tests/Ylmish.Tests --sourceMaps --run mocha --watch",
     "test+watch": "concurrently --kill-others --names \"Fable/Mocha,Adaptify\" -c green,cyan \"npm:watch-fable-and-mocha\" \"npm:watch-adaptify-tests\"",
     "test": "npm run adaptify && npm run mocha"
   },

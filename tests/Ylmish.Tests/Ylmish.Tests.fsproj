@@ -1,9 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Hedgehog.fs" />
     <Compile Include="common\Example.fs" />
     <Compile Include="common\Example.g.fs" />
     <Compile Include="common\Elmish.fs" />
@@ -27,7 +28,6 @@
     <PackageReference Include="Expecto" />
     <PackageReference Include="Fable.Mocha" />
     <PackageReference Include="FSharp.Core" />
-    <PackageReference Include="Hedgehog" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="YoloDev.Expecto.TestSdk" />
   </ItemGroup>

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "dependencies": {
-    "net6.0": {
+    "net10.0": {
       "Adaptify.Core": {
         "type": "Direct",
         "requested": "[1.3.4, )",
@@ -55,17 +55,12 @@
           "Fable.Core": "3.0.0"
         }
       },
-      "System.Reflection.Emit.Lightweight": {
-        "type": "Transitive",
-        "resolved": "4.6.0",
-        "contentHash": "j/V5HVvxvBQ7uubYD0PptQW2KGsi1Pc2kZ9yfwLixv3ADdjL/4M78KyC5e+ymW612DY8ZE4PFoZmWpoNmN2mqg=="
-      },
       "fable.yjs": {
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[7.0.200, )",
           "Fable.Browser.Dom": "[2.10.1, )",
-          "Fable.Core": "[4.5.0, )"
+          "Fable.Core": "[5.0.0, )"
         }
       },
       "ylmish": {
@@ -92,9 +87,12 @@
       },
       "Fable.Core": {
         "type": "CentralTransitive",
-        "requested": "[4.5.0, )",
-        "resolved": "4.5.0",
-        "contentHash": "ZcX8XN5sQZGCbrS8VYnsa/ynhrCBfpDyqDkTl33GTXOpgfKibxoq0+W0hCSbRzuukVNoLtqGL/B6+8yTNDXbNA=="
+        "requested": "[5.0.0, )",
+        "resolved": "5.0.0",
+        "contentHash": "pJOXJjfhjvNa1cgtF+klgR3DxQI7x9D/fFzZbjUBZLBJyYIioPsTFsKUnIOqNdCq1Oby9lINUSwnL4TqspMQOA==",
+        "dependencies": {
+          "FSharp.Core": "4.7.2"
+        }
       },
       "Fable.Elmish": {
         "type": "CentralTransitive",
@@ -112,8 +110,7 @@
         "resolved": "1.2.26",
         "contentHash": "rVpjefX62kAMYfdy2G/0ouX7glevjg8jQOmfnhaxSO5HVVbvR62cWEv0EqSx70Oyp+bP4xliToWN0UhPxBZNSQ==",
         "dependencies": {
-          "FSharp.Core": "4.7.0",
-          "System.Reflection.Emit.Lightweight": "4.6.0"
+          "FSharp.Core": "4.7.0"
         }
       }
     }
