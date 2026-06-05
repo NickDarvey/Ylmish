@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Model.fs" />
+    <Compile Include="Model.g.fs" />
+    <Compile Include="Codec.fs" />
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Ylmish/Ylmish.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Adaptify.Core" />
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+</Project>

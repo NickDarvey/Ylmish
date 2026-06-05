@@ -11,6 +11,7 @@ let tests = [
    Y.Element.tests
    Y.Doc.tests
    Program.tests
+   TodoCollaborative.tests
 ]
 
 #if FABLE_COMPILER

@@ -15,10 +15,12 @@
     <Compile Include="Y.Element.fs" />
     <Compile Include="Y.Doc.fs" />
     <Compile Include="Program.fs" />
+    <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Ylmish/Ylmish.fsproj" />
+    <ProjectReference Include="../../examples/TodoCollaborative/TodoCollaborative.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Adaptify.Core" />
