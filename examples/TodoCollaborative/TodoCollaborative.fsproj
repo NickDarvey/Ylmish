@@ -7,6 +7,7 @@
     <Compile Include="Model.g.fs" />
     <Compile Include="Codec.fs" />
     <Compile Include="Main.fs" />
+    <Compile Include="Demo.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Ylmish/Ylmish.fsproj" />
