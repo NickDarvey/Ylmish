@@ -52,5 +52,11 @@ jobs:
     - name: Pack Ylmish
       run: dotnet pack src/Ylmish/Ylmish.fsproj -c Release -p:Version=${{ steps.gitversion.outputs.nuGetVersionV2 }} -o ./artifacts
 
+    - name: NuGet login (OIDC → temp API key)
+      id: nuget-login
+      uses: NuGet/login@v1
+      with:
+        user: ${{ github.repository_owner }}
+
     - name: Push to NuGet
-      run: dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --skip-duplicate
+      run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
