@@ -2,6 +2,21 @@
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
 
+		<!-- Package metadata -->
+		<PackageId>Ylmish</PackageId>
+		<Title>Ylmish</Title>
+		<Description>Real-time, collaborative apps with a delightful programming model. Integrates Yjs and Elmish via Fable and FSharp.Data.Adaptive.</Description>
+		<Authors>NickDarvey</Authors>
+		<PackageProjectUrl>https://github.com/NickDarvey/Ylmish</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/NickDarvey/Ylmish</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageLicenseExpression>MIT</PackageLicenseExpression>
+		<PackageTags>fsharp;fable;elmish;yjs;crdt;collaborative;realtime;adaptive</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
 	</PropertyGroup>
 	<ItemGroup>
 		<ProjectReference Include="../Fable.Yjs/Fable.Yjs.fsproj" />
@@ -13,8 +28,8 @@
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>
-	<Content Include="*.fsproj; *.fs; *.js" Exclude="**\*.fs.js" PackagePath="fable\" Visible="false" />
-
+		<Content Include="*.fsproj; *.fs; *.js" Exclude="**\*.fs.js" PackagePath="fable\" Visible="false" />
+		<None Include="../../README.md" Pack="true" PackagePath="/" />
 	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="FSharp.Core" />

@@ -1,0 +1,14 @@
+mode: ContinuousDeployment
+branches:
+  master:
+    tag: beta
+    increment: Patch
+    is-source-branch-for: []
+  pull-request:
+    tag: PullRequest
+    increment: Inherit
+    track-merge-target: true
+ignore:
+  sha: []
+merge-message-formats: {}
+next-version: 1.0.0
