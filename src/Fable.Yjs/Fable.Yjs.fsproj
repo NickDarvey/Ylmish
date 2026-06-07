@@ -1,6 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
       <TargetFramework>netstandard2.0</TargetFramework>
+
+      <!-- Package metadata -->
+      <PackageId>Fable.Yjs</PackageId>
+      <Title>Fable.Yjs</Title>
+      <Description>Fable bindings for Yjs - a high-performance CRDT for building collaborative applications.</Description>
+      <Authors>NickDarvey</Authors>
+      <PackageProjectUrl>https://github.com/NickDarvey/Ylmish</PackageProjectUrl>
+      <RepositoryUrl>https://github.com/NickDarvey/Ylmish</RepositoryUrl>
+      <RepositoryType>git</RepositoryType>
+      <PackageLicenseExpression>MIT</PackageLicenseExpression>
+      <PackageTags>fsharp;fable;yjs;crdt;collaborative;realtime;bindings</PackageTags>
+      <PackageReadmeFile>README.md</PackageReadmeFile>
+      <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+      <IncludeSymbols>true</IncludeSymbols>
+      <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
     </PropertyGroup>
     <PropertyGroup>
       <NpmDependencies>
@@ -13,6 +29,7 @@
     </ItemGroup>
     <ItemGroup>
       <Content Include="*.fsproj; *.fs; *.js" Exclude="**\*.fs.js" PackagePath="fable\" />
+      <None Include="../../README.md" Pack="true" PackagePath="/" />
     </ItemGroup>
     <ItemGroup>
       <PackageReference Include="Fable.Browser.Dom" />

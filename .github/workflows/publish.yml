@@ -1,0 +1,53 @@
+name: publish
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Required for GitVersion
+
+    - name: Install GitVersion
+      uses: gittools/actions/gitversion/setup@v0.10.2
+      with:
+        versionSpec: '5.x'
+
+    - name: Determine Version
+      id: gitversion
+      uses: gittools/actions/gitversion/execute@v0.10.2
+      with:
+        useConfigFile: true
+
+    - name: Display GitVersion outputs
+      run: |
+        echo "SemVer: ${{ steps.gitversion.outputs.semVer }}"
+        echo "NuGetVersionV2: ${{ steps.gitversion.outputs.nuGetVersionV2 }}"
+
+    - name: Setup dotnet
+      uses: actions/setup-dotnet@v3
+      with:
+        global-json-file: ./global.json
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+
+    - name: Install
+      run: npm install
+
+    - name: Build and test
+      run: npm test
+
+    - name: Pack Fable.Yjs
+      run: dotnet pack src/Fable.Yjs/Fable.Yjs.fsproj -c Release -p:Version=${{ steps.gitversion.outputs.nuGetVersionV2 }} -o ./artifacts
+
+    - name: Pack Ylmish
+      run: dotnet pack src/Ylmish/Ylmish.fsproj -c Release -p:Version=${{ steps.gitversion.outputs.nuGetVersionV2 }} -o ./artifacts
+
+    - name: Push to NuGet
+      run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
