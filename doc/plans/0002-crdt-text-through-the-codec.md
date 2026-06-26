@@ -3,6 +3,71 @@
 Resolves [#83](https://github.com/NickDarvey/Ylmish/issues/83): `withYlmish`
 materializes state wholesale, so concurrent edits don't CRDT-merge.
 
+## State
+
+**Last updated:** 2026-06-26 · **Next step:** Step 1 (Add the `Element.Text`
+representation).
+
+### Progress
+
+- [x] **Step 0** — Spike the Yjs assumptions — **DONE.** All six spikes
+  (`tests/Ylmish.Tests/Y.Assumptions.fs`) green in the F#→Fable→Mocha suite and
+  reproduced in plain-JS yjs 13.6. **A3 confirmed FALSE (clobber)** → Step 5
+  takes the flattened-top-level-name path. A1/A6 confirmed, A2 throws, A4 ok.
+- [ ] **Step 1** — Add the `Element.Text` representation (compile-green only).
+- [ ] **Step 2** — Bridge `Element.Text` ↔ `Y.Element.Text` (element layer).
+- [ ] **Step 3** — `Encode.text` / `Decode.text` (5A diff mirror, codec layer).
+- [ ] **Step 4** — `Y.Doc.connect` for a single text root.
+- [ ] **Step 5** — Generalise `connect` to full trees via `IShareBinding`
+  (flattened names).
+- [ ] **Step 6** — Rewire `withYlmish` write path to `connect`.
+- [ ] **Step 7** — Rewire `withYlmish` read path to live decode + `ask`.
+- [ ] **Step 8** — End-to-end acceptance test through `withYlmish`.
+- [ ] **Step 9** — Example + docs.
+
+### Decisions & lessons
+
+- **A3 is false (clobber).** Nested concurrent get-or-create loses one peer's
+  data; Step 5 uses flattened top-level names, relying only on A1.
+- **A2 throws** on root type drift → `connect` records a kind per root name and
+  surfaces a clear schema-drift error.
+- **A6:** `ymap.set(key, ytext)` integrates the handle *in place* (`t === read
+  back`); always edit/observe via the integrated handle.
+- **Env:** the web sandbox has Node but **not** the .NET SDK. Install it with
+  `~/.dotnet/dotnet` via `dotnet-install.sh --version 10.0.300` (per
+  `global.json`), then `export PATH="$HOME/.dotnet:$PATH"`. Full verify =
+  `npm test` (runs `adaptify` then `fable … --run mocha`); baseline is
+  **105 passing**.
+
+### Blockers
+
+- None.
+
+### Agent pickup prompt
+
+> You are continuing plan 0002. Work **one step at a time**, in order, and keep
+> the suite green. Each iteration:
+>
+> 1. **Pick** the first unchecked item in **Progress**. Read its full entry in
+>    *Work breakdown* and the assumptions/decisions it depends on.
+> 2. **Implement** just that step — the smallest change that satisfies its exit
+>    check. Match surrounding code style. Add the step's test(s).
+> 3. **Verify.** Ensure the .NET SDK is on `PATH` (`export PATH="$HOME/.dotnet:$PATH"`;
+>    install via `dotnet-install.sh --version 10.0.300` if missing), then run
+>    `npm test`. All tests must pass and the new test(s) must be present and
+>    green. If the step's exit check is behavioural, confirm it explicitly.
+> 4. **Update State.** Tick the step, bump *Last updated* and *Next step*, and
+>    record any decision/lesson under *Decisions & lessons*. If blocked, leave
+>    the box unchecked, write the blocker under *Blockers*, and stop for the
+>    user.
+> 5. **Commit & push** one focused commit to `claude/github-issues-visibility-8k12g3`
+>    (do not open a PR unless asked).
+> 6. **Compact context**, then continue with the next step.
+>
+> Stop when every step is checked, or when a blocker needs a human decision
+> (e.g. a runtime spike contradicts a desk verdict, or a step needs an API the
+> bindings don't expose).
+
 ## Problem
 
 There are two sync mechanisms in the codebase and the high-level path uses the
@@ -268,13 +333,15 @@ green.
 
 ### Step 0 — Spike the Yjs assumptions (no production code)
 
-Throwaway-but-keep tests in a new `tests/Ylmish.Tests/Y.Assumptions.fs` that pin
-A1, A2, A3, A4, A6 against the real bindings. Pure verification; decides the
-nesting-vs-flattening question *before* any design depends on it.
+Throwaway-but-keep tests in `tests/Ylmish.Tests/Y.Assumptions.fs` (written and
+registered) that pin A1, A2, A3, A4, A6 against the real bindings. Pure
+verification; decides the nesting-vs-flattening question *before* any design
+depends on it.
 
-- **Exit check:** all five tests run and their pass/fail is recorded in this doc.
-  **A3's result chooses the path** for Step 5 (nested types vs flattened names).
-  If A3 fails, the rest of the plan is unchanged except Step 5's location logic.
+- **Status:** spikes written and wired into the suite. A1/A2/A3/A6 reproduced
+  empirically against plain-JS yjs 13.6 (results below); A4 runs via the F#
+  spike in CI. **A3 confirmed FALSE (clobber)** → Step 5 takes the
+  flattened-top-level-name path. The rest of the plan is unchanged.
 
 #### Step 0 — research findings (desk check, 2026-06-26)
 
@@ -310,10 +377,11 @@ but the design direction is already decided.
   order works **provided we use the integrated handle afterward** (observe/edit
   the value as retrieved from the parent, not the pre-insert local object).
 
-- **A2 — UNRESOLVED by docs.** The docs don't state what happens when one root
-  name is defined with two different types. Yjs' underlying `get(name, Type)` is
-  known to reject/мis-coerce on type mismatch, but we must pin it empirically and
-  have `connect` record a kind per root name and reject schema drift loudly.
+- **A2 — CONFIRMED (throws).** The docs don't state it, but empirically Yjs'
+  underlying `get(name, Type)` throws on type mismatch: *"Type with the name x
+  has already been defined with a different constructor."* A loud failure is the
+  safe outcome; `connect` still records a kind per root name so the error
+  surfaces as a clear schema-drift diagnostic rather than a raw Yjs throw.
 
 ##### Ecosystem / extensions surveyed
 
@@ -345,6 +413,27 @@ Sources: [Y.Map docs](https://docs.yjs.dev/api/shared-types/y.map) ·
 [yjs#255 nesting](https://github.com/yjs/yjs/issues/255) ·
 [yjs/y-utility](https://github.com/yjs/y-utility) ·
 [SyncedStore](https://github.com/YousefED/SyncedStore)
+
+##### Empirical confirmation (plain-JS yjs 13.6, 2026-06-26)
+
+The desk verdicts were reproduced against the real `yjs` package with a small
+Node script (same logic as the F# spikes in `tests/Ylmish.Tests/Y.Assumptions.fs`,
+run directly because the F#→Fable pipeline needs the .NET SDK):
+
+```
+A1.id    PASS same instance
+A1.conv  s1="BBBAAA" s2="BBBAAA" converge=true bothSurvive=true
+A2.err   Type with the name x has already been defined with a different constructor
+A2       PASS throws
+A3       s1="AAA" s2="AAA" converge=true bothSurvive=false => CLOBBER (A3 FALSE confirmed)
+A6       content="hello!" hasDoc=true sameHandle=true editable=true
+```
+
+Every desk verdict held: A1 idempotent + shared-root edits interleave, A2 throws,
+**A3 clobbers (one side's text silently lost)**, A6 integrates in place. All six
+spikes (A1, A2, A3, A4, A6) also pass in the real F#→Fable→Mocha suite
+(`105 passing`). The flattened-top-level-name decision for Step 5 is therefore
+confirmed by observation, not just docs.
 
 ### Step 1 — Add the `Element.Text` representation (compile-green only)
 
@@ -474,11 +563,11 @@ get-or-create (A3) — flagged as a likely design-forcing failure.
 | # | Assumption | Confidence | Pinning test | If it's false |
 |---|---|---|---|---|
 | A1 | `doc.getMap/getText/getArray(name)` is idempotent — repeated calls return the *same* root shared type, and two peers naming the same root converge on one type after sync. | **Confirmed (desk)** — see findings | Call twice on one doc, assert reference equality; two docs get same-named root, edit each, sync, assert convergence. | Roots must be created once and cached by `connect`; never re-fetched per update. |
-| A2 | A root fetched as one type can never be safely re-fetched as another type (`getMap` then `getText` on the same name). | Medium | Assert that mismatched re-fetch throws or is detectably wrong; `connect` must guard against it. | `connect` must record the kind per root name and reject schema drift loudly. |
+| A2 | A root fetched as one type can never be safely re-fetched as another type (`getMap` then `getText` on the same name). | **Confirmed — throws (desk + JS)** | Assert that mismatched re-fetch throws or is detectably wrong; `connect` must guard against it. | `connect` must record the kind per root name and reject schema drift loudly. |
 | **A3** | **Nested get-or-create is convergent**: two peers that both find `ymap.get(key)` absent and both create-and-set a new nested `Y.Map`/`Y.Text` there will *converge*, not clobber. | **Confirmed FALSE (desk)** — see findings | Two docs, no initial sync; both create the same nested key as a fresh `Y.Text`; both insert different text; sync both ways; assert **both** insertions survive. | **Design change forced** (see below): represent nesting by flattened top-level names so only A1 idempotency is relied on. |
-| A4 | Applying a remote update that *deletes* a root key the local peer is actively `attach`ed to does not leave a dangling observer / null deref. | Low | Attach to a key, apply a remote update removing it, assert the observer tears down cleanly and the model reflects removal. | `attach` lifecycle must subscribe to parent structural events, not just the child. |
+| A4 | Applying a remote update that *deletes* a root key the local peer is actively `attach`ed to does not leave a dangling observer / null deref. | **Confirmed (F# spike)** | Attach to a key, apply a remote update removing it, assert the observer tears down cleanly and the model reflects removal. | `attach` lifecycle must subscribe to parent structural events, not just the child. |
 | A5 | `Encode.text`'s `clist<char>` ↔ `Y.Text` mirror produces a **minimal** delta for a whole-string replacement (i.e. `lastKnown` reconciliation works), not a full clear+reinsert. | Medium | Replace `"hello"`→`"hełlo"`, assert the Y.Text delta is a single-char insert, not delete-5/insert-6. | Acceptable for correctness; revisit diff algorithm (Myers) before claiming efficiency. |
-| A6 | A `Y.Text` created standalone and *then* inserted into a parent `Y.Map`/`Y.Array` retains its content and identity (needed if `connect` builds children before parenting). | Medium | Create `Y.Text`, set content, `ymap.set(key, ytext)`, assert content intact and `.doc` is now the parent doc. | `connect` must create children *via* the parent (`parent.set` returning the integrated type) rather than standalone-then-attach. |
+| A6 | A `Y.Text` created standalone and *then* inserted into a parent `Y.Map`/`Y.Array` retains its content and identity (needed if `connect` builds children before parenting). | **Confirmed (desk + JS)** | Create `Y.Text`, set content, `ymap.set(key, ytext)`, assert content intact and `.doc` is now the parent doc. | `connect` must create children *via* the parent (`parent.set` returning the integrated type) rather than standalone-then-attach. |
 
 **A3 is the load-bearing risk.** If the failing-then-passing concurrency test
 (Objective E) can't be made to pass with nested get-or-create, the fallback —
