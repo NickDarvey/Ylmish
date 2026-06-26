@@ -30,6 +30,7 @@ module Y =
         [<RequireQualifiedAccess>]
         type Element =
             | String of string
+            | Text of Y.Text
             | Array of Y.Array<Element option>
             | Map of Y.Map<Element option>
 
@@ -213,7 +214,11 @@ module Text =
 
     /// Attach Adaptive→Yjs (encode) direction: observes changes on the clist and applies them to the Y.Text.
     let attachEncode (active : bool ref) (atext : char clist) (ytext : Y.Text) : IDisposable =
-        let mutable initialisationCallback = true
+        // AddCallback emits an initial "echo" of the current contents only when
+        // the list is non-empty; ytext already holds that content, so we skip it.
+        // For an initially-empty list there is NO echo, so we must not skip the
+        // first real edit (otherwise a fresh text field swallows its first keystroke).
+        let mutable initialisationCallback = not (Seq.isEmpty atext)
 
         atext.AddCallback(fun list delta ->
             if initialisationCallback then
@@ -469,6 +474,9 @@ module Element =
     [<Fable.Core.Import("Map", "yjs")>]
     let private jsYMap : obj = obj()
 
+    [<Fable.Core.Import("Text", "yjs")>]
+    let private jsYText : obj = obj()
+
     [<Fable.Core.Emit("$0 instanceof $1")>]
     let private jsInstanceOf (_x: obj) (_ctor: obj) : bool = false
 
@@ -477,6 +485,8 @@ module Element =
         match () with
         | _ when isString value ->
             A.Element.Value (A.Value.String (unbox value))
+        | _ when jsInstanceOf value jsYText ->
+            A.Element.Text (Text.toAdaptive (unbox value))
         | _ when jsInstanceOf value jsYArray ->
             A.Element.AList (Array.toAdaptive (unbox value))
         | _ when jsInstanceOf value jsYMap ->
@@ -489,6 +499,7 @@ module Element =
         | Y.Element.Array yarray -> A.Element.AList (Array.toAdaptive yarray)
         | Y.Element.Map ymap -> A.Element.AMap (Map.toAdaptive ymap :> amap<_, _>)
         | Y.Element.String str -> A.Element.Value (A.Value.String str)
+        | Y.Element.Text ytext -> A.Element.Text (Text.toAdaptive ytext)
 #endif
 
     let ofAdaptive (aelement : A.Element) : Y.Element =
@@ -499,9 +510,7 @@ module Element =
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
             Y.Element.String (System.String.Concat(text))
-        | A.Element.Text _ ->
-            // The Element.Text ↔ Y.Element.Text bridge lands in plan 0002 Step 2.
-            failwith "Element.Text is not yet bridged to Y.Element (plan 0002, Step 2)"
+        | A.Element.Text text -> Y.Element.Text (Text.ofAdaptive text)
         | A.Element.Custom _ ->
             // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
             failwith "Element.Custom is not bridged through ofAdaptive (plan 0002, Step 5)"

@@ -95,4 +95,54 @@ let tests = testList "Y.Element" [
             | _ -> failwith "entry 'a' should be a string"
         }
     ]
+
+    // Plan 0002, Step 2 — the Element.Text ↔ Y.Element.Text bridge. No codec,
+    // no Elmish: prove that routing through A.Element.Text wires Text.attach so
+    // that character edits CRDT-merge at the element layer.
+    testList "Text" [
+        test "clist<char> round-trips through ofAdaptive then toAdaptive" {
+            let ydoc = Y.Doc.Create ()
+            let original : char clist = clist [ 'h'; 'e'; 'l'; 'l'; 'o' ]
+            let yelement = Y.Element.ofAdaptive (Y.A.Element.Text original)
+            // Y.Element is erased; integrate the underlying Y.Text into a doc so
+            // its content materialises (a standalone Y.Text reports "" until
+            // integrated — see Y.Text "ofAdaptive (initialisation)").
+            let ytext : Y.Text = unbox yelement
+            ydoc.getMap("container").set("test", ytext) |> ignore
+            match Y.Element.toAdaptive yelement with
+            | Y.A.Element.Text restored ->
+                Expect.equal (System.String.Concat restored) "hello"
+                    "text content should survive ofAdaptive then toAdaptive"
+            | _ -> failwith "should be Text"
+        }
+
+        test "two docs sync text edited through the bridge and converge (A6)" {
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+
+            // Bind each doc's top-level "body" text into an adaptive clist via the
+            // A.Element.Text bridge (the same path the codec will use).
+            let textOf (d : Y.Doc) =
+                match Y.Element.toAdaptive (Y.Y.Element.Text (d.getText "body")) with
+                | Y.A.Element.Text c -> c
+                | _ -> failwith "expected Text"
+
+            let c1 = textOf d1
+            let c2 = textOf d2
+
+            // Edit through the adaptive lists (encode direction of the bridge).
+            transact (fun () -> [ 'A'; 'A'; 'A' ] |> List.iteri (fun i ch -> c1.InsertAt (i, ch) |> ignore))
+            transact (fun () -> [ 'B'; 'B'; 'B' ] |> List.iteri (fun i ch -> c2.InsertAt (i, ch) |> ignore))
+
+            // Exchange updates both ways.
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            let s1 = (d1.getText "body").toString ()
+            let s2 = (d2.getText "body").toString ()
+            Expect.equal s1 s2 "shared-root text must converge"
+            Expect.isTrue (s1.Contains "AAA" && s1.Contains "BBB")
+                "both peers' edits survive (interleaved, not clobbered) through the A.Element.Text bridge"
+        }
+    ]
 ]

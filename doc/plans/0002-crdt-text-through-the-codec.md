@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 2 (Bridge `Element.Text` ↔
-`Y.Element.Text` at the element layer).
+**Last updated:** 2026-06-26 · **Next step:** Step 3 (`Encode.text` /
+`Decode.text` — the 5A string↔clist diff mirror at the codec layer).
 
 ### Progress
 
@@ -18,7 +18,11 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
   `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
   `Adaptive.Codec.fs` (plus `Kind.Text`/`Kind.Custom`, `toKind`, a minimal
   `IShareBinding`). Suite still **105 passing**.
-- [ ] **Step 2** — Bridge `Element.Text` ↔ `Y.Element.Text` (element layer).
+- [x] **Step 2** — Bridge `Element.Text` ↔ `Y.Element.Text` — **DONE.** Added
+  `Y.Element.Text of Y.Text`; wired `Element.toAdaptive`/`ofAdaptive` (both
+  Fable + .NET) to route `Text` through the existing `Text.attach`. New tests in
+  `Y.Element.fs`: clist round-trip + two-doc convergence through the bridge.
+  **Fixed a real empty-start encode bug** (see lessons). Suite **107 passing**.
 - [ ] **Step 3** — `Encode.text` / `Decode.text` (5A diff mirror, codec layer).
 - [ ] **Step 4** — `Y.Doc.connect` for a single text root.
 - [ ] **Step 5** — Generalise `connect` to full trees via `IShareBinding`
@@ -36,6 +40,20 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
   surfaces a clear schema-drift error.
 - **A6:** `ymap.set(key, ytext)` integrates the handle *in place* (`t === read
   back`); always edit/observe via the integrated handle.
+- **Empty-start encode bug (fixed in Step 2, load-bearing for #83).**
+  `Text.attachEncode` skipped the *first* `AddCallback` firing to drop the
+  initial content echo — but that echo only fires for a **non-empty** list. A
+  freshly-created (empty) text field has no echo, so the flag swallowed the
+  first real keystroke and it never reached the `Y.Text`. Fix: initialise the
+  skip flag to `not (Seq.isEmpty atext)` — non-empty behaviour unchanged, empty
+  lists now propagate their first edit. **The same latent bug exists in
+  `Array.attachEncode` / `Map.attachEncode`**; fix them when Step 5 exercises
+  fresh (empty) lists/maps.
+- **Standalone `Y.Text` reads as `""` until integrated** (A6 nuance). A
+  `Y.Text.Create "hello"` reports empty `toString()`/content until it is set
+  into a doc (`ymap.set`); only then does the pending content materialise. Any
+  round-trip/read-back must integrate first. `connect` (Steps 4–5) must create
+  children *via* the parent or otherwise integrate before reading.
 - **Step 1 layering.** `IShareBinding` lives in the **codec** layer but is kept
   *Y-agnostic for now* (only `abstract Kind : Kind`); the concrete
   `Connect`/`BindContext` surface — which needs Fable.Yjs types — is added in
