@@ -252,65 +252,141 @@ there is exactly one attach contract in the system.
 
 ---
 
-## Work breakdown
+## Work breakdown — incremental, verify after every step
 
-Ordered by dependency. Each objective is independently testable.
+Optimised so each step is **one commit that leaves the build green and adds a
+test that proves the step**. Run `npm test` (Fable → Mocha; `npm run
+test+watch` for a live loop) after each. The headline capability — concurrent
+text edits converging — is proven progressively *earlier and earlier* (element
+layer → codec layer → connect layer → Elmish layer) rather than only at the end,
+so a regression is caught at the lowest layer that introduced it.
 
-### Objective A — `Text` kind + bridge
+Each step names the **assumption(s)** (A1–A6) it relies on or pins, and its
+**exit check** — the concrete thing that must be true to move on. Steps are
+strictly dependency-ordered; do not start one until the previous exit check is
+green.
 
-- Add `Element.Text of clist<char>` and `Element.Custom of IShareBinding`
-  (`Adaptive.Codec.fs`); extend `Kind`, `toKind`, and `Error` plumbing.
-- Add `Y.Element.Text of Y.Text` (`Y.fs`); complete `Element.toAdaptive` /
-  `ofAdaptive` for `Text`, plus the still-missing `Value`/`Map` cases
-  (Objective 1 of plan 0001).
-- Unit tests: round-trip `Element.Text` through the bridge.
+### Step 0 — Spike the Yjs assumptions (no production code)
 
-### Objective B — `Encode.text` / `Decode.text` (5A)
+Throwaway-but-keep tests in a new `tests/Ylmish.Tests/Y.Assumptions.fs` that pin
+A1, A2, A3, A4, A6 against the real bindings. Pure verification; decides the
+nesting-vs-flattening question *before* any design depends on it.
 
-- Implement the string ↔ `clist<char>` mirror with `lastKnown` reconciliation
-  and a diff (start with LCS; Myers later if profiling demands).
-- `Encode.text : aval<string> -> Encoded<_>`, `Decode.text : Decoder<_,_,string>`.
-- Tests (assumptions in parens): local edit yields **minimal** delta for a
-  whole-string replacement (**A5**); remote edit reaches the model; no echo
-  under the reentrancy guard.
+- **Exit check:** all five tests run and their pass/fail is recorded in this doc.
+  **A3's result chooses the path** for Step 5 (nested types vs flattened names).
+  If A3 fails, the rest of the plan is unchanged except Step 5's location logic.
 
-### Objective C — `Y.Doc.connect` + get-or-insert
+### Step 1 — Add the `Element.Text` representation (compile-green only)
 
-- Walk an `Encoded<Element<_>>` tree, get-or-create Yjs shared types at stable
-  locations, attach bi-directionally; return a composite `IDisposable`.
-- Define `IShareBinding` / `BindContext` and refactor `text`/`list`/`map`
-  attach to instances of it.
-- Tests (assumptions in parens): root get-or-create is idempotent on one doc and
-  convergent across two peers (**A1**); mismatched-kind re-fetch is rejected
-  (**A2**); **nested concurrent create converges, not clobbers (A3 — expected to
-  FAIL first; gates the flattened-name fallback)**; deleting an attached key
-  tears down cleanly (**A4**); child created then parented keeps content/identity
-  (**A6**).
+Add `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
+`Adaptive.Codec.fs`; extend `Kind`, `toKind`, `Error`. No behaviour. The
+compiler's exhaustiveness checking forces every `match` on `Element` to
+acknowledge the new cases — that *is* the verification.
 
-### Objective D — rewire `Program.withYlmish`
+- **Exit check:** `dotnet build` / `npm test` compiles; existing suite still
+  green. No new runtime test yet. Relies on nothing.
 
-- `init`: `connect` once; on existing-state, decode via the live tree.
-- `update`: drop `materialize`; just `transact (options.Update am m)`.
-- subscription: decode the live adaptive tree on change, dispatch `Set`;
-  use `Decoder.ask` so non-persisted fields survive.
-- Enable the `Program` tests in `Ylmish.Tests.fs`.
+### Step 2 — Bridge `Element.Text` ↔ `Y.Element.Text` (element layer, no Elmish)
 
-### Objective E — acceptance test (failing → passing)
+Add `Y.Element.Text of Y.Text`; complete `Element.toAdaptive`/`ofAdaptive` for
+`Text`, and the still-missing `Value`/`Map` cases (plan 0001 Objective 1).
 
-Extend `tests/Ylmish.Tests/TodoCollaborative.fs`: two `connect`ed docs each
-insert into the **same** text field at **different offsets without syncing
-first**, then exchange `encodeStateAsUpdate`/`applyUpdate` both directions, and
-assert the **interleaved** result (both insertions present), not one side's
-value. Fails on `materialize`, passes on `connect` — the issue's final
-criterion. This test also transitively exercises **A1** (shared root) and
-**A3** (if the same text field lives under a nested container); if it can only
-pass via the flattened-name fallback, record that outcome here.
+- **Test:** round-trip a `clist<char>` through `ofAdaptive`→`toAdaptive`, assert
+  equality; **two raw docs sync a text element and converge** (A6).
+- **Exit check:** CRDT merge provably works at the element layer, with zero
+  codec or Elmish involvement. Pins **A6**.
 
-### Objective F — example + docs
+### Step 3 — `Encode.text` / `Decode.text` (5A diff mirror, codec layer)
 
-- Give `examples/TodoCollaborative` a collaboratively-edited body field via
-  `Encode.text`/`Decode.text`.
-- Update `README` merge-semantics table; note `Ref<>` as a reserved future seam.
+Implement the `string ↔ clist<char>` mirror with `lastKnown` reconciliation and
+a diff (LCS first; Myers only if Step's A5 test shows it matters).
+`Encode.text : aval<string> -> Encoded<_>`, `Decode.text : Decoder<_,_,string>`.
+
+- **Tests:** whole-string replacement `"hello"`→`"hełlo"` yields a **single-char**
+  Y.Text delta (**A5**); remote edit reaches the decoded string; no echo under
+  the reentrancy guard; **two codec-encoded text fields interleave on sync**.
+- **Exit check:** the issue's core capability works through the codec, still with
+  no `withYlmish`. Pins **A5**.
+
+### Step 4 — `Y.Doc.connect` for a single text root (narrowest connect slice)
+
+Just enough `connect` to get-or-create *one top-level* text root and attach it
+bi-directionally. No nesting, no list/map yet — relies only on **A1**.
+
+- **Test:** the **acceptance scenario, early** — two docs `connect`ed to the same
+  named text root, concurrent edits at different offsets, no pre-sync, exchange
+  updates both ways, assert interleaved result.
+- **Exit check:** the headline #83 fix is demonstrably real at the connect layer
+  *before* the `withYlmish` rewire. Pins **A1**.
+
+### Step 5 — Generalise `connect` to full trees via `IShareBinding`
+
+Walk the whole `Encoded<Element<_>>` tree; define `IShareBinding`/`BindContext`
+and refactor `text`/`list`/`map` attach into instances of it. Apply the Step 0
+decision: nested shared types **or** flattened top-level names. Keep all location
+logic behind one function so the choice stays swappable.
+
+- **Tests:** nested model (list of objects with a text field) converges across two
+  docs; mismatched-kind re-fetch rejected (**A2**); deleting an attached key
+  tears down cleanly (**A4**).
+- **Exit check:** arbitrary codec trees connect and merge. Pins **A2, A4**;
+  realises the Step 0 **A3** decision.
+
+### Step 6 — Rewire `withYlmish` write path to `connect`
+
+`init`: `connect` once (decode existing state via the live tree). `update`: drop
+`materialize`; just `transact (options.Update am m)` and let observers
+propagate.
+
+- **Test:** existing `TodoCollaborative` sequential-sync tests pass unchanged
+  against `connect` instead of `materialize` (behaviour-preserving swap).
+- **Exit check:** no materialize in the write hot path; suite green.
+
+### Step 7 — Rewire `withYlmish` read path to live decode + `ask`
+
+Replace the `observeDeep → dematerialize → decode-whole-model` subscription with:
+adaptive model changed → decode the **live** tree → dispatch `Set`. Use
+`Decoder.ask` so non-persisted app fields survive.
+
+- **Test:** remote edit reaches the Elmish model; a **non-persisted field set in
+  the model survives a remote round-trip** (the `ask` test).
+- **Exit check:** read path is O(delta) and model-preserving. `dematerialize`
+  now used only as a one-shot snapshot helper.
+
+### Step 8 — End-to-end acceptance test through `withYlmish`
+
+The full Elmish-level test: two `withYlmish` programs over two synced docs make
+concurrent edits to the same text field; assert interleaved convergence in the
+**Elmish models**, not just the docs.
+
+- **Exit check:** #83 closed at the top layer. This is the same scenario as Step
+  4, now proven end-to-end. If it only passes via the flattened-name fallback,
+  record that here.
+
+### Step 9 — Example + docs
+
+Give `examples/TodoCollaborative` a collaboratively-edited body field via
+`Encode.text`/`Decode.text`; update the README merge-semantics table; note
+`Ref<>` as a reserved future seam.
+
+- **Exit check:** `npm run demo` shows two peers merging body text; docs match
+  shipped behaviour.
+
+### Dependency / verification map
+
+```
+Step 0 (spikes) ─┬─> Step 2 (element merge, A6)
+                 │       └─> Step 3 (codec merge, A5)
+                 │               └─> Step 4 (connect-1-root merge, A1) ── EARLY headline proof
+                 │                       └─> Step 5 (full trees, A2/A4, A3-decision)
+Step 1 (repr) ───┘                               └─> Step 6 (write path)
+                                                         └─> Step 7 (read path, ask)
+                                                                 └─> Step 8 (e2e acceptance)
+                                                                         └─> Step 9 (example/docs)
+```
+
+Steps 0 and 1 are independent and can land in either order. Everything else is a
+chain; each link is a green commit.
 
 ---
 
