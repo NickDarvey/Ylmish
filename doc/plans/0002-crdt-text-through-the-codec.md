@@ -276,6 +276,76 @@ nesting-vs-flattening question *before* any design depends on it.
   **A3's result chooses the path** for Step 5 (nested types vs flattened names).
   If A3 fails, the rest of the plan is unchanged except Step 5's location logic.
 
+#### Step 0 — research findings (desk check, 2026-06-26)
+
+Read of the Yjs docs/source and ecosystem *before* writing the runtime spikes.
+Desk verdicts below still get a runtime test (docs describe semantics; we
+confirm empirically — especially A2 and the exact A3 content-loss behaviour),
+but the design direction is already decided.
+
+- **A1 — CONFIRMED.** Top-level types are got-or-created by name via
+  `ydoc.get(name, Type)` (the `getMap`/`getText`/`getArray` wrappers).
+  "Every peer that defines 'my array' like this will sync content with this
+  peer." Repeated same-name calls return the same instance; two peers naming the
+  same root converge. → `connect` may safely rely on root get-or-create; create
+  roots once and cache them.
+
+- **A3 — CONFIRMED FALSE (this is the load-bearing result).** Y.Map resolves
+  concurrent writes to the same key as a register: *"When users
+  create/update/delete the same property concurrently, only one change will
+  prevail."* So if two peers each find a nested key absent and each
+  create-and-set a **fresh** `Y.Text`/`Y.Map` there, the CRDT converges on **one
+  survivor and silently discards the other shared type along with every edit
+  made into it**. Convergence is preserved; *content is lost*. There is **no
+  built-in nested get-or-create** — the safe get-or-create primitive
+  (`ydoc.get(name, Type)`) exists at the **root only**. → **We take the
+  flattened-top-level-name path for Step 5** (README TODO 6): a field at, e.g.,
+  `items.2.body` becomes a root shared type keyed by a stable name/id, relying
+  solely on A1. Nested *structure under a single map key* is still fine when only
+  one writer ever creates it before divergence; concurrent first-creation is the
+  unsafe case we design out.
+
+- **A6 — SUPPORTED.** `ymap.set(key, new Y.Text())` integrates the nested type
+  into the parent (`ymap.set(key: …|Y.AbstractType)`). The create-then-parent
+  order works **provided we use the integrated handle afterward** (observe/edit
+  the value as retrieved from the parent, not the pre-insert local object).
+
+- **A2 — UNRESOLVED by docs.** The docs don't state what happens when one root
+  name is defined with two different types. Yjs' underlying `get(name, Type)` is
+  known to reject/мis-coerce on type mismatch, but we must pin it empirically and
+  have `connect` record a kind per root name and reject schema drift loudly.
+
+##### Ecosystem / extensions surveyed
+
+- **`yjs/y-utility` → `YKeyValue`.** A more efficient key-value store than Y.Map.
+  Critically: *"Y.Map needs to retain all key values that were created in history
+  to resolve potential conflicts"* — so a churny Y.Map bloats the doc (benchmark:
+  500k ops over 1k keys = **2.99 MB** as Y.Map vs **31 KB** as YKeyValue), and
+  YKeyValue shrinks on delete. **Implications for us:** (1) another nail in
+  `materialize`'s coffin — its repeated root set/delete per update would bloat the
+  doc unboundedly; (2) `YKeyValue` is a candidate backing for the `AMap` kind /
+  the flattened-name root index, and pairs naturally with the A3 flattened-name
+  decision. Also ships `YMultiDocUndoManager` (cross-document undo) — relevant
+  later if we adopt subdocuments. y-utility is a likely dependency.
+
+- **`YousefED/SyncedStore`.** Closest prior art: presents **plain JS
+  objects/arrays over Y.Map/Y.Array**, the same "plain model over a CRDT"
+  philosophy Ylmish pursues from F#. Its open issues on **initialization /
+  using an existing doc** (#29, #46) map exactly onto our get-or-create and
+  "doc already has state" concerns — study its `boxed`/nesting approach for
+  lessons, not as a dependency.
+
+- **No off-the-shelf nested get-or-create.** Neither the core nor the surveyed
+  extensions provide a convergent nested get-or-insert; this confirms A3 is a
+  genuine gap we must design around rather than import a fix for.
+
+Sources: [Y.Map docs](https://docs.yjs.dev/api/shared-types/y.map) ·
+[Working with shared types](https://docs.yjs.dev/getting-started/working-with-shared-types) ·
+[Y.Text docs](https://docs.yjs.dev/api/shared-types/y.text) ·
+[yjs#255 nesting](https://github.com/yjs/yjs/issues/255) ·
+[yjs/y-utility](https://github.com/yjs/y-utility) ·
+[SyncedStore](https://github.com/YousefED/SyncedStore)
+
 ### Step 1 — Add the `Element.Text` representation (compile-green only)
 
 Add `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
@@ -322,9 +392,12 @@ bi-directionally. No nesting, no list/map yet — relies only on **A1**.
 ### Step 5 — Generalise `connect` to full trees via `IShareBinding`
 
 Walk the whole `Encoded<Element<_>>` tree; define `IShareBinding`/`BindContext`
-and refactor `text`/`list`/`map` attach into instances of it. Apply the Step 0
-decision: nested shared types **or** flattened top-level names. Keep all location
-logic behind one function so the choice stays swappable.
+and refactor `text`/`list`/`map` attach into instances of it. **Step 0's desk
+check decided the flattened-top-level-name path** (A3 confirmed false): each
+collaborative leaf is a root shared type keyed by a stable name/id, relying only
+on A1. Keep all location logic behind one function so the choice stays swappable
+if the runtime A3 spike surprises us. Consider `YKeyValue` (y-utility) as the
+backing for the flattened root index given Y.Map's history-retention bloat.
 
 - **Tests:** nested model (list of objects with a text field) converges across two
   docs; mismatched-kind re-fetch rejected (**A2**); deleting an attached key
@@ -400,9 +473,9 @@ get-or-create (A3) — flagged as a likely design-forcing failure.
 
 | # | Assumption | Confidence | Pinning test | If it's false |
 |---|---|---|---|---|
-| A1 | `doc.getMap/getText/getArray(name)` is idempotent — repeated calls return the *same* root shared type, and two peers naming the same root converge on one type after sync. | High (documented Yjs) | Call twice on one doc, assert reference equality; two docs get same-named root, edit each, sync, assert convergence. | Roots must be created once and cached by `connect`; never re-fetched per update. |
+| A1 | `doc.getMap/getText/getArray(name)` is idempotent — repeated calls return the *same* root shared type, and two peers naming the same root converge on one type after sync. | **Confirmed (desk)** — see findings | Call twice on one doc, assert reference equality; two docs get same-named root, edit each, sync, assert convergence. | Roots must be created once and cached by `connect`; never re-fetched per update. |
 | A2 | A root fetched as one type can never be safely re-fetched as another type (`getMap` then `getText` on the same name). | Medium | Assert that mismatched re-fetch throws or is detectably wrong; `connect` must guard against it. | `connect` must record the kind per root name and reject schema drift loudly. |
-| **A3** | **Nested get-or-create is convergent**: two peers that both find `ymap.get(key)` absent and both create-and-set a new nested `Y.Map`/`Y.Text` there will *converge*, not clobber. | **Low — likely FALSE** | Two docs, no initial sync; both create the same nested key as a fresh `Y.Text`; both insert different text; sync both ways; assert **both** insertions survive. | **Design change forced** (see below): represent nesting by flattened top-level names so only A1 idempotency is relied on. |
+| **A3** | **Nested get-or-create is convergent**: two peers that both find `ymap.get(key)` absent and both create-and-set a new nested `Y.Map`/`Y.Text` there will *converge*, not clobber. | **Confirmed FALSE (desk)** — see findings | Two docs, no initial sync; both create the same nested key as a fresh `Y.Text`; both insert different text; sync both ways; assert **both** insertions survive. | **Design change forced** (see below): represent nesting by flattened top-level names so only A1 idempotency is relied on. |
 | A4 | Applying a remote update that *deletes* a root key the local peer is actively `attach`ed to does not leave a dangling observer / null deref. | Low | Attach to a key, apply a remote update removing it, assert the observer tears down cleanly and the model reflects removal. | `attach` lifecycle must subscribe to parent structural events, not just the child. |
 | A5 | `Encode.text`'s `clist<char>` ↔ `Y.Text` mirror produces a **minimal** delta for a whole-string replacement (i.e. `lastKnown` reconciliation works), not a full clear+reinsert. | Medium | Replace `"hello"`→`"hełlo"`, assert the Y.Text delta is a single-char insert, not delete-5/insert-6. | Acceptable for correctness; revisit diff algorithm (Myers) before claiming efficiency. |
 | A6 | A `Y.Text` created standalone and *then* inserted into a parent `Y.Map`/`Y.Array` retains its content and identity (needed if `connect` builds children before parenting). | Medium | Create `Y.Text`, set content, `ymap.set(key, ytext)`, assert content intact and `.doc` is now the parent doc. | `connect` must create children *via* the parent (`parent.set` returning the integrated type) rather than standalone-then-attach. |
