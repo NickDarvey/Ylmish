@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 1 (Add the `Element.Text`
-representation).
+**Last updated:** 2026-06-26 · **Next step:** Step 2 (Bridge `Element.Text` ↔
+`Y.Element.Text` at the element layer).
 
 ### Progress
 
@@ -14,7 +14,10 @@ representation).
   (`tests/Ylmish.Tests/Y.Assumptions.fs`) green in the F#→Fable→Mocha suite and
   reproduced in plain-JS yjs 13.6. **A3 confirmed FALSE (clobber)** → Step 5
   takes the flattened-top-level-name path. A1/A6 confirmed, A2 throws, A4 ok.
-- [ ] **Step 1** — Add the `Element.Text` representation (compile-green only).
+- [x] **Step 1** — Add the `Element.Text` representation — **DONE.** Added
+  `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
+  `Adaptive.Codec.fs` (plus `Kind.Text`/`Kind.Custom`, `toKind`, a minimal
+  `IShareBinding`). Suite still **105 passing**.
 - [ ] **Step 2** — Bridge `Element.Text` ↔ `Y.Element.Text` (element layer).
 - [ ] **Step 3** — `Encode.text` / `Decode.text` (5A diff mirror, codec layer).
 - [ ] **Step 4** — `Y.Doc.connect` for a single text root.
@@ -33,6 +36,14 @@ representation).
   surfaces a clear schema-drift error.
 - **A6:** `ymap.set(key, ytext)` integrates the handle *in place* (`t === read
   back`); always edit/observe via the integrated handle.
+- **Step 1 layering.** `IShareBinding` lives in the **codec** layer but is kept
+  *Y-agnostic for now* (only `abstract Kind : Kind`); the concrete
+  `Connect`/`BindContext` surface — which needs Fable.Yjs types — is added in
+  Step 5, so Step 1 doesn't drag Y into the codec prematurely. Adding the two
+  union cases only forced two real matches to grow (`Element.ofAdaptive`,
+  `elementToY` in `Y.fs`); the `Decode` combinators already have catch-alls.
+  Both new `Y.fs` arms `failwith` with a "lands in Step 2/5" message — compiles,
+  unexercised, so the suite stays green.
 - **Env:** the web sandbox has Node but **not** the .NET SDK. Install it with
   `~/.dotnet/dotnet` via `dotnet-install.sh --version 10.0.300` (per
   `global.json`), then `export PATH="$HOME/.dotnet:$PATH"`. Full verify =

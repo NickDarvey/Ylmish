@@ -499,6 +499,12 @@ module Element =
         | A.Element.Value (A.Value.Text text) ->
             // Convert Text (IndexList<char>) to String for Y.Element
             Y.Element.String (System.String.Concat(text))
+        | A.Element.Text _ ->
+            // The Element.Text ↔ Y.Element.Text bridge lands in plan 0002 Step 2.
+            failwith "Element.Text is not yet bridged to Y.Element (plan 0002, Step 2)"
+        | A.Element.Custom _ ->
+            // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
+            failwith "Element.Custom is not bridged through ofAdaptive (plan 0002, Step 5)"
 
 module Doc =
     open FSharp.Data.Adaptive
@@ -540,6 +546,12 @@ module Doc =
                 | None -> ymap.set(key, None) |> ignore
             )
             Y.Element.Map ymap
+        | Codec.Element.Text _ ->
+            // The Element.Text ↔ Y.Element.Text bridge lands in plan 0002 Step 2.
+            failwith "Element.Text is not yet bridged to Y.Element (plan 0002, Step 2)"
+        | Codec.Element.Custom _ ->
+            // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
+            failwith "Element.Custom is not bridged through elementToY (plan 0002, Step 5)"
 
     /// Helper to convert any Y value (string, Y.Map, Y.Array) to Codec.Element
     let rec private valueToElement (value : obj) : Codec.Element<string> =

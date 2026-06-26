@@ -93,20 +93,36 @@ module private AVal =
 [<RequireQualifiedAccess>]
 type Kind =
     | Value
+    | Text
     | List
     | Map
+    | Custom
+
+/// Extension seam (plan 0002): a consumer-defined binding between an adaptive
+/// source and a Yjs shared type, surfaced through the `Element.Custom` case so
+/// that the well-known kinds stay closed while open-ended growth goes through a
+/// single door. The concrete connect surface (`Connect` / `BindContext`) is
+/// added in Step 5 when `Y.Doc.connect` is generalised; for now this reserves
+/// the open contract and the union case.
+type IShareBinding =
+    /// The kind this binding reports, for error messages / `Kind` dispatch.
+    abstract Kind : Kind
 
 [<RequireQualifiedAccess>]
 type Element<'Value> =
-    | Value of 'Value
+    | Value of 'Value                               // atomic register (last-writer-wins)
+    | Text of clist<char>                           // character-level CRDT
     | AList of alist<Element<'Value> option>
     | AMap of amap<string, Element<'Value> option>
-    with 
+    | Custom of IShareBinding                        // extension seam (see IShareBinding)
+    with
     member this.toKind () =
         match this with
         | Value _ -> Kind.Value
+        | Text _ -> Kind.Text
         | AList _ -> Kind.List
         | AMap _ -> Kind.Map
+        | Custom b -> b.Kind
 
 type PathSegment = 
     | ObjectKey   of string
