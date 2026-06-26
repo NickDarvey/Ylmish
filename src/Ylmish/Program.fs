@@ -63,6 +63,45 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     // Disposable for the connect attachments (collaborative-text roots).
     let mutable connectDisposable : System.IDisposable option = None
 
+    // Build the read-back tree by merging the structural state read from the
+    // Y.Doc (non-text, via dematerialize) with the live, already-merged text
+    // clists (connect-managed roots). Decoding the *merged* text — rather than a
+    // stale snapshot — keeps Encode.text's mirror a no-op on read-back, so no
+    // re-entrant Y.Text edit is issued while a remote update is still applying.
+    let rec mergeReadback (live : Element<string>) (fromY : Element<string> option) : Element<string> =
+        match live with
+        | Element.Text _ -> live // text: the live (merged) clist
+        | Element.AMap liveMap ->
+            let fromYMap =
+                match fromY with
+                | Some (Element.AMap m) -> Some (AMap.force m)
+                | _ -> None
+            AMap.force liveMap
+            |> HashMap.map (fun key lv ->
+                lv |> Option.map (fun el ->
+                    let fy = fromYMap |> Option.bind (HashMap.tryFind key) |> Option.flatten
+                    mergeReadback el fy))
+            |> AMap.ofHashMap
+            |> Element.AMap
+        | _ ->
+            // Value / AList / Custom: take the structural Y value when present.
+            match fromY with Some v -> v | None -> live
+
+    /// Decode the current shared state into a model: structural fields from the
+    /// Y.Doc, collaborative text from the live merged clists, non-persisted
+    /// fields preserved from the current model via `ask`.
+    let readbackModel () : 'model option =
+        match currentModel, encoded |> Option.bind AVal.force with
+        | Some m, Some live ->
+            let fromY = Y.Doc.dematerialize options.Doc
+            let merged = mergeReadback live (Some fromY)
+            match AVal.force (Decode.run m options.Decode (AVal.constant (Some merged))) with
+            | Ok restored -> Some restored
+            | Error errors ->
+                eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
+                None
+        | _ -> None
+
     let update userUpdate msg model =
         currentModel <- Some model
         match msg with
@@ -93,14 +132,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                 let rootMap = options.Doc.getMap()
                 let handler _ _ =
                     if not isWritingToYDoc then
-                        let element = Y.Doc.dematerialize options.Doc
-                        match currentModel with
-                        | Some m ->
-                            let decoded = Decode.run m options.Decode (AVal.constant (Some element))
-                            match AVal.force decoded with
-                            | Ok restoredModel -> dispatch (Set restoredModel)
-                            | Error errors -> eprintfn "withYlmish: Y.Doc change could not be decoded, ignoring. %s" (Error.printAll errors)
-                        | None -> eprintfn "withYlmish: Y.Doc change observed before model initialized, ignoring."
+                        readbackModel () |> Option.iter (fun m -> dispatch (Set m))
                 rootMap.observeDeep handler
                 { new System.IDisposable with
                     member _.Dispose() = rootMap.unobserveDeep handler }
@@ -129,13 +161,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                     | None -> []
                 let readback () =
                     if not isWritingToYDoc then
-                        match currentModel, encoded with
-                        | Some m, Some enc ->
-                            match AVal.force (Decode.run m options.Decode enc) with
-                            | Ok restored -> dispatch (Set restored)
-                            | Error errors ->
-                                eprintfn "withYlmish: text change could not be decoded, ignoring. %s" (Error.printAll errors)
-                        | _ -> ()
+                        readbackModel () |> Option.iter (fun m -> dispatch (Set m))
                 let disposables =
                     textLeaves
                     |> List.map (fun (chars : clist<char>) ->

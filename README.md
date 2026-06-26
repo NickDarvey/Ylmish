@@ -87,6 +87,53 @@ Using Ylmish.Adaptive.Codec:
 [2] .Decoder
 ```
 
+### Merge semantics
+
+When two peers change the same field concurrently, what should happen? That is a
+*per-field* decision, and you make it in the codec by choosing a combinator. The
+field in your Elmish model stays plain immutable F# — a `string` is a `string`,
+not a Yjs handle.
+
+| Combinator | Yjs backing | Merge semantics | Use for |
+|---|---|---|---|
+| `Encode.value` / `Decode.value` | `Y.Map` entry | last-writer-wins | toggles, enums, numbers, ids |
+| `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT | prose, collaborative bodies |
+| `Encode.list` / `map` / `object` | `Y.Array` / `Y.Map` | structural CRDT | collections |
+
+`Encode.text : aval<string> -> _` keeps the model field a plain `string`. The
+Adaptive layer recovers the character inserts/deletes by **diffing successive
+string values** — the same "successive models → operations" idea this library
+already applies to lists, one level down — so concurrent edits *interleave*
+instead of clobbering. See `examples/TodoCollaborative` for a runnable, two-peer
+demo (`npm run demo`) where both peers edit a shared note at once and both edits
+survive.
+
+```fsharp
+let encode (m : AdaptiveModel) = Encode.object [
+    "title", m.Title |> Encode.value id    // last-writer-wins
+    "body",  m.Body  |> Encode.text        // character-level CRDT merge
+]
+```
+
+Under the hood, `Program.withYlmish` `connect`s each collaborative-text field to
+its own top-level `Y.Text` root and keeps it in identity-preserving,
+delta-level sync — the alternative to re-projecting the whole document on every
+update, which destroyed the CRDT history that merging depends on.
+
+**Choosing where roots live (the layout `Scheme`).** Collaborative leaves are
+laid out across the document's top-level roots by a `Codec.Scheme`. The default,
+`Scheme.flat`, names each root by its flattened path (e.g. `body`, `doc.body`).
+Consumers who need a different persisted layout (for example a stable,
+id-based naming for text nested in a reorderable list) can supply their own
+`Scheme` to `Y.Doc.connectWith` rather than forking the library.
+
+**Reserved for later — `Ref<>`.** For fields where the *delta structure itself*
+is worth keeping in the app model (large bodies, rich text, very high-frequency
+edits), a future `Ref<>` wrapper will let the model hold the live CRDT structure
+directly and author deltas without the diff step. It targets the same
+`Element.Text` binding as `Encode.text`, so it is a pure performance/fidelity
+opt-in, not a prerequisite. It is out of scope for now beyond reserving the seam.
+
 
 ## TODO
 

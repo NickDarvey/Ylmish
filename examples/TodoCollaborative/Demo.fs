@@ -94,13 +94,15 @@ let runPeer (name : string) =
             Y.applyUpdate (doc, numsToBytes (msg?bytes), "remote")
         | "op-add" ->
             dispatch (Program.Message.User (AddItem (msg?text)))
+        | "op-note" ->
+            dispatch (Program.Message.User (SetNote (msg?text)))
         | _ -> ())
 
     // Run the Ylmish-wired program, capturing dispatch and logging each model.
     let setState (model : TodoModel) (d : Program.Message<TodoModel, Msg> -> unit) =
         dispatch <- d
-        printfn "[peer %s] items=%A newItem=%A"
-            name (model.Items |> IndexList.toList) model.NewItem
+        printfn "[peer %s] items=%A note=%A"
+            name (model.Items |> IndexList.toList) model.Note
 
     Main.makeProgram doc
     |> Program.withSetState setState
@@ -142,8 +144,16 @@ let runLauncher () =
                     printfn "[launcher] -> B: add \"Walk the dog\""
                     Node.childSend peerB {| kind = "op-add"; text = "Walk the dog" |})
 
+                // Both peers edit the collaborative note CONCURRENTLY. With
+                // last-writer-wins one would clobber the other; Encode.text makes
+                // the edits CRDT-merge, so both fragments survive on both peers.
+                Node.setTimeout 1100 (fun () ->
+                    printfn "[launcher] -> A & B: concurrent note edits (should merge)"
+                    Node.childSend peerA {| kind = "op-note"; text = "A-says-hi " |}
+                    Node.childSend peerB {| kind = "op-note"; text = "B-says-yo " |})
+
                 // Wrap up.
-                Node.setTimeout 1500 (fun () ->
+                Node.setTimeout 2000 (fun () ->
                     printfn "[launcher] done — shutting peers down"
                     Node.childKill peerA
                     Node.childKill peerB

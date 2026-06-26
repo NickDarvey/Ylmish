@@ -102,4 +102,24 @@ let tests = testList "TodoCollaborative" [
         | Error errors ->
             failwithf "Failed to decode Y.Doc: %s" (Error.printAll errors)
     }
+
+    // Plan 0002, Step 9 — the example's collaborative Note field (Encode.text)
+    // CRDT-merges across peers, where the old materialize path would clobber.
+    test "collaborative note merges across two withYlmish peers (#83)" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Main.makeProgram d1 |> Elmish.Program.test
+        use p2 = Main.makeProgram d2 |> Elmish.Program.test
+
+        // Both peers edit the note concurrently, before any sync.
+        p1.Dispatch (Ylmish.Program.Message.User (SetNote "AAA"))
+        p2.Dispatch (Ylmish.Program.Message.User (SetNote "BBB"))
+
+        Main.sync d1 d2
+        Main.sync d2 d1
+
+        Expect.equal p1.Model.Note p2.Model.Note "notes converge across peers"
+        Expect.isTrue (p1.Model.Note.Contains "AAA" && p1.Model.Note.Contains "BBB")
+            "both peers' concurrent note edits interleave in the model (CRDT merge, not clobber)"
+    }
 ]

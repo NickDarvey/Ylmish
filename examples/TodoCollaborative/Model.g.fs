@@ -1,5 +1,5 @@
-//4548381c-32ae-4e33-b577-9844dbe6d554
-//59b55116-9709-eea4-1b21-94616e8792b3
+//99c6f229-9be9-ce29-8632-476a85dd0840
+//5aa86b30-090d-49ec-50af-14d7e6035676
 #nowarn "49" // upper case patterns
 #nowarn "66" // upcast is unncecessary
 #nowarn "1337" // internal types
@@ -14,6 +14,7 @@ open TodoCollaborative
 type AdaptiveTodoModel(value : TodoModel) =
     let _Items_ = FSharp.Data.Adaptive.clist(value.Items)
     let _NewItem_ = FSharp.Data.Adaptive.cval(value.NewItem)
+    let _Note_ = FSharp.Data.Adaptive.cval(value.Note)
     let mutable __value = value
     let __adaptive = FSharp.Data.Adaptive.AVal.custom((fun (token : FSharp.Data.Adaptive.AdaptiveToken) -> __value))
     static member Create(value : TodoModel) = AdaptiveTodoModel(value)
@@ -24,7 +25,9 @@ type AdaptiveTodoModel(value : TodoModel) =
             __adaptive.MarkOutdated()
             _Items_.Value <- value.Items
             _NewItem_.Value <- value.NewItem
+            _Note_.Value <- value.Note
     member __.Current = __adaptive
     member __.Items = _Items_ :> FSharp.Data.Adaptive.alist<Microsoft.FSharp.Core.string>
     member __.NewItem = _NewItem_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.string>
+    member __.Note = _Note_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.string>
 

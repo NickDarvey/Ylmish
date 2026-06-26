@@ -5,8 +5,9 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 9 (example + docs) — the last
-step. #83 is fixed end-to-end (Step 8 e2e test green).
+**Last updated:** 2026-06-26 · **Status: COMPLETE.** All steps (0–9) done; #83
+fixed end-to-end. Suite **121 passing**; `npm run demo` shows two peers merging a
+shared note concurrently.
 
 ### Progress
 
@@ -64,7 +65,13 @@ step. #83 is fixed end-to-end (Step 8 e2e test green).
   over two docs make concurrent edits to a text field; after sync the edits
   **interleave in the Elmish models**, not just the docs (`Program.fs` e2e test).
   This is #83 closed at the top layer. Suite **120 passing**.
-- [ ] **Step 9** — Example + docs.
+- [x] **Step 9** — Example + docs — **DONE.** `examples/TodoCollaborative` gains
+  a collaboratively-edited `Note` field via `Encode.text`/`Decode.text`; the
+  decoder reads it optionally with an `ask` fallback so the raw-materialize tests
+  stay green. `Demo.fs` makes both peers edit the note concurrently — they merge
+  (`npm run demo`). README has the merge-semantics table, the `Scheme` seam, and
+  the reserved `Ref<>` note. New `TodoCollaborative.fs` test: the note merges
+  across two `withYlmish` peers. Suite **121 passing**.
 
 ### Decisions & lessons
 
@@ -91,10 +98,16 @@ step. #83 is fixed end-to-end (Step 8 e2e test green).
   amodel) means the same `"ylmish-text"` sub stays empty — and so the decoder is
   never called on local updates — for non-text models (keeps the reentrancy-guard
   test green). The empty-start `initial`-skip fix from Step 2 was reused here.
-  **Limitation:** remote *non-text* changes in a *mixed* (text+non-text) model
-  still go through `observeDeep → dematerialize`, which omits text, so its decode
-  would miss required text fields; the text read path covers text, but a unified
-  read-back merge for mixed models is future work.
+- **Unified read-back merge (Step 9).** Mixed text+non-text models exposed a
+  crash: `observeDeep → dematerialize` omits text, so the decoder fell back to a
+  *stale* text value via `ask`, and the subsequent `Update → Encode.text` mirror
+  then issued a **re-entrant `Y.Text` edit while a remote update was still
+  applying** (`"Index was outside the bounds of the array"`). Fix: a single
+  `readbackModel`, used by *both* observers, decodes a **merged** tree —
+  structural fields from `dematerialize`, collaborative text from the live
+  (already-merged) clists. Decoding the merged text keeps the mirror a no-op on
+  read-back (no re-entrant edit), and it makes remote non-text changes in a mixed
+  model work too — the Step 7 limitation is resolved.
 - **connect realizes the adaptive graph → updates must be transacted (Step 6).**
   Adding `Y.Doc.connect` to `withYlmish.init` forces the encoded tree, which
   realizes the adaptive dependency graph. The restore path's
