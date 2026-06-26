@@ -655,5 +655,31 @@ let tests = testList "Y.Doc" [
             Expect.equal (System.String.Concat bodyChars) "X" "decode direction is torn down after disposal"
             Expect.equal (yt.toString ()) "XY" "the Y.Text itself still updates (only our observer is gone)"
         }
+
+        test "connect flattens text nested in an object to a dotted root name" {
+            let s = cval ""
+            let enc : Encoded<Element<string>> =
+                Encode.object [ "doc", Encode.object [ "body", Encode.text s ] ]
+            let d = Y.Doc.Create ()
+            use _ = Y.Doc.connect d enc
+            transact (fun () -> s.Value <- "nested")
+            // The default flat scheme names the nested-text root by its path.
+            Expect.equal ((d.getText "doc.body").toString ()) "nested"
+                "nested text is flattened to the root 'doc.body'"
+        }
+
+        test "a custom Scheme controls root names (consumer seam)" {
+            // A consumer-defined scheme that namespaces every root under "app/".
+            let scheme : Scheme = { RootName = fun path -> "app/" + Scheme.flat.RootName path }
+            let s = cval ""
+            let enc : Encoded<Element<string>> = Encode.object [ "body", Encode.text s ]
+            let d = Y.Doc.Create ()
+            use _ = Y.Doc.connectWith scheme d enc
+            transact (fun () -> s.Value <- "hi")
+            Expect.equal ((d.getText "app/body").toString ()) "hi"
+                "text is stored under the custom scheme's root name"
+            Expect.equal ((d.getText "body").toString ()) ""
+                "the default-named root is unused under the custom scheme"
+        }
     ]
 ]

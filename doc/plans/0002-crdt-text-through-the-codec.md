@@ -5,10 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 5 is **blocked on a design
-decision** (see Blockers) — the flattened state-schema is the persisted wire
-format and has an unresolved sub-problem (stable ids for text nested in lists).
-Multi-root generality + lifecycle/teardown for `connect` are already landed.
+**Last updated:** 2026-06-26 · **Next step:** Step 6 (rewire `withYlmish` write
+path to compose `connect` for text with the structural path for non-text).
 
 ### Progress
 
@@ -37,11 +35,16 @@ Multi-root generality + lifecycle/teardown for `connect` are already landed.
   `CompositeDisposable`. New `Y.Doc.fs` "connect" test: two docs converge on
   concurrent edits with no pre-sync. The #83 headline fix is real at the connect
   layer. Suite **112 passing**.
-- [~] **Step 5** — Generalise `connect` to full trees — **PARTIAL / BLOCKED.**
-  Landed: `connect` proven across **multiple text roots** and a **dispose
-  teardown** test (A4 lifecycle) in `Y.Doc.fs`. **Blocked** on the wire-format
-  design decision before extending to value/list/map fields and nesting (see
-  Blockers). Suite **114 passing**.
+- [x] **Step 5** — Generalise `connect` via a pluggable **`Scheme`** seam —
+  **DONE** (pragmatic A3-safe slice, per the user's decision). `connect` now
+  walks the tree recursively and flattens every **text** leaf (incl. nested in
+  objects/lists) to a top-level `Y.Text` root named by a `Codec.Scheme`;
+  `Scheme.flat` is the A3-safe default and consumers can pass their own
+  (`connectWith`). Non-text leaves are skipped (left on the structural/LWW path,
+  composed in Step 6). Tests: nested-text flatten, custom-scheme seam, multi-root,
+  A4 teardown. **Deferred:** A2 kind-drift guard, the `IShareBinding` dogfood
+  refactor, and full path-flattening of *non-text* containers. Suite
+  **116 passing**.
 - [ ] **Step 6** — Rewire `withYlmish` write path to `connect`.
 - [ ] **Step 7** — Rewire `withYlmish` read path to live decode + `ask`.
 - [ ] **Step 8** — End-to-end acceptance test through `withYlmish`.
@@ -104,6 +107,21 @@ Multi-root generality + lifecycle/teardown for `connect` are already landed.
   **105 passing**.
 
 ### Blockers
+
+- None. (The Step 5 wire-format decision below is **resolved** — kept for the
+  rationale.)
+
+#### Resolved: Step 5 layout scheme (decision 2026-06-26)
+
+**Decision (user):** ship the *pragmatic A3-safe slice* now (text → flattened
+roots; non-text stays on the structural/LWW path), and make the layout a
+**consumer seam** — a `Scheme` passed into the encode/decode setup. A full
+path-flattened scheme may ship in the box later; consumers can supply their own.
+Implemented as `Codec.Scheme` (`RootName : Path -> string`) with `Scheme.flat`
+the default, and `Y.Doc.connectWith scheme`. This is the layout counterpart to
+the `IShareBinding` merge-type seam (Step 1).
+
+The original analysis (why the schema is load-bearing) is preserved below.
 
 - **Step 5 wire-format design decision (needs a human call).** Generalising
   `connect` beyond text fields fixes the **persisted state schema** (the

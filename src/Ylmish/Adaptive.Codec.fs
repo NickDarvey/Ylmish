@@ -143,6 +143,35 @@ module Path =
                 ignore <| sb.Append $"[%i{i}]"
         $"${sb.ToString ()}"
 
+/// A `Scheme` decides how an encoded Element tree is laid out across a Y.Doc's
+/// top-level roots — the seam a consumer overrides to choose their own persisted
+/// state schema without forking `connect`. Given the path to a collaborative
+/// leaf (innermost segment first, as codecs build it), it returns the stable
+/// top-level root name under which that leaf is get-or-created.
+///
+/// The A3 spike forces every collaborative leaf to be a *root* (relying only on
+/// A1 root get-or-create); nesting is therefore encoded *by name*. The library
+/// ships a pragmatic default (`Scheme.flat`); a richer path-flattened or
+/// id-based scheme can be provided in the box later, or supplied by a consumer.
+type Scheme = {
+    /// The top-level root name for a collaborative leaf at this path.
+    RootName : Path -> string
+}
+
+module Scheme =
+    /// The default, A3-safe scheme: flatten the path to a dotted top-level name
+    /// (e.g. `items[2].body` -> `"items.2.body"`). Each collaborative leaf
+    /// becomes its own root. Suitable when leaf positions are stable;
+    /// collaborative text nested inside a concurrently-reordered list wants a
+    /// custom, id-based scheme instead (the seam this type exists to provide).
+    let flat : Scheme = {
+        RootName = fun path ->
+            path
+            |> List.rev
+            |> List.map (function ObjectKey k -> k | ArrayIndex i -> string i)
+            |> String.concat "."
+    }
+
 type Error =
     | UnexpectedKind of {|
             Path : Path

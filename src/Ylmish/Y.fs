@@ -653,38 +653,61 @@ module Doc =
                 )
             | _ -> failwith "Root element must be an AMap (object)"
 
-    /// Connect an encoded Element tree to a Y.Doc by get-or-creating the matching
-    /// shared types and wiring bi-directional delta sync. This is the per-update,
-    /// O(delta) alternative to whole-tree `materialize`: because each shared type
-    /// keeps a stable identity and accumulates ops over time, concurrent edits
-    /// CRDT-merge instead of clobbering.
+    /// Connect the collaborative-text leaves of an encoded Element tree to a
+    /// Y.Doc by get-or-creating a top-level `Y.Text` root per leaf (named by the
+    /// `Scheme`) and wiring bi-directional delta sync. This is the per-update,
+    /// O(delta) alternative to whole-tree `materialize` for text: because each
+    /// `Y.Text` keeps a stable identity and accumulates ops over time, concurrent
+    /// edits CRDT-merge instead of clobbering (the #83 fix).
     ///
-    /// Step 4 slice (narrowest): a top-level object whose fields are
-    /// collaborative text. Each text field becomes a top-level `Y.Text` root
-    /// keyed by the field name — the flattened-top-level-name path, relying only
-    /// on A1 (root get-or-create). Nesting and list/map fields arrive in Step 5.
+    /// The tree is walked recursively, so text nested in objects/lists is also
+    /// flattened to a root (named by path via the scheme). Non-text leaves
+    /// (values, and lists/maps of values) are deliberately *skipped* here — they
+    /// stay on the existing structural/LWW path — so `connect` composes with the
+    /// rest of the codec rather than replacing it wholesale.
     ///
     /// Returns an `IDisposable` that tears down every attachment.
-    let connect (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : IDisposable =
+    let connectWith
+        (scheme : Codec.Scheme)
+        (doc : Y.Doc)
+        (encoded : Codec.Encoded<Codec.Element<string>>)
+        : IDisposable =
         let disposables = ResizeArray<IDisposable> ()
+        let rec walk (path : Codec.Path) (element : Codec.Element<string>) =
+            match element with
+            | Codec.Element.Text chars ->
+                // Get-or-create the flattened top-level root for this leaf (A1).
+                let ytext = doc.getText (scheme.RootName path)
+                let active = ref false
+                disposables.Add (Text.attach active chars ytext)
+            | Codec.Element.AMap amap ->
+                AMap.force amap
+                |> HashMap.iter (fun key value ->
+                    match value with
+                    | Some child -> walk (Codec.ObjectKey key :: path) child
+                    | None -> ())
+            | Codec.Element.AList alist ->
+                AList.force alist
+                |> IndexList.toList
+                |> List.iteri (fun i value ->
+                    match value with
+                    | Some child -> walk (Codec.ArrayIndex i :: path) child
+                    | None -> ())
+            | Codec.Element.Value _ ->
+                // Non-text: handled by the structural/LWW path, not connect.
+                ()
+            | Codec.Element.Custom _ ->
+                // Consumer-defined merge bindings dispatch here once the
+                // IShareBinding/BindContext surface lands (deferred).
+                failwith "Y.Doc.connect: Element.Custom is not dispatched yet (IShareBinding pending)"
         match AVal.force encoded with
+        | Some element -> walk [] element
         | None -> ()
-        | Some (Codec.Element.AMap amap) ->
-            AMap.force amap
-            |> HashMap.iter (fun key value ->
-                match value with
-                | Some (Codec.Element.Text chars) ->
-                    // Get-or-create the root by its flattened name (A1).
-                    let ytext = doc.getText key
-                    let active = ref false
-                    disposables.Add (Text.attach active chars ytext)
-                | other ->
-                    let kind = other |> Option.map (fun e -> e.toKind ())
-                    failwith $"Y.Doc.connect (Step 4): field '%s{key}' must be collaborative text; got %A{kind}"
-            )
-        | Some other ->
-            failwith $"Y.Doc.connect (Step 4): expected a top-level object, got %A{other.toKind ()}"
         new CompositeDisposable (disposables :> IDisposable seq) :> IDisposable
+
+    /// Connect using the default A3-safe `Scheme.flat` layout.
+    let connect (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : IDisposable =
+        connectWith Codec.Scheme.flat doc encoded
 
     /// Dematerialize a Y.Doc's root map into an Element<string> tree
     let dematerialize (doc : Y.Doc) : Codec.Element<string> =
