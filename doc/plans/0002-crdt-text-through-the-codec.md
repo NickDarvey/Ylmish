@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 3 (`Encode.text` /
-`Decode.text` — the 5A string↔clist diff mirror at the codec layer).
+**Last updated:** 2026-06-26 · **Next step:** Step 4 (`Y.Doc.connect` for a
+single top-level text root).
 
 ### Progress
 
@@ -23,7 +23,12 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
   Fable + .NET) to route `Text` through the existing `Text.attach`. New tests in
   `Y.Element.fs`: clist round-trip + two-doc convergence through the bridge.
   **Fixed a real empty-start encode bug** (see lessons). Suite **107 passing**.
-- [ ] **Step 3** — `Encode.text` / `Decode.text` (5A diff mirror, codec layer).
+- [x] **Step 3** — `Encode.text` / `Decode.text` — **DONE.** `Encode.text :
+  aval<string> -> Encoded<_>` owns a stable `clist<char>` and mirrors successive
+  strings into it via a minimal common-affix diff; `Decode.text` reads the live
+  clist back as a string. New `Codec.Text.fs`: round-trip, **A5 minimal delta**,
+  reactive decode, and a codec-level two-field interleave-on-sync. Suite
+  **111 passing**.
 - [ ] **Step 4** — `Y.Doc.connect` for a single text root.
 - [ ] **Step 5** — Generalise `connect` to full trees via `IShareBinding`
   (flattened names).
@@ -40,6 +45,17 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
   surfaces a clear schema-drift error.
 - **A6:** `ymap.set(key, ytext)` integrates the handle *in place* (`t === read
   back`); always edit/observe via the integrated handle.
+- **A5 confirmed (Step 3).** A common-affix diff (shared prefix + suffix,
+  replace the middle) yields a minimal `clist`/`Y.Text` delta for a single-char
+  change (`"hello"`→`"hełlo"` = 2 ops, not a 10-op clear+reinsert). LCS/Myers
+  weren't needed; revisit only if multi-region edits in one batch matter.
+- **`lastKnown` became "diff against the live clist."** Rather than track a
+  separate `lastKnown` string, `Encode.text` diffs the new value against
+  `System.String.Concat chars` (the clist's current contents). This is the
+  single reconciliation point the plan called for: after a remote merge the
+  clist already holds the merged text, so a subsequent whole-string model set
+  still diffs minimally, and a value that already matches yields no delta — echo
+  suppression falls out for free, complementing the attach `active` guard.
 - **Empty-start encode bug (fixed in Step 2, load-bearing for #83).**
   `Text.attachEncode` skipped the *first* `AddCallback` firing to drop the
   initial content echo — but that echo only fires for a **non-empty** list. A

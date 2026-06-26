@@ -200,6 +200,43 @@ module Encode =
 
     let inline valueWith a f = value f a
 
+    /// Mirror a new whole-string value into a stable clist<char> by applying the
+    /// minimal common-affix diff (5A): keep the shared prefix/suffix, replace
+    /// only the changed middle. This recovers character operations from the
+    /// successive immutable strings the Elmish/Adaptive layer hands us — the same
+    /// job Adaptive already does for lists, one level down.
+    let private mirrorString (chars : clist<char>) (oldStr : string) (newStr : string) =
+        let oldLen = oldStr.Length
+        let newLen = newStr.Length
+        let minLen = min oldLen newLen
+        let mutable p = 0
+        while p < minLen && oldStr.[p] = newStr.[p] do
+            p <- p + 1
+        let mutable s = 0
+        while s < (minLen - p) && oldStr.[oldLen - 1 - s] = newStr.[newLen - 1 - s] do
+            s <- s + 1
+        // Delete the changed middle of the old string: [p, oldLen - s)
+        for _ in 1 .. (oldLen - s - p) do
+            chars.RemoveAt p |> ignore
+        // Insert the changed middle of the new string: [p, newLen - s)
+        for i in p .. (newLen - s - 1) do
+            chars.InsertAt (i, newStr.[i]) |> ignore
+
+    /// Encode a plain `string` field as character-level CRDT text (`Element.Text`).
+    /// The model field stays an immutable F# string; the encoder owns a stable
+    /// `clist<char>` that it keeps mirrored to the latest string via `mirrorString`.
+    /// Diffing against the clist's *current* contents is the single reconciliation
+    /// point: it yields a minimal delta for whole-string replacement and naturally
+    /// suppresses echoes (a value that already matches produces no delta).
+    let text (a : aval<string>) : Encoded<Element<'b>> =
+        let chars : clist<char> = clist []
+        a.AddCallback (fun newStr ->
+            let current = System.String.Concat chars
+            if newStr <> current then
+                transact (fun () -> mirrorString chars current newStr)
+        ) |> ignore
+        AVal.constant (Some (Element.Text chars))
+
     let list (f : 'a -> Encoded<Element<'b>>) (a : 'a alist) : Encoded<Element<'b>> =
         a
         |> AList.mapA f
@@ -327,6 +364,22 @@ module Decode =
                     Expected = [ Kind.List ]
                 |}
 
+        /// Decode an `Element.Text` back to a plain `string`. Reads the live
+        /// `clist<char>` so the decoded value recomputes as the backing text
+        /// changes (e.g. a remote CRDT edit), keeping it symmetric with `value`.
+        let text : Decoder<_,_,string> = fun _ (path, el) ->
+            match el with
+            | Element.Text chars ->
+                chars
+                |> AList.toAVal
+                |> AVal.map (fun il -> Validation.ok (System.String.Concat il))
+            | el ->
+                Decoded.error <| UnexpectedKind {|
+                    Path = path
+                    Actual = el.toKind ()
+                    Expected = [ Kind.Text ]
+                |}
+
     let optional (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
         match el with
         | Some el ->
@@ -340,6 +393,9 @@ module Decode =
         | None -> Decoded.error <| MissingProperty {| Path = path |}
 
     let value x = Element.value Decoder.id x
+
+    /// Decode a collaborative-text field as a plain `string`.
+    let text : Decoder<_,_,string> = Element.text
 
     let inline tryParse x = Element.value Decoder.tryParse x
 
