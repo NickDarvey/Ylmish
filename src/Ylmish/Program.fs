@@ -105,6 +105,50 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                 { new System.IDisposable with
                     member _.Dispose() = rootMap.unobserveDeep handler }
             ]
+            [ ["ylmish-text"], fun dispatch ->
+                // Remote collaborative-text edits land on separate Y.Text roots
+                // that the root-map observer above never sees. Observe the
+                // connected text clists directly: when one changes (a remote CRDT
+                // edit applied via attach), re-decode the live tree against the
+                // *current* model — so `ask` preserves non-persisted fields — and
+                // dispatch Set. This is the O(delta), model-preserving read path.
+                let rec gather acc el =
+                    match el with
+                    | Element.Text chars -> chars :: acc
+                    | Element.AMap m ->
+                        AMap.force m
+                        |> HashMap.fold (fun acc _ v -> match v with Some c -> gather acc c | None -> acc) acc
+                    | Element.AList l ->
+                        AList.force l
+                        |> IndexList.toList
+                        |> List.fold (fun acc v -> match v with Some c -> gather acc c | None -> acc) acc
+                    | _ -> acc
+                let textLeaves =
+                    match encoded |> Option.bind AVal.force with
+                    | Some el -> gather [] el
+                    | None -> []
+                let readback () =
+                    if not isWritingToYDoc then
+                        match currentModel, encoded with
+                        | Some m, Some enc ->
+                            match AVal.force (Decode.run m options.Decode enc) with
+                            | Ok restored -> dispatch (Set restored)
+                            | Error errors ->
+                                eprintfn "withYlmish: text change could not be decoded, ignoring. %s" (Error.printAll errors)
+                        | _ -> ()
+                let disposables =
+                    textLeaves
+                    |> List.map (fun (chars : clist<char>) ->
+                        // AddCallback emits an initial echo only for a non-empty
+                        // list; skip exactly that one so the first *remote* edit
+                        // on an initially-empty field still triggers a read-back.
+                        let mutable initial = not (Seq.isEmpty chars)
+                        chars.AddCallback (fun _ _ ->
+                            if initial then initial <- false
+                            else readback ()))
+                { new System.IDisposable with
+                    member _.Dispose() = for d in disposables do d.Dispose() }
+            ]
         ]
 
     let init userInit arg =

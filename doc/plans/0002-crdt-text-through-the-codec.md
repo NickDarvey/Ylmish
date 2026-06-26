@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 7 (rewire `withYlmish` read
-path so remote text edits reach the Elmish model; `Decoder.ask`).
+**Last updated:** 2026-06-26 · **Next step:** Step 9 (example + docs) — the last
+step. #83 is fixed end-to-end (Step 8 e2e test green).
 
 ### Progress
 
@@ -54,8 +54,16 @@ path so remote text edits reach the Elmish model; `Decoder.ask`).
   Existing non-text tests unchanged (connect is a no-op without text leaves).
   Suite **117 passing**. (Plan originally said "drop materialize"; with the
   pragmatic slice it stays for non-text — text is the part that moves.)
-- [ ] **Step 7** — Rewire `withYlmish` read path to live decode + `ask`.
-- [ ] **Step 8** — End-to-end acceptance test through `withYlmish`.
+- [x] **Step 7** — Rewire `withYlmish` read path — **DONE.** Added a
+  `"ylmish-text"` subscription that observes the connected text `clist`s
+  directly (remote edits land on separate roots `observeDeep` never sees) and,
+  on change, re-decodes the live tree against the **current** model (so `ask`
+  preserves non-persisted fields) and dispatches `Set`. Tests: remote text edit
+  reaches the model; `ask` keeps a non-persisted field across a remote round-trip.
+- [x] **Step 8** — End-to-end acceptance — **DONE.** Two `withYlmish` programs
+  over two docs make concurrent edits to a text field; after sync the edits
+  **interleave in the Elmish models**, not just the docs (`Program.fs` e2e test).
+  This is #83 closed at the top layer. Suite **120 passing**.
 - [ ] **Step 9** — Example + docs.
 
 ### Decisions & lessons
@@ -75,6 +83,18 @@ path so remote text edits reach the Elmish model; `Decoder.ask`).
   correct for the A1 slice. `withYlmish` `init` (Steps 6/7) owns the
   materialise-or-decode decision for existing/initial state; `connect` will gain
   an explicit initial reconciliation there.
+- **Read path observes the clists, not the root map (Step 7).** Remote text
+  edits land on separate `Y.Text` roots, so the root-map `observeDeep` never
+  fires for them. The fix observes the connected text `clist`s directly and
+  re-decodes the **live** tree against the *current* model (via `ask`) → `Set`.
+  Re-decoding against the live tree (text from live clists, non-text from the
+  amodel) means the same `"ylmish-text"` sub stays empty — and so the decoder is
+  never called on local updates — for non-text models (keeps the reentrancy-guard
+  test green). The empty-start `initial`-skip fix from Step 2 was reused here.
+  **Limitation:** remote *non-text* changes in a *mixed* (text+non-text) model
+  still go through `observeDeep → dematerialize`, which omits text, so its decode
+  would miss required text fields; the text read path covers text, but a unified
+  read-back merge for mixed models is future work.
 - **connect realizes the adaptive graph → updates must be transacted (Step 6).**
   Adding `Y.Doc.connect` to `withYlmish.init` forces the encoded tree, which
   realizes the adaptive dependency graph. The restore path's

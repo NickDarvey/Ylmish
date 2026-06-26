@@ -647,4 +647,129 @@ let tests = testList "Program" [
             "both peers' text edits CRDT-merge through withYlmish (no clobber)"
     }
 
+    // Plan 0002, Step 7 — the read path. A remote edit to a text root must reach
+    // the Elmish model even though it never touches the structural root map.
+    test "withYlmish reflects a remote text edit in the Elmish model (read path)" {
+        let d1 = Y.Doc.Create ()
+        use disp =
+            Example.program {|
+                Init = {
+                    PropA = ""
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+                Doc = d1
+                Encode = fun m -> Encode.object [ "body", Encode.text m.PropA ]
+                Decode = Decode.object {
+                    let! body = Decode.object.required "body" Decode.text
+                    return {
+                        PropA = body
+                        PropB = None
+                        PropC = IndexList.empty
+                        PropD = IndexList.empty
+                        PropE = { Prop0 = "not-used" }
+                        PropF = None
+                    }
+                }
+            |}
+
+        // A remote peer writes to the shared "body" text root and syncs in.
+        let d2 = Y.Doc.Create ()
+        (d2.getText "body").insert (0, "remote")
+        Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+        Expect.equal "remote" disp.Model.PropA
+            "a remote text edit reaches the Elmish model via the text read path"
+    }
+
+    // Step 7 — `ask` preserves a non-persisted field across a remote text
+    // round-trip. PropB is set in the model but never encoded; the decoder pulls
+    // it from the current model via `ask`, so a remote text edit must not wipe it.
+    test "withYlmish preserves a non-persisted field across a remote text edit (ask)" {
+        let d1 = Y.Doc.Create ()
+        use disp =
+            Example.program {|
+                Init = {
+                    PropA = ""
+                    PropB = Some "session-only"
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+                Doc = d1
+                Encode = fun m -> Encode.object [ "body", Encode.text m.PropA ]
+                Decode = Decode.object {
+                    let! current = Decode.object.ask ()
+                    let! body = Decode.object.required "body" Decode.text
+                    return {
+                        PropA = body
+                        PropB = current.PropB
+                        PropC = current.PropC
+                        PropD = current.PropD
+                        PropE = current.PropE
+                        PropF = current.PropF
+                    }
+                }
+            |}
+
+        let d2 = Y.Doc.Create ()
+        (d2.getText "body").insert (0, "remote")
+        Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+        Expect.equal "remote" disp.Model.PropA "persisted text field updates from the remote edit"
+        Expect.equal (Some "session-only") disp.Model.PropB
+            "non-persisted field survives the remote round-trip via ask"
+    }
+
+    // Plan 0002, Step 8 — end-to-end acceptance for #83. Two withYlmish programs
+    // over two docs make concurrent edits to the same text field; after sync the
+    // edits interleave in the *Elmish models*, not just the docs. This is what
+    // materialize could never do (last-writer-wins clobber).
+    test "two withYlmish programs converge their models on concurrent text edits (e2e)" {
+        let mk (doc : Y.Doc) =
+            Example.program {|
+                Init = {
+                    PropA = ""
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+                Doc = doc
+                Encode = fun m -> Encode.object [ "body", Encode.text m.PropA ]
+                Decode = Decode.object {
+                    let! body = Decode.object.required "body" Decode.text
+                    return {
+                        PropA = body
+                        PropB = None
+                        PropC = IndexList.empty
+                        PropD = IndexList.empty
+                        PropE = { Prop0 = "not-used" }
+                        PropF = None
+                    }
+                }
+            |}
+
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use disp1 = mk d1
+        use disp2 = mk d2
+
+        Example.dispatch disp1 <| Example.SetPropA "AAA"
+        Example.dispatch disp2 <| Example.SetPropA "BBB"
+
+        // Exchange updates both ways.
+        Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+        Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+        Expect.equal disp1.Model.PropA disp2.Model.PropA "the Elmish models converge"
+        Expect.isTrue (disp1.Model.PropA.Contains "AAA" && disp1.Model.PropA.Contains "BBB")
+            "both peers' concurrent edits interleave in the Elmish model (the #83 fix, end-to-end)"
+    }
+
 ]
