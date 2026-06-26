@@ -270,8 +270,9 @@ Ordered by dependency. Each objective is independently testable.
 - Implement the string ↔ `clist<char>` mirror with `lastKnown` reconciliation
   and a diff (start with LCS; Myers later if profiling demands).
 - `Encode.text : aval<string> -> Encoded<_>`, `Decode.text : Decoder<_,_,string>`.
-- Tests: local edit yields minimal delta; remote edit reaches the model;
-  no echo under the reentrancy guard.
+- Tests (assumptions in parens): local edit yields **minimal** delta for a
+  whole-string replacement (**A5**); remote edit reaches the model; no echo
+  under the reentrancy guard.
 
 ### Objective C — `Y.Doc.connect` + get-or-insert
 
@@ -279,8 +280,12 @@ Ordered by dependency. Each objective is independently testable.
   locations, attach bi-directionally; return a composite `IDisposable`.
 - Define `IShareBinding` / `BindContext` and refactor `text`/`list`/`map`
   attach to instances of it.
-- Tests: connect is idempotent across two peers (no root clobber); nested
-  types reuse rather than recreate.
+- Tests (assumptions in parens): root get-or-create is idempotent on one doc and
+  convergent across two peers (**A1**); mismatched-kind re-fetch is rejected
+  (**A2**); **nested concurrent create converges, not clobbers (A3 — expected to
+  FAIL first; gates the flattened-name fallback)**; deleting an attached key
+  tears down cleanly (**A4**); child created then parented keeps content/identity
+  (**A6**).
 
 ### Objective D — rewire `Program.withYlmish`
 
@@ -297,7 +302,9 @@ insert into the **same** text field at **different offsets without syncing
 first**, then exchange `encodeStateAsUpdate`/`applyUpdate` both directions, and
 assert the **interleaved** result (both insertions present), not one side's
 value. Fails on `materialize`, passes on `connect` — the issue's final
-criterion.
+criterion. This test also transitively exercises **A1** (shared root) and
+**A3** (if the same text field lives under a nested container); if it can only
+pass via the flattened-name fallback, record that outcome here.
 
 ### Objective F — example + docs
 
@@ -306,6 +313,31 @@ criterion.
 - Update `README` merge-semantics table; note `Ref<>` as a reserved future seam.
 
 ---
+
+## Assumptions to validate by test
+
+Every objective below carries assumptions about Yjs behaviour that we are **not
+confident in** and must pin with a test *before* building on them. Each test
+asserts the assumption directly so that, if Yjs does not behave this way, we find
+out at the seam rather than three layers up. The riskiest is nested
+get-or-create (A3) — flagged as a likely design-forcing failure.
+
+| # | Assumption | Confidence | Pinning test | If it's false |
+|---|---|---|---|---|
+| A1 | `doc.getMap/getText/getArray(name)` is idempotent — repeated calls return the *same* root shared type, and two peers naming the same root converge on one type after sync. | High (documented Yjs) | Call twice on one doc, assert reference equality; two docs get same-named root, edit each, sync, assert convergence. | Roots must be created once and cached by `connect`; never re-fetched per update. |
+| A2 | A root fetched as one type can never be safely re-fetched as another type (`getMap` then `getText` on the same name). | Medium | Assert that mismatched re-fetch throws or is detectably wrong; `connect` must guard against it. | `connect` must record the kind per root name and reject schema drift loudly. |
+| **A3** | **Nested get-or-create is convergent**: two peers that both find `ymap.get(key)` absent and both create-and-set a new nested `Y.Map`/`Y.Text` there will *converge*, not clobber. | **Low — likely FALSE** | Two docs, no initial sync; both create the same nested key as a fresh `Y.Text`; both insert different text; sync both ways; assert **both** insertions survive. | **Design change forced** (see below): represent nesting by flattened top-level names so only A1 idempotency is relied on. |
+| A4 | Applying a remote update that *deletes* a root key the local peer is actively `attach`ed to does not leave a dangling observer / null deref. | Low | Attach to a key, apply a remote update removing it, assert the observer tears down cleanly and the model reflects removal. | `attach` lifecycle must subscribe to parent structural events, not just the child. |
+| A5 | `Encode.text`'s `clist<char>` ↔ `Y.Text` mirror produces a **minimal** delta for a whole-string replacement (i.e. `lastKnown` reconciliation works), not a full clear+reinsert. | Medium | Replace `"hello"`→`"hełlo"`, assert the Y.Text delta is a single-char insert, not delete-5/insert-6. | Acceptable for correctness; revisit diff algorithm (Myers) before claiming efficiency. |
+| A6 | A `Y.Text` created standalone and *then* inserted into a parent `Y.Map`/`Y.Array` retains its content and identity (needed if `connect` builds children before parenting). | Medium | Create `Y.Text`, set content, `ymap.set(key, ytext)`, assert content intact and `.doc` is now the parent doc. | `connect` must create children *via* the parent (`parent.set` returning the integrated type) rather than standalone-then-attach. |
+
+**A3 is the load-bearing risk.** If the failing-then-passing concurrency test
+(Objective E) can't be made to pass with nested get-or-create, the fallback —
+already anticipated by README TODO 6 — is to **only use top-level named shared
+types** and encode nesting as flattened names (e.g. a field at `items[2].body`
+becomes a root `Y.Text` named `"items.2.body"` or a stable id). That trades
+nested structure for the idempotency we *do* trust (A1). The plan deliberately
+keeps `connect`'s location logic behind one function so this swap is local.
 
 ## Risks / open questions
 
