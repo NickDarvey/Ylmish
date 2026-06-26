@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 6 (rewire `withYlmish` write
-path to compose `connect` for text with the structural path for non-text).
+**Last updated:** 2026-06-26 · **Next step:** Step 7 (rewire `withYlmish` read
+path so remote text edits reach the Elmish model; `Decoder.ask`).
 
 ### Progress
 
@@ -45,7 +45,15 @@ path to compose `connect` for text with the structural path for non-text).
   A4 teardown. **Deferred:** A2 kind-drift guard, the `IShareBinding` dogfood
   refactor, and full path-flattening of *non-text* containers. Suite
   **116 passing**.
-- [ ] **Step 6** — Rewire `withYlmish` write path to `connect`.
+- [x] **Step 6** — Rewire `withYlmish` write path — **DONE** (hybrid). `init`
+  now calls `Y.Doc.connect` once (text roots) alongside `materialize`
+  (non-text); `materialize`/`elementToY` **skip text leaves** so the two paths
+  compose; the connection is disposed on termination. Text edits flow model →
+  amodel → `Encode.text` mirror → `connect` attach → `Y.Text` root, so they
+  CRDT-merge. New `Program.fs` test: a text field converges across two docs.
+  Existing non-text tests unchanged (connect is a no-op without text leaves).
+  Suite **117 passing**. (Plan originally said "drop materialize"; with the
+  pragmatic slice it stays for non-text — text is the part that moves.)
 - [ ] **Step 7** — Rewire `withYlmish` read path to live decode + `ask`.
 - [ ] **Step 8** — End-to-end acceptance test through `withYlmish`.
 - [ ] **Step 9** — Example + docs.
@@ -67,6 +75,12 @@ path to compose `connect` for text with the structural path for non-text).
   correct for the A1 slice. `withYlmish` `init` (Steps 6/7) owns the
   materialise-or-decode decision for existing/initial state; `connect` will gain
   an explicit initial reconciliation there.
+- **connect realizes the adaptive graph → updates must be transacted (Step 6).**
+  Adding `Y.Doc.connect` to `withYlmish.init` forces the encoded tree, which
+  realizes the adaptive dependency graph. The restore path's
+  `options.Update am restoredModel` then had to move inside a `transact` (it
+  previously got away with an untransacted cval set because nothing depended on
+  it yet). Symptom was `"cannot mark object without transaction"`.
 - **A5 confirmed (Step 3).** A common-affix diff (shared prefix + suffix,
   replace the middle) yields a minimal `clist`/`Y.Text` delta for a single-char
   change (`"hello"`→`"hełlo"` = 2 ops, not a 10-op clear+reinsert). LCS/Myers

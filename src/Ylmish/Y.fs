@@ -551,13 +551,17 @@ module Doc =
             AMap.force amap
             |> HashMap.iter (fun key value ->
                 match value with
+                // Text leaves live in their own Y.Text root (connect), not the
+                // structural map; skip them here so the two paths compose.
+                | Some (Codec.Element.Text _) -> ()
                 | Some e -> ymap.set(key, Some (elementToY e)) |> ignore
                 | None -> ymap.set(key, None) |> ignore
             )
             Y.Element.Map ymap
         | Codec.Element.Text _ ->
-            // The Element.Text ↔ Y.Element.Text bridge lands in plan 0002 Step 2.
-            failwith "Element.Text is not yet bridged to Y.Element (plan 0002, Step 2)"
+            // A bare Text element (directly under an array/root rather than an
+            // object field) is connect-managed; materialize never emits one.
+            failwith "Element.Text has no structural Y.Element (it is a connect-managed root)"
         | Codec.Element.Custom _ ->
             // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
             failwith "Element.Custom is not bridged through elementToY (plan 0002, Step 5)"
@@ -644,6 +648,9 @@ module Doc =
                     AMap.force amap
                     |> HashMap.iter (fun key value ->
                         match value with
+                        // Text leaves are connect-managed top-level roots, not
+                        // entries in the structural root map; skip them.
+                        | Some (Codec.Element.Text _) -> ()
                         | Some e ->
                             let yelement = elementToY e
                             rootMap.set(key, yelement) |> ignore

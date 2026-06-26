@@ -60,6 +60,8 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     let mutable encoded : Encoded<Element<string>> option = None
     let mutable isWritingToYDoc = false
     let mutable currentModel : 'model option = None
+    // Disposable for the connect attachments (collaborative-text roots).
+    let mutable connectDisposable : System.IDisposable option = None
 
     let update userUpdate msg model =
         currentModel <- Some model
@@ -112,6 +114,11 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
         let enc = options.Encode am
         encoded <- Some enc
 
+        // Connect collaborative-text leaves to their own Y.Text roots. This wires
+        // bi-directional, identity-preserving delta sync so concurrent text edits
+        // CRDT-merge (the #83 fix). Non-text fields stay on materialize below.
+        connectDisposable <- Some (Y.Doc.connect options.Doc enc)
+
         // Check if Y.Doc already has state
         // (Yjs Fable bindings do not expose a size property on Y.Map, so we use forEach)
         let rootMap = options.Doc.getMap ()
@@ -125,7 +132,9 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             match AVal.force decoded with
             | Ok restoredModel ->
                 currentModel <- Some restoredModel
-                options.Update am restoredModel
+                // connect has realized the adaptive graph, so updating the
+                // amodel must happen inside a transaction.
+                transact (fun () -> options.Update am restoredModel)
                 restoredModel, Cmd.none
             | Error errors ->
                 eprintfn "withYlmish: failed to decode existing Y.Doc state, falling back to initial model. %s" (Error.printAll errors)
@@ -152,7 +161,9 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             | Set _ -> false
             | User userMsg -> userTerminationPredicate userMsg
         ),
-        userTerminationAction
+        (fun model ->
+            connectDisposable |> Option.iter (fun d -> d.Dispose ())
+            userTerminationAction model)
 
     program
     |> Program.map init update view setState subs termination

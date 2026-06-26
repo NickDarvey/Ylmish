@@ -595,4 +595,56 @@ let tests = testList "Program" [
         Expect.equal 0 observerFiredCount "Reentrancy guard should prevent observer from firing on user updates"
     }
 
+    // Plan 0002, Step 6 — withYlmish wires connect for collaborative text. Here
+    // PropA is encoded as text (Encode.text). Two programs over two docs make
+    // concurrent edits; the write path flows model -> amodel -> chars -> attach
+    // -> Y.Text root, so the docs CRDT-merge (vs the old materialize clobber).
+    // Read-back into the Elmish models is Step 7; this asserts on the docs.
+    test "withYlmish syncs a collaborative text field across docs (write path)" {
+        let mk (doc : Y.Doc) =
+            Example.program {|
+                Init = {
+                    PropA = ""
+                    PropB = None
+                    PropC = IndexList.empty
+                    PropD = IndexList.empty
+                    PropE = { Prop0 = "not-used" }
+                    PropF = None
+                }
+                Doc = doc
+                Encode = fun m -> Encode.object [
+                    "body", Encode.text m.PropA
+                ]
+                Decode = Decode.object {
+                    let! body = Decode.object.required "body" Decode.text
+                    return {
+                        PropA = body
+                        PropB = None
+                        PropC = IndexList.empty
+                        PropD = IndexList.empty
+                        PropE = { Prop0 = "not-used" }
+                        PropF = None
+                    }
+                }
+            |}
+
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use disp1 = mk d1
+        use disp2 = mk d2
+
+        Example.dispatch disp1 <| Example.SetPropA "AAA"
+        Example.dispatch disp2 <| Example.SetPropA "BBB"
+
+        // Exchange updates both ways.
+        Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+        Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+        let r1 = (d1.getText "body").toString ()
+        let r2 = (d2.getText "body").toString ()
+        Expect.equal r1 r2 "collaborative text docs must converge"
+        Expect.isTrue (r1.Contains "AAA" && r1.Contains "BBB")
+            "both peers' text edits CRDT-merge through withYlmish (no clobber)"
+    }
+
 ]
