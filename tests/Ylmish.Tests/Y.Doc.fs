@@ -565,4 +565,38 @@ let tests = testList "Y.Doc" [
                 failwith $"Decoding failed: %A{errors}"
         }
     ]
+
+    // Plan 0002, Step 4 — Y.Doc.connect for a single top-level text root. This is
+    // the #83 headline scenario proven at the connect layer, before any
+    // withYlmish rewire: connect get-or-creates the shared text root (A1) and
+    // wires bi-directional delta sync, so concurrent edits CRDT-merge.
+    testList "connect" [
+        test "two docs connected to the same text root interleave concurrent edits (A1)" {
+            // Each peer encodes an object { body: <text> } via Encode.text.
+            let s1 = cval ""
+            let s2 = cval ""
+            let enc1 : Encoded<Element<string>> = Encode.object [ "body", Encode.text s1 ]
+            let enc2 : Encoded<Element<string>> = Encode.object [ "body", Encode.text s2 ]
+
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            use _ = Y.Doc.connect d1 enc1
+            use _ = Y.Doc.connect d2 enc2
+
+            // Concurrent local edits, expressed the MVU way (whole-string sets),
+            // with no pre-sync between the peers.
+            transact (fun () -> s1.Value <- "AAA")
+            transact (fun () -> s2.Value <- "BBB")
+
+            // Exchange updates both ways.
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            let r1 = (d1.getText "body").toString ()
+            let r2 = (d2.getText "body").toString ()
+            Expect.equal r1 r2 "docs must converge"
+            Expect.isTrue (r1.Contains "AAA" && r1.Contains "BBB")
+                "both peers' edits survive — connect wires CRDT merge, not last-writer-wins"
+        }
+    ]
 ]

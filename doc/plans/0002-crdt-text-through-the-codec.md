@@ -5,8 +5,8 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 4 (`Y.Doc.connect` for a
-single top-level text root).
+**Last updated:** 2026-06-26 · **Next step:** Step 5 (generalise `Y.Doc.connect`
+to full trees via `IShareBinding`, flattened names).
 
 ### Progress
 
@@ -29,7 +29,12 @@ single top-level text root).
   clist back as a string. New `Codec.Text.fs`: round-trip, **A5 minimal delta**,
   reactive decode, and a codec-level two-field interleave-on-sync. Suite
   **111 passing**.
-- [ ] **Step 4** — `Y.Doc.connect` for a single text root.
+- [x] **Step 4** — `Y.Doc.connect` for a single text root — **DONE.**
+  `Y.Doc.connect doc encoded` get-or-creates each top-level text field as a
+  `Y.Text` root keyed by the field name (A1) and `Text.attach`es it, returning a
+  `CompositeDisposable`. New `Y.Doc.fs` "connect" test: two docs converge on
+  concurrent edits with no pre-sync. The #83 headline fix is real at the connect
+  layer. Suite **112 passing**.
 - [ ] **Step 5** — Generalise `connect` to full trees via `IShareBinding`
   (flattened names).
 - [ ] **Step 6** — Rewire `withYlmish` write path to `connect`.
@@ -45,6 +50,15 @@ single top-level text root).
   surfaces a clear schema-drift error.
 - **A6:** `ymap.set(key, ytext)` integrates the handle *in place* (`t === read
   back`); always edit/observe via the integrated handle.
+- **Initial-state reconciliation is deferred to Step 6/7 (noted in Step 4).**
+  `connect` only wires `attach`; it does not seed a fresh `Y.Text` from a
+  non-empty initial model, nor seed an empty model from existing doc state. With
+  the Step 2 empty-start fix, attach's initial-echo is *skipped* when the clist
+  starts non-empty, so a model that starts with text would not push that text
+  into an empty root. Step 4's test starts both peers empty (in sync), which is
+  correct for the A1 slice. `withYlmish` `init` (Steps 6/7) owns the
+  materialise-or-decode decision for existing/initial state; `connect` will gain
+  an explicit initial reconciliation there.
 - **A5 confirmed (Step 3).** A common-affix diff (shared prefix + suffix,
   replace the middle) yields a minimal `clist`/`Y.Text` delta for a single-char
   change (`"hello"`→`"hełlo"` = 2 ops, not a 10-op clear+reinsert). LCS/Myers

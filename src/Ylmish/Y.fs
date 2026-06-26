@@ -653,6 +653,39 @@ module Doc =
                 )
             | _ -> failwith "Root element must be an AMap (object)"
 
+    /// Connect an encoded Element tree to a Y.Doc by get-or-creating the matching
+    /// shared types and wiring bi-directional delta sync. This is the per-update,
+    /// O(delta) alternative to whole-tree `materialize`: because each shared type
+    /// keeps a stable identity and accumulates ops over time, concurrent edits
+    /// CRDT-merge instead of clobbering.
+    ///
+    /// Step 4 slice (narrowest): a top-level object whose fields are
+    /// collaborative text. Each text field becomes a top-level `Y.Text` root
+    /// keyed by the field name — the flattened-top-level-name path, relying only
+    /// on A1 (root get-or-create). Nesting and list/map fields arrive in Step 5.
+    ///
+    /// Returns an `IDisposable` that tears down every attachment.
+    let connect (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : IDisposable =
+        let disposables = ResizeArray<IDisposable> ()
+        match AVal.force encoded with
+        | None -> ()
+        | Some (Codec.Element.AMap amap) ->
+            AMap.force amap
+            |> HashMap.iter (fun key value ->
+                match value with
+                | Some (Codec.Element.Text chars) ->
+                    // Get-or-create the root by its flattened name (A1).
+                    let ytext = doc.getText key
+                    let active = ref false
+                    disposables.Add (Text.attach active chars ytext)
+                | other ->
+                    let kind = other |> Option.map (fun e -> e.toKind ())
+                    failwith $"Y.Doc.connect (Step 4): field '%s{key}' must be collaborative text; got %A{kind}"
+            )
+        | Some other ->
+            failwith $"Y.Doc.connect (Step 4): expected a top-level object, got %A{other.toKind ()}"
+        new CompositeDisposable (disposables :> IDisposable seq) :> IDisposable
+
     /// Dematerialize a Y.Doc's root map into an Element<string> tree
     let dematerialize (doc : Y.Doc) : Codec.Element<string> =
         let rootMap = doc.getMap()
