@@ -5,8 +5,10 @@ materializes state wholesale, so concurrent edits don't CRDT-merge.
 
 ## State
 
-**Last updated:** 2026-06-26 · **Next step:** Step 5 (generalise `Y.Doc.connect`
-to full trees via `IShareBinding`, flattened names).
+**Last updated:** 2026-06-26 · **Next step:** Step 5 is **blocked on a design
+decision** (see Blockers) — the flattened state-schema is the persisted wire
+format and has an unresolved sub-problem (stable ids for text nested in lists).
+Multi-root generality + lifecycle/teardown for `connect` are already landed.
 
 ### Progress
 
@@ -35,8 +37,11 @@ to full trees via `IShareBinding`, flattened names).
   `CompositeDisposable`. New `Y.Doc.fs` "connect" test: two docs converge on
   concurrent edits with no pre-sync. The #83 headline fix is real at the connect
   layer. Suite **112 passing**.
-- [ ] **Step 5** — Generalise `connect` to full trees via `IShareBinding`
-  (flattened names).
+- [~] **Step 5** — Generalise `connect` to full trees — **PARTIAL / BLOCKED.**
+  Landed: `connect` proven across **multiple text roots** and a **dispose
+  teardown** test (A4 lifecycle) in `Y.Doc.fs`. **Blocked** on the wire-format
+  design decision before extending to value/list/map fields and nesting (see
+  Blockers). Suite **114 passing**.
 - [ ] **Step 6** — Rewire `withYlmish` write path to `connect`.
 - [ ] **Step 7** — Rewire `withYlmish` read path to live decode + `ask`.
 - [ ] **Step 8** — End-to-end acceptance test through `withYlmish`.
@@ -100,7 +105,40 @@ to full trees via `IShareBinding`, flattened names).
 
 ### Blockers
 
-- None.
+- **Step 5 wire-format design decision (needs a human call).** Generalising
+  `connect` beyond text fields fixes the **persisted state schema** (the
+  on-the-wire format), which is expensive to change later, and the A3 spike
+  forces every collaborative container to be a top-level *root* (A1), not a
+  nested shared type. Two sub-problems fall out and the plan deliberately left
+  the exact scheme to be chosen at implementation time:
+  1. **Scalar (LWW) fields can't be Yjs roots** (roots are only Text/Array/Map),
+     so they must live inside a root `Y.Map`. The top level becomes "one root
+     value-map **plus** flattened text/list/map roots," not purely flat roots —
+     and binding a *subset* of an object's fields (the scalars) to one root map
+     while routing its text/list/map fields to other roots is the awkward part
+     without the per-leaf `IShareBinding` walk.
+  2. **Text nested inside a *list*** (`items[2].body`) needs a *stable* root
+     name; indices aren't stable across peers, so this needs a per-item stable
+     id the model doesn't currently carry.
+
+  Candidate directions (the question that didn't reach the user):
+  - **A — Pragmatic A3-safe slice:** flat top-level object only (text→roots,
+    scalars→one root value-map, list/map→structural roots via existing attach);
+    deep-nested text relies on dynamic creation / pre-sync; document the
+    stable-id limitation.
+  - **B — Full path-flattened scheme** (README TODO 6): every nested
+    leaf/container is a root keyed by dotted path; forces a list-item id
+    convention now.
+  - **C — Spec first:** write the flattened-schema design note (scalars, nested
+    text, list-item ids, `IShareBinding` shape) for review before any code.
+  - **D — Skip to Steps 6–9:** wire `withYlmish` to the current single-object
+    connect path (value-map + flattened text roots, top level only), prove
+    end-to-end + example, leave deep nesting for a later plan.
+
+  Recommendation: **A** (keeps momentum, A3-safe, defers only the hardest
+  sub-problem) — but this fixes the schema, so confirm before committing code.
+  The full `IShareBinding`/`BindContext` dogfood refactor is also deferred until
+  this is settled; the seam itself already exists (`Element.Custom`, Step 1).
 
 ### Agent pickup prompt
 

@@ -598,5 +598,62 @@ let tests = testList "Y.Doc" [
             Expect.isTrue (r1.Contains "AAA" && r1.Contains "BBB")
                 "both peers' edits survive — connect wires CRDT merge, not last-writer-wins"
         }
+
+        test "connect handles multiple text fields, each its own root" {
+            let title1 = cval ""
+            let body1 = cval ""
+            let title2 = cval ""
+            let body2 = cval ""
+            let enc1 : Encoded<Element<string>> =
+                Encode.object [ "title", Encode.text title1; "body", Encode.text body1 ]
+            let enc2 : Encoded<Element<string>> =
+                Encode.object [ "title", Encode.text title2; "body", Encode.text body2 ]
+
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            use _ = Y.Doc.connect d1 enc1
+            use _ = Y.Doc.connect d2 enc2
+
+            transact (fun () -> title1.Value <- "AAA")
+            transact (fun () -> body2.Value <- "BBB")
+
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            // Each field is an independent root that converges on its own.
+            Expect.equal ((d1.getText "title").toString ()) "AAA" "title root converges on d1"
+            Expect.equal ((d2.getText "title").toString ()) "AAA" "title root converges on d2"
+            Expect.equal ((d1.getText "body").toString ()) "BBB" "body root converges on d1"
+            Expect.equal ((d2.getText "body").toString ()) "BBB" "body root converges on d2"
+        }
+
+        test "disposing the connection tears down sync (A4 lifecycle)" {
+            let s = cval ""
+            let enc : Encoded<Element<string>> = Encode.object [ "body", Encode.text s ]
+            // Reach into the encoded tree for the backing clist so we can observe
+            // whether the decode direction is still live after disposal.
+            let bodyChars =
+                match AVal.force enc with
+                | Some (Element.AMap m) ->
+                    match AMap.force m |> HashMap.tryFind "body" with
+                    | Some (Some (Element.Text c)) -> c
+                    | _ -> failwith "expected a body text field"
+                | _ -> failwith "expected a top-level object"
+
+            let d = Y.Doc.Create ()
+            let disposable = Y.Doc.connect d enc
+            let yt = d.getText "body"
+
+            // Before disposal: a remote-style Y.Text edit reaches the backing clist.
+            yt.insert (0, "X")
+            Expect.equal (System.String.Concat bodyChars) "X" "decode direction is live before disposal"
+
+            disposable.Dispose ()
+
+            // After disposal: further Y.Text edits must NOT reach the clist.
+            yt.insert (1, "Y")
+            Expect.equal (System.String.Concat bodyChars) "X" "decode direction is torn down after disposal"
+            Expect.equal (yt.toString ()) "XY" "the Y.Text itself still updates (only our observer is gone)"
+        }
     ]
 ]
