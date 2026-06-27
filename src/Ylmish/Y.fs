@@ -512,8 +512,10 @@ module Element =
             Y.Element.String (System.String.Concat(text))
         | A.Element.Text text -> Y.Element.Text (Text.ofAdaptive text)
         | A.Element.Custom _ ->
-            // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
-            failwith "Element.Custom is not bridged through ofAdaptive (plan 0002, Step 5)"
+            // Custom leaves are connect-managed (their own root), never projected
+            // into the structural Y.Element tree — like Text. Dispatched via
+            // Y.Doc.connect (plan 0003).
+            failwith "Element.Custom has no structural Y.Element (it is a connect-managed root)"
 
 module Doc =
     open FSharp.Data.Adaptive
@@ -551,9 +553,10 @@ module Doc =
             AMap.force amap
             |> HashMap.iter (fun key value ->
                 match value with
-                // Text leaves live in their own Y.Text root (connect), not the
-                // structural map; skip them here so the two paths compose.
+                // Text and Custom leaves live in their own connect-managed root,
+                // not the structural map; skip them here so the two paths compose.
                 | Some (Codec.Element.Text _) -> ()
+                | Some (Codec.Element.Custom _) -> ()
                 | Some e -> ymap.set(key, Some (elementToY e)) |> ignore
                 | None -> ymap.set(key, None) |> ignore
             )
@@ -563,8 +566,9 @@ module Doc =
             // object field) is connect-managed; materialize never emits one.
             failwith "Element.Text has no structural Y.Element (it is a connect-managed root)"
         | Codec.Element.Custom _ ->
-            // Custom bindings are dispatched via Y.Doc.connect (plan 0002, Step 5).
-            failwith "Element.Custom is not bridged through elementToY (plan 0002, Step 5)"
+            // A bare Custom leaf (directly under an array/root) is connect-managed;
+            // materialize never emits one (plan 0003).
+            failwith "Element.Custom has no structural Y.Element (it is a connect-managed root)"
 
     /// Helper to convert any Y value (string, Y.Map, Y.Array) to Codec.Element
     let rec private valueToElement (value : obj) : Codec.Element<string> =
@@ -648,9 +652,10 @@ module Doc =
                     AMap.force amap
                     |> HashMap.iter (fun key value ->
                         match value with
-                        // Text leaves are connect-managed top-level roots, not
+                        // Text and Custom leaves are connect-managed roots, not
                         // entries in the structural root map; skip them.
                         | Some (Codec.Element.Text _) -> ()
+                        | Some (Codec.Element.Custom _) -> ()
                         | Some e ->
                             let yelement = elementToY e
                             rootMap.set(key, yelement) |> ignore

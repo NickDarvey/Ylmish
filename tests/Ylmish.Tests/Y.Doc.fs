@@ -180,6 +180,35 @@ let tests = testList "Y.Doc" [
             let nestedMap = propE.Value
             Expect.equal (nestedMap.get "prop0") (Some "nested-value") "nested prop0"
         }
+
+        // Plan 0003, Step 2 — a Custom leaf is connect-managed (its own root),
+        // like Text, so the structural path must skip it: materialize emits the
+        // non-custom fields and simply omits the custom one from the root map.
+        test "materialize skips a Custom field and still materializes the rest" {
+            let stubCustom : CustomElement =
+                { new CustomElement with
+                    member _.Kind = Kind.Custom
+                    member _.Connect _ =
+                        { new System.IDisposable with member _.Dispose () = () } }
+
+            let enc : Encoded<Element<string>> =
+                HashMap.ofList [
+                    "value",  Some (Element.Value "v")
+                    "custom", Some (Element.Custom stubCustom)
+                ]
+                |> AMap.ofHashMap
+                |> Element.AMap
+                |> Some
+                |> AVal.constant
+
+            let doc = Y.Doc.Create ()
+            // Must not throw on the Custom field.
+            Y.Doc.materialize doc enc
+
+            let root = doc.getMap()
+            Expect.equal (root.get "value") (Some "v") "non-custom field is materialized"
+            Expect.isFalse (root.has "custom") "custom field is absent from the structural root map"
+        }
     ]
 
     testList "dematerialize" [

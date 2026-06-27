@@ -10,12 +10,13 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–1 done:
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–2 done:
 `Adaptive.Codec.fs` opens `Yjs`, defines `BindContext` / `ParentContainer` /
-`Slot` (Option A), and `CustomElement` now carries
-`Connect : BindContext -> IDisposable`. No dispatch yet — `connect` and the
-bridges still throw on `Element.Custom`. Next step: **Step 2** (skip `Custom` in
-the structural path).
+`Slot` (Option A), `CustomElement` carries
+`Connect : BindContext -> IDisposable`, and the structural path now skips
+`Element.Custom` exactly as it skips `Text` (own connect-managed root). No
+dispatch yet — `connect` still throws on `Element.Custom`. Next step:
+**Step 3** (dispatch `Custom` in `connect`).
 
 ### Progress
 
@@ -25,9 +26,11 @@ the structural path).
 - [x] **Step 1** — Add `Connect : BindContext -> IDisposable` to `CustomElement`
   (`BindContext` / `ParentContainer` / `Slot` already in place from Step 0).
   Compile-green. *(121 tests green.)*
-- [ ] **Step 2** — Skip `Element.Custom` in the structural path
-  (`materialize`/`elementToY`, `Element.ofAdaptive`/`elementToY`,
-  `mergeReadback`) exactly as `Text` is skipped — custom lives in its own root.
+- [x] **Step 2** — Skip `Element.Custom` in the structural path
+  (`materialize`/`elementToY` AMap iteration skip it; `mergeReadback` takes the
+  live side) exactly as `Text` is skipped — custom lives in its own root. Bare
+  `Custom` arms in `elementToY`/`ofAdaptive` `failwith` "connect-managed root"
+  (mirroring `Text`). *(122 tests green; new: "materialize skips a Custom field…".)*
 - [ ] **Step 3** — Dispatch `Element.Custom` in `Y.Doc.connect` (root + nested)
   to `binding.Connect ctx`. Prove with a trivial in-test binding.
 - [ ] **Step 4** — A worked, *consumer-style* custom element (a counter) with

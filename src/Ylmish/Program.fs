@@ -71,6 +71,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     let rec mergeReadback (live : Element<string>) (fromY : Element<string> option) : Element<string> =
         match live with
         | Element.Text _ -> live // text: the live (merged) clist
+        | Element.Custom _ -> live // custom: connect-managed, never in dematerialize
         | Element.AMap liveMap ->
             let fromYMap =
                 match fromY with
@@ -84,7 +85,7 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
             |> AMap.ofHashMap
             |> Element.AMap
         | _ ->
-            // Value / AList / Custom: take the structural Y value when present.
+            // Value / AList: take the structural Y value when present.
             match fromY with Some v -> v | None -> live
 
     /// Decode the current shared state into a model: structural fields from the
