@@ -12,13 +12,13 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 **Last updated:** 2026-06-27 · **Status: NOT STARTED.** `CustomElement` exists
 as a one-method contract (`abstract Kind : Kind`) and `Element.Custom` is a
-reserved case that every bridge throws on. Next step: **Step 0** (layering
-spike).
+reserved case that every bridge throws on. Layering is **decided (Option A)** —
+see *Decisions*. Next step: **Step 0** (Option-A skeleton).
 
 ### Progress
 
-- [ ] **Step 0** — Layering spike: decide where `Connect`/`BindContext` live
-  (codec layer referencing Fable.Yjs, vs a Y-layer sub-contract). Compile-green
+- [ ] **Step 0** — Option-A skeleton (layering already decided): `Adaptive.Codec.fs`
+  opens `Yjs`; `BindContext` names the Fable.Yjs `Y` types directly. Compile-green
   skeleton only.
 - [ ] **Step 1** — Add `Connect : BindContext -> IDisposable` to `CustomElement`
   and define `BindContext` / `ParentContainer` / `Slot`. Compile-green.
@@ -36,7 +36,21 @@ spike).
 
 ### Decisions & lessons
 
-- _(none yet)_
+- **Layering: Option A (decided).** `CustomElement` — the type named by
+  `Element.Custom` — must live in `Adaptive.Codec.fs`, which compiles **before**
+  `Y.fs`, so it *cannot* reference `Ylmish.Y` (that would be a backward
+  dependency). It *can* reference the **Fable.Yjs** bindings (`Yjs.fs`:
+  `Y.Doc`/`Y.Map`/`Y.Array`), a project dependency available everywhere. So:
+  - the **codec** `open`s `Yjs` and `BindContext` / `ParentContainer` name those
+    Fable.Yjs `Y` types directly — no abstraction layer, no Y-agnostic hedge;
+  - the **dispatch** (`Y.Doc.connect`) and the **binding implementations**
+    (built-in and consumer) live in `Y.fs` (or consumer code) and use the
+    `Ylmish.Y` helpers — `Text.attach`, `CompositeDisposable`, etc. — directly.
+
+  This accepts a `codec → Fable.Yjs` reference, which is benign: the codec's
+  whole purpose is to map to Yjs, and Ylmish already depends on Fable.Yjs. The
+  anti-corruption boundary is app-schema-vs-state-schema, not "avoid Yjs". Option
+  B (a Y-layer sub-contract resolved by cast) is rejected as needless indirection.
 
 ### Blockers
 
@@ -94,8 +108,12 @@ text path is (eventually) re-expressed as one such binding, proving the seam.
 
 ### The contract grows a `Connect`
 
+Per the layering decision (Option A), `Adaptive.Codec.fs` `open`s `Yjs` and the
+types below name the Fable.Yjs `Y` bindings directly:
+
 ```fsharp
 // What a custom element needs in order to attach itself.
+// `Y.Doc` / `Y.Map` / `Y.Array` here are the Fable.Yjs bindings.
 type BindContext = {
     Doc    : Y.Doc            // the document
     Parent : ParentContainer // where this element is placed
@@ -142,30 +160,26 @@ make.
 
 ## Work breakdown — incremental, verify after every step
 
-### Step 0 — Layering spike (compile-green skeleton)
+### Step 0 — Option-A skeleton (compile-green)
 
-`BindContext` references Fable.Yjs types (`Y.Doc`, `Y.Map`, `Y.Array`).
-`Adaptive.Codec.fs` is in the Ylmish project, which already references Fable.Yjs,
-so it *can* `open Yjs`. Decide:
+Layering is decided (Option A — see *Decisions*), so this step just lays the
+wiring: `Adaptive.Codec.fs` `open`s `Yjs`; add the `BindContext` /
+`ParentContainer` / `Slot` types naming the Fable.Yjs `Y` bindings directly.
+`CustomElement` keeps only `Kind` for now (the `Connect` member lands in Step 1).
+No dispatch; bridges still `failwith` on `Custom`.
 
-- **(A, recommended)** Put `Connect`/`BindContext` in the **codec** layer; the
-  codec may reference Fable.Yjs (it already exists only to map to Yjs — the
-  anti-corruption layer is about app-vs-state *schema*, not about avoiding the
-  Yjs dependency).
-- **(B)** Keep codec `CustomElement` minimal (`Kind`); define the richer binding
-  interface in `Y.fs` and resolve it by cast/registry at dispatch. More
-  decoupled, more indirection.
+- **Exit check:** the new types compile with the codec referencing Fable.Yjs;
+  suite green. (If the codec turns out *not* to need `open Yjs` until `Connect`
+  is added in Step 1, fold this into Step 1 — but keep the Option-A decision.)
 
-- **Exit check:** a skeleton type compiles under the chosen option; suite green.
-  Record the choice under *Decisions*.
+### Step 1 — Add `Connect` to `CustomElement` (compile-green)
 
-### Step 1 — Define `Connect` / `BindContext` (compile-green)
+With `BindContext`/`ParentContainer`/`Slot` in place (Step 0), add
+`abstract Connect : BindContext -> IDisposable` to `CustomElement`. No dispatch
+yet; `connect`/bridges still `failwith` on `Custom`.
 
-Add the types from *Design* under the Step 0 choice. `CustomElement` gains
-`Connect`. No dispatch yet; `connect`/bridges still `failwith` on `Custom`.
-
-- **Exit check:** compiles; suite green. The exhaustiveness checker forces every
-  `Element` match to keep acknowledging `Custom`.
+- **Exit check:** compiles; suite green. The exhaustiveness checker keeps forcing
+  every `Element` match to acknowledge `Custom`.
 
 ### Step 2 — Skip `Custom` in the structural path
 
@@ -227,8 +241,9 @@ table.
   must honour it across both directions, like the built-in attach does.
 - **Lifecycle.** `Connect` must return a disposable that tears down *both*
   directions; it composes into `connect`'s `CompositeDisposable`.
-- **Layering coupling (Step 0).** Option A couples the codec to Fable.Yjs. Judged
-  acceptable; revisit only if a non-Yjs backend (Ycs/Yrs) is pursued.
+- **Layering coupling (decided).** Option A couples the codec to Fable.Yjs.
+  Accepted; the only thing that would reopen it is a non-Yjs backend (Ycs/Yrs),
+  at which point `BindContext` would need to be parameterised over the backend.
 
 ## Out of scope
 
