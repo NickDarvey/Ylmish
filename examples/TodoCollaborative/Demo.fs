@@ -118,9 +118,11 @@ let runPeer (name : string) =
 let runLauncher () =
     let selfPath = Node.argv.[1]
 
-    // First, a self-contained custom-element demo: a grow-only counter whose
-    // concurrent increments SUM (something last-writer-wins could never do).
+    // First, two self-contained seam demos:
+    //  - a custom-element grow-only counter whose concurrent increments SUM, and
+    //  - a reorderable collaborative list whose text survives reorder via id naming.
     Counter.run ()
+    ReorderableList.run ()
 
     printfn "[launcher] forking two peers (A and B)…"
 

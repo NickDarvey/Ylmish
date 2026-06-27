@@ -124,9 +124,39 @@ update, which destroyed the CRDT history that merging depends on.
 **Choosing where roots live (the layout `Scheme`).** Collaborative leaves are
 laid out across the document's top-level roots by a `Codec.Scheme`. The default,
 `Scheme.flat`, names each root by its flattened path (e.g. `body`, `doc.body`).
-Consumers who need a different persisted layout (for example a stable,
-id-based naming for text nested in a reorderable list) can supply their own
-`Scheme` to `Y.Doc.connectWith` rather than forking the library.
+Consumers who need a different persisted layout can supply their own `Scheme` to
+`Y.Doc.connectWith` rather than forking the library.
+
+*Lists: positional vs id-based naming.* For a collaborative leaf **inside a
+list**, `Scheme.flat` names it by **position** (`items.2.body`). That is correct
+for an append-only list, but if peers **reorder or insert concurrently** they
+disagree about which item is "2", so the same root name binds to different
+logical items and their edits split. Name by a **stable, immutable id** instead:
+
+```fsharp
+use _ = Y.Doc.connectWith (Scheme.byKey "id") doc encoded   // items.<id>.body
+```
+
+`Scheme.byKey "id"` reads each list item's `id` field and names its leaves
+`items.<id>.body`, so the text stays with its logical item across reorder.
+**The id must be immutable** (a guid minted at creation) — it names a persisted
+root, so it must never change. Ordering is a *separate*, mutable concern: keep a
+`order` field of ordinary state and sort by it, typically a **fractional index**
+([`fractional-indexing`](https://github.com/rocicorp/fractional-indexing) —
+`generateKeyBetween` gives a sort key between any two neighbours, so a reorder is
+a single LWW field write). Ylmish doesn't bundle fractional indexing; bring your
+own. See
+[`examples/TodoCollaborative/ReorderableList.fs`](examples/TodoCollaborative/ReorderableList.fs)
+(printed by `npm run demo`) for two peers holding a list in different orders whose
+edits still merge onto the right item.
+
+*Containers themselves are last-writer-wins.* The `Scheme` governs collaborative
+**leaves** (text, customs), which CRDT-merge. A **container** (a `list`/`map` of
+values) stays on the structural path, which re-projects the whole container each
+update — so a container is **whole-container LWW**: peers converge, but concurrent
+structural edits to the *same* container don't element-merge (one side wins). To
+get a merged collection, make its **items** collaborative leaves named by id (as
+above), or define a merging container with `Encode.custom`.
 
 **Writing a custom element.** The four built-ins don't have to be the end of the
 list. When a field needs a merge strategy of its own — a counter that *sums*

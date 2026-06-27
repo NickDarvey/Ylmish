@@ -22,10 +22,12 @@ edits **converge under `Scheme.byKey`** (text stays with its item, edits merge),
 while a contrast test shows `Scheme.flat` positional naming *splits* the item's
 edits — the bug id-naming fixes. Step 4 **resolved the *Open question*** (b):
 keep the hybrid for non-text containers (spike-confirmed whole-container LWW),
-document + test that guarantee, and defer true element-wise container CRDT to a
-future plan 0006 — consumers needing merged collections use id-named leaves
-(`Scheme.byKey`) or `Encode.custom`. *(128 tests green.)* Next step: **Step 5**
-(example + docs).
+document + test that guarantee, defer element-wise container CRDT to a future
+plan 0006. Step 5 shipped the **example + docs**: a runnable
+`ReorderableList.fs` (printed by `npm run demo`) and a README section on
+`Scheme.flat` vs `Scheme.byKey`, the immutable-id/fractional-order split, and the
+container-LWW guarantee. **Status: COMPLETE** (Steps 0–5; 128 tests green; demo
+runs).
 
 ### Progress
 
@@ -55,8 +57,12 @@ future plan 0006 — consumers needing merged collections use id-named leaves
   `Y.Array`/`Y.Map` each update). Full element-wise container CRDT deferred to a
   future plan 0006; escape hatches today are id-named leaves (`Scheme.byKey`) and
   `Encode.custom`. Rationale + evidence in *Open question* / *Decisions*. *(128.)*
-- [ ] **Step 5** — Example + docs: a reorderable collaborative list; README
-  guidance on `Scheme.flat` vs id-based naming and the fractional-index pattern.
+- [x] **Step 5** — Example + docs: `examples/TodoCollaborative/ReorderableList.fs`
+  (two peers holding a list in different orders + an insert; text merges onto the
+  right item via `Scheme.byKey`; printed by `npm run demo`). README gained a
+  Scheme subsection: `Scheme.flat` (positional) vs `Scheme.byKey` (id), the
+  immutable-id-for-naming / fractional-`order`-for-ordering split (pointing at
+  `fractional-indexing`), and the whole-container-LWW guarantee. *(128 tests.)*
 
 ### Decisions & lessons
 
