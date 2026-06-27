@@ -11,20 +11,21 @@ Parent: plan 0002. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: NOT STARTED.** `Scheme` exists as
-`{ RootName : Path -> string }` with `Scheme.flat` (dotted path names). `connect`
-flattens **text** leaves to roots via the scheme; non-text stays on the
-structural/materialize path. The scheme only sees positional `ArrayIndex`
-segments, so it cannot name list items by a stable identity. Next step:
-**Step 0** (online research + spikes).
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Step 0 (research +
+spikes) done — see *Step 0 — findings*. All four load-bearing assumptions were
+re-confirmed against real `yjs` 13.6.30, and the full reorderable scenario was
+validated with the `fractional-indexing` library. Key sharpening for Step 1:
+**naming wants an *immutable* id (a guid), not the fractional index** (which is
+*mutable* — it changes to reorder). `Scheme` still only sees positional
+`ArrayIndex`, so it can't name list items by identity. Next step: **Step 1**
+(decide the identity convention).
 
 ### Progress
 
-- [ ] **Step 0** — **Research + spikes (go online).** Validate the Yjs
-  assumptions this plan rests on and survey/**try** relevant Yjs extensions
-  (keyed collections, fractional-indexing libraries). Record findings *into this
-  plan* (a "Step 0 — findings" subsection), as plan 0002 did. This informs both
-  the id convention (Step 1) and the deferred container decision (Step 4).
+- [x] **Step 0** — **Research + spikes (go online).** Re-confirmed A1 / A3 /
+  reorder against real `yjs` 13.6.30, and validated the end-to-end reorderable
+  list with `fractional-indexing` + `y-utility` survey. Findings recorded below.
+  *(No production code.)*
 - [ ] **Step 1** — Decide the **identity convention**: how an item's stable id
   reaches the `Scheme` (a `PathSegment.KeyById`, an `itemId : Element -> string`
   resolver, or the scheme reading a reserved field). Wire-format decision,
@@ -49,13 +50,21 @@ segments, so it cannot name list items by a stable identity. Next step:
   ordering policy.
   - A consumer whose list is **constant-indexed** (append-only, no reorder) uses
     `Scheme.flat` as-is.
-  - A consumer who **reorders** supplies a **stable id per item** — e.g. a
-    [fractional index](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
-    (the standard CRDT ordering trick; off-the-shelf libraries exist) or a plain
-    guid — carried in their model, and an **id-aware `Scheme`** names roots by it.
+  - A consumer who **reorders** supplies a **stable, *immutable* id per item** (a
+    guid minted at creation), carried in their model, and an **id-aware `Scheme`**
+    names roots by it.
   - This plan's deliverable is therefore to make identity *reachable* by the
-    scheme (Steps 1–2) and to **document the fractional-index pattern**, not to
-    implement fractional indexing in the library.
+    scheme (Steps 1–2), not to implement ordering in the library.
+- **Naming id ≠ ordering id (Step 0 finding, decided).** A
+  [fractional index](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
+  is *mutable by design* — you change it to reorder — so it must **not** name the
+  root (renaming on reorder would orphan the text's CRDT history). A reorderable
+  list needs **both**: an immutable guid for the `Scheme` root name, and a
+  separate mutable fractional `order` field (ordinary `Encode.value` state) for
+  display order. The library documents the
+  [`fractional-indexing`](https://github.com/rocicorp/fractional-indexing) recipe
+  for `order`; it does not bundle or implement fractional indexing. *(Spiked end
+  to end in Step 0.)*
 
 ### Blockers
 
@@ -170,6 +179,68 @@ and, where feasible, **run** what you find:
 
 - **Exit check:** findings recorded here; the Step 1 and Step 4 decisions have
   concrete, spike-backed evidence to draw on. No production code.
+
+### Step 0 — findings
+
+*Done 2026-06-27. Spiked against `yjs` 13.6.30 (the version this repo pins) with
+plain-JS scripts; surveyed + ran `fractional-indexing`; read `y-utility`.*
+
+**Yjs assumptions re-confirmed (spiked, not just read).**
+
+| # | Claim | Spike result |
+|---|---|---|
+| A1 | Two peers independently get-or-create the *same* top-level root → converge, both edits survive | ✅ both `getText('body')` → `"AAABBB"` on both docs |
+| A3 | Two peers concurrently *first-create* a **nested** shared type under the same key → **clobber** | ✅ both `root.note` → `"BBB"`; one side's `"AAA"` lost |
+| — | **Positional** root names (`items.<index>.body`) under concurrent insert/reorder | ✅ **broken as predicted** — two *different* logical items merged into one root (`"Q-textP-text"`) |
+| — | **Immutable-id** root names (`items.<id>.body`) under the same concurrent insert/reorder | ✅ each id keeps its own text; concurrent edits to the shared item **merge** (`"X-text-d2edit-d1edit"`); no cross-item clobber |
+
+So the plan's foundation holds: flattening collaborative leaves to **A1 roots** is
+correct, **A3** is why we don't create nested shared types per item, and
+**positional naming is genuinely unstable** while **id naming is stable**.
+
+**The sharpening for Step 1 — naming id must be *immutable*.** A fractional index
+is *mutable by design* (you change it to reorder), so it is the wrong thing to
+**name** a root by — renaming a text root on every reorder would orphan its CRDT
+history. The two concerns are distinct and a reorderable list needs **both**:
+
+- an **immutable item id** (a guid minted at creation) → the **`Scheme` root name**
+  (`items.<guid>.body`), stable across reorder; this is what makes the text
+  converge;
+- a **fractional `order` field** (mutable, LWW string) → **ordering only**; reorder
+  = update this field, items are sorted by it.
+
+This was validated end-to-end with `fractional-indexing`'s `generateKeyBetween`:
+a list of `{ id(immutable), order(fractional) }` with text named by `id`, edited +
+reordered concurrently on two peers, **converged** (both agree order `idP, idX,
+idQ`) and the shared item's text **merged both edits** (`"X21"`). `generateKeyBetween`
+behaves as documented (`a0`, `a1`, `a0V` between) and is a tiny, dependency-free,
+widely-used rocicorp package — a good thing to *point consumers at*, not bundle.
+
+**Ecosystem survey (for Step 4 — containers).**
+
+- **`y-utility` `YKeyValue`** — stores `{key,val}` pairs in **one top-level
+  `Y.Array`**, no nested shared types; concurrent same-key adds are **LWW**
+  (rightmost wins, older entries GC'd). Relevance: a single id-keyed *top-level*
+  array sidesteps the **A3 nested-create race** for *value* records (there is no
+  per-item nested type to race on), at the price of LWW values and "no nested Yjs
+  types". A real candidate for Step 4's non-text container layout — but it does
+  *not* give structural/CRDT merge of container contents.
+- **Subdocuments** — noted as an option for fully isolating per-item state into
+  its own `Y.Doc`; heavier (load/sync lifecycle per subdoc). Not spiked; parked
+  for Step 4 to weigh only if YKeyValue/flattening don't fit.
+
+**How this steers the plan.**
+
+- **Step 1:** the identity that reaches the `Scheme` must be an *immutable* id.
+  Lean toward a `PathSegment.KeyById of string` emitted by the list walk from a
+  consumer-supplied resolver (the resolver reads the item's immutable id field);
+  `Scheme.byKey "id"` as the convenience. The fractional `order` stays ordinary
+  model state encoded with `Encode.value` — the library does **not** implement
+  fractional indexing (consumers bring `fractional-indexing` or similar).
+- **Step 4:** the spike-backed container options are (a) flatten containers to
+  roots by id (consistent with text/custom), or (b) a single top-level
+  `YKeyValue`-style id-keyed array for value records (no nested-create race, LWW
+  values). Decide there with a written rationale, per *Open question*.
 
 ### Step 1 — Decide & document the identity convention
 
