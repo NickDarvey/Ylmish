@@ -18,23 +18,25 @@ Parent: plan 0003 (the `CustomElement` seam). No separate issue yet.
 `withYlmish`'s `subs` readback observes the structural root map (`"ylmish-ydoc"`)
 and **text** `clist`s (`"ylmish-text"` via `gather`), but `gather` skips
 `Element.Custom`, so an inbound custom edit merges into its Y root yet never
-dispatches `Set`. Design is **decided** — see *Decisions*. Next step: **Step 0**.
+dispatches `Set`. Design is **decided** — an Adaptive-free contract
+(`Value : obj` + `Subscribe`); see *Decisions*. Next step: **Step 0**.
 
 ### Progress
 
-- [ ] **Step 0** — Add `abstract Value : aval<obj>` to `CustomElement`. Implement
-  it on the built-in `Text.binding` (its string, boxed) and on the
-  example/test counter (its merged count, boxed, owned internally by the
-  binding). Compile-green; existing connect tests still pass (`Decode.custom`
-  unchanged for now).
+- [ ] **Step 0** — Add `abstract Value : obj` and
+  `abstract Subscribe : (unit -> unit) -> System.IDisposable` to `CustomElement`
+  (no `aval` in the contract). Implement both on the built-in `Text.binding` (its
+  string + a `clist` subscription) and on the example/test counter (its merged
+  count + change notifications, owned internally by the binding). Compile-green;
+  existing connect tests still pass (`Decode.custom` unchanged for now).
 - [ ] **Step 1** — Rework `Decode.custom` to read `binding.Value` *from the
-  element* (drop the external value-cell parameter), unboxing under the
-  consumer's type — symmetric with `Decode.text`. Update the counter
-  test/example to the no-cell surface. Connect tests green.
+  element* as a snapshot (drop the external value-cell parameter), unboxing under
+  the consumer's type. Update the counter test/example to the no-cell surface.
+  Connect tests green.
 - [ ] **Step 2** — Wire `withYlmish` readback to custom values: extend the
   readback collector (`gather` + the `"ylmish-text"` sub, likely renamed) to
-  also observe each `Element.Custom`'s `Value` aval and re-decode/`Set` on
-  change, reusing `isWritingToYDoc` + `readbackModel`.
+  `Subscribe` to each `Element.Custom` and re-decode/`Set` on change, reusing
+  `isWritingToYDoc` + `readbackModel`.
 - [ ] **Step 3** — Headline e2e test: two `withYlmish` peers with a counter
   field; concurrent increments; **both Elmish models** converge on the sum (the
   custom analogue of the existing text e2e). Text e2e stays green.
@@ -44,22 +46,36 @@ dispatches `Set`. Design is **decided** — see *Decisions*. Next step: **Step 0
 
 ### Decisions & lessons
 
-- **Expose the value (`Value : aval<obj>`), not just a change signal (decided).**
-  Two shapes were considered for letting readback notice a custom change:
-  1. `abstract Subscribe : (unit -> unit) -> IDisposable` — a bare change signal.
-     Fixes the readback gap but leaves `Decode.custom` reading an externally
-     threaded value cell (the 0003 wart).
-  2. `abstract Value : aval<obj>` — the binding exposes its merged value as an
-     adaptive cell. **Chosen.** It fixes the readback gap *and* lets
-     `Decode.custom` read the value straight from the element (like `Decode.text`
-     reads the `clist` inside `Element.Text`), deleting the value-cell threading.
-     One member, two problems solved; custom becomes symmetric with text.
-  - Cost: the value is **boxed** (`aval<obj>`). `CustomElement` is non-generic
-    (`Element.Custom of CustomElement`; `Element<'Value>`'s `'Value` is the
-    *LWW value* type, not the custom's decoded type), so typing the value would
-    force `Element` to carry an extra type parameter — rejected as too invasive.
-    `Decode.custom` unboxes under the consumer-supplied generic, exactly where the
-    consumer already states the type.
+- **Keep Adaptive out of the contract: `Value : obj` + `Subscribe`, not
+  `aval<obj>` (decided).** The `CustomElement` contract is what *consumers
+  implement*, so it should stay as plain as the rest of Ylmish's promise ("your
+  model field stays plain immutable F#"). Two shapes were weighed:
+  1. `abstract Value : aval<obj>` — exposes the merged value as an FSharp.Data.
+     Adaptive cell. Lets `Decode.custom` be a *live* aval (symmetric with
+     `Decode.text` reading the `clist`), but **leaks `aval` into every consumer
+     binding**.
+  2. `abstract Value : obj` (current snapshot) **+**
+     `abstract Subscribe : (unit -> unit) -> IDisposable` (notify on change).
+     **Chosen.** Adaptive-free contract: a binding author writes plain .NET. It
+     *still* removes the 0003 threaded-cell wart (decode reads `b.Value` off the
+     element) and `Subscribe` is exactly what push-based readback wants.
+  - **The one cost:** `Decode.custom` reads a **snapshot**, not a live aval. That
+    liveness is *unused under `withYlmish`* — readback is push-driven (`Subscribe`
+    fires → `readbackModel` re-runs → re-reads `b.Value` → `Set`). It would only
+    matter to code that forces a `Decode.custom` aval *outside* `withYlmish` and
+    holds it expecting updates; no test/example does. Documented as the single
+    asymmetry vs `Decode.text`.
+  - The value is still **boxed** (`obj`): `CustomElement` is non-generic
+    (`Element.Custom of CustomElement`; `Element<'Value>`'s `'Value` is the *LWW
+    value* type, not the custom's decoded type), so typing it would force a type
+    parameter onto `Element` — too invasive. `Decode.custom` unboxes under the
+    consumer-supplied generic, where the consumer already states the type.
+- **Remaining Adaptive leak (acknowledged, out of scope).** Even with the
+  Adaptive-free *contract*, a binding's `Connect` still uses Adaptive in its
+  *implementation* on the **encode** side — it observes the model field
+  (`local.AddCallback`) to push edits into Yjs. Fully hiding that needs a
+  higher-level "binding builder" that takes plain push/merge functions; noted as
+  a future direction, not undertaken here.
 - **No module-global cell needed for `withYlmish` integration (consequence).**
   Because `mergeReadback` keeps the live `Element.Custom binding` and
   `Decode.custom` reads `binding.Value` off it, a consumer's `encode`/`decode`
@@ -67,10 +83,10 @@ dispatches `Set`. Design is **decided** — see *Decisions*. Next step: **Step 0
   field; decode reads its value) with no shared mutable cell — the awkward part
   of 0003 Step 4 disappears.
 - **Readback unification is a follow-on, not a goal here.** Once both text and
-  custom expose a `Value`, the two readback collectors could merge into one
-  (observe every connect-managed leaf's `Value`). Tempting, but it changes the
-  *text* readback trigger (clist→value aval); do it only if Step 2 lands it
-  green without churn, otherwise leave text's path intact and just *add* custom.
+  custom support `Subscribe`, the two readback collectors could merge into one
+  (subscribe to every connect-managed leaf). Tempting, but it changes the *text*
+  readback trigger; do it only if Step 2 lands it green without churn, otherwise
+  leave text's path intact and just *add* custom.
 
 ### Blockers
 
@@ -126,71 +142,76 @@ converge on the sum.
 
 ## Design
 
-### `CustomElement` exposes its merged value
+### `CustomElement` exposes a plain value + a change subscription
 
 ```fsharp
 type CustomElement =
-    abstract Kind    : Kind
-    abstract Connect : BindContext -> System.IDisposable
-    /// The element's merged value as an adaptive cell, boxed. `Connect` keeps it
-    /// updated from the Yjs side; `Decode.custom` reads it; `withYlmish` readback
-    /// observes it. Mirrors how `Element.Text`'s `clist` is both read and observed.
-    abstract Value   : aval<obj>
+    abstract Kind      : Kind
+    abstract Connect   : BindContext -> System.IDisposable
+    /// The element's current merged value, boxed and plain (no `aval`). `Connect`
+    /// keeps it updated from the Yjs side; `Decode.custom` reads this snapshot.
+    abstract Value     : obj
+    /// Subscribe to "the merged value changed". `withYlmish` readback uses this to
+    /// re-decode and `Set`. Returns a disposable that unsubscribes. The binding
+    /// fires it (inside its reentrancy guard) whenever a Yjs merge moves `Value`.
+    abstract Subscribe : (unit -> unit) -> System.IDisposable
 ```
 
-A binding owns a `cval<obj>` initialised to its empty/default value and updates
-it (inside its reentrancy-guarded decode direction) as the Y type merges. The
-built-in `Text.binding` implements `Value` as its string boxed
-(`chars |> AList.toAVal |> AVal.map (System.String.Concat >> box)`), for contract
-completeness even though text readback can keep using the `clist`.
+A binding holds its merged value (a plain `mutable`, or a `cval` it doesn't have
+to expose) and a subscriber list; its reentrancy-guarded decode direction updates
+the value and notifies subscribers. The built-in `Text.binding` implements
+`Value` as its current string and `Subscribe` by observing its `clist` — so text
+can ride the same readback path as custom.
 
-### `Decode.custom` reads the element (no external cell)
+### `Decode.custom` reads the element snapshot (no external cell)
 
 ```fsharp
 // before (0003): let custom (value : aval<'a>) : Decoder<_,_,'a>
 let custom : Decoder<_,_,'a> = fun _ (path, el) ->
     match el with
-    | Element.Custom b -> b.Value |> AVal.map (fun v -> Validation.ok (unbox<'a> v))
+    | Element.Custom b -> Decoded.ok (unbox<'a> b.Value)   // snapshot; re-read on readback
     | el -> error (UnexpectedKind { Expected = [ Kind.Custom ]; ... })
 ```
 
-Now identical in shape to `Decode.text`: it reads the live value off the
-element, recomputing as the binding updates it.
+Same *shape* as `Decode.text` (reads the value off the element), but a snapshot
+rather than a live aval — see *Decisions* for why that's fine under `withYlmish`.
 
-### `withYlmish` readback observes custom values
+### `withYlmish` readback subscribes to custom changes
 
-Extend the readback collector so `gather` also yields each `Element.Custom`'s
-`Value` aval, and the subscription observes it (via `AddCallback`, with the same
-first-echo skip and `isWritingToYDoc` guard the text path uses), calling the same
-`readbackModel () |> Option.iter (dispatch << Set)`. `mergeReadback` already
-takes the live side for `Custom`, so `readbackModel` decodes the merged value
-correctly once it re-runs.
+Extend the readback collector so it also walks to each `Element.Custom b` and
+calls `b.Subscribe (fun () -> if not isWritingToYDoc then readback ())`, collecting
+the disposables, where `readback` is the existing
+`readbackModel () |> Option.iter (dispatch << Set)`. `mergeReadback` already takes
+the live side for `Custom`, so `readbackModel` decodes the merged value correctly
+once it re-runs.
 
 ## Work breakdown — incremental, verify after every step
 
-### Step 0 — Add `Value` to `CustomElement`; implement on text + counter
+### Step 0 — Add `Value` + `Subscribe` to `CustomElement`; implement on text + counter
 
-Add the member; implement on `Text.binding` and the counter binding (counter owns
-its `cval<obj>` internally, exposing it; `Connect` writes it where it currently
-writes the external `merged` cell). Leave `Decode.custom` on its external-cell
-signature for this step so nothing else moves yet.
+Add the two members; implement on `Text.binding` (current string + a `clist`
+subscription) and the counter binding (it owns its merged value + a subscriber
+list; `Connect` updates the value and notifies where it currently writes the
+external `merged` cell). Leave `Decode.custom` on its external-cell signature for
+this step so nothing else moves yet.
 
-- **Exit check:** compiles; 124 tests green (exhaustiveness/`Value` wired, no
-  behaviour change).
+- **Exit check:** compiles; 124 tests green (members wired, no behaviour change).
 
-### Step 1 — `Decode.custom` reads `binding.Value`
+### Step 1 — `Decode.custom` reads `binding.Value` (snapshot)
 
-Drop the `value` parameter; read/unbox from the element. Update the counter
-binding to own its value and the test/example decoders to the no-cell surface.
+Drop the `value` parameter; read/unbox the snapshot from the element. Update the
+counter binding to own its value and the test/example decoders to the no-cell
+surface.
 
 - **Test:** the existing "consumer counter sums concurrent increments" test,
   rewritten to the no-cell surface, stays green.
 - **Exit check:** no external value cell remains; connect tests green.
 
-### Step 2 — Readback observes custom values under `withYlmish`
+### Step 2 — Readback subscribes to custom changes under `withYlmish`
 
-Extend `gather`/the readback sub to collect and observe custom `Value` avals.
-Keep text's path working (add custom alongside, or unify per *Decisions*).
+Extend `gather`/the readback sub to collect each `Element.Custom` and `Subscribe`
+to it, re-decoding on change. Keep text's path working (add custom alongside, or
+unify onto `Subscribe` per *Decisions*).
 
 - **Test:** a `withYlmish` program with a counter field; a *remote-style* Y edit
   to the counter root dispatches `Set` and the model reflects it (the custom
@@ -216,17 +237,22 @@ peers and shows the model-level sum. README: customs are first-class under
 
 ## Assumptions / risks
 
-- **Boxing.** `Value : aval<obj>` boxes the merged value; `Decode.custom`
-  unboxes under the consumer's type. A wrong consumer type is a runtime cast
-  error — same failure class as any decoder type mismatch.
-- **Contract addition is source-breaking for binding authors.** Adding `Value`
-  means every `CustomElement` implementation must provide it; the only
-  implementors today are in-repo (text + counter), so the blast radius is ours.
-- **Reentrancy.** The binding must update its `Value` cell inside the shared
-  `Active` guard, exactly as it does its Yjs writes, so readback↔encode don't
-  loop. Same discipline as text.
-- **Readback churn (Step 2).** If unifying text+custom onto `Value`, re-verify
-  every text test — the text readback trigger changes from clist to value aval.
+- **Snapshot decode (accepted).** `Decode.custom` reads `Value` once, not a live
+  aval; `withYlmish` re-reads it on every `Subscribe` push, so the model stays
+  correct. The only loss is for code holding a forced `Decode.custom` aval
+  outside `withYlmish` — documented, and nothing relies on it. See *Decisions*.
+- **Boxing.** `Value : obj`; `Decode.custom` unboxes under the consumer's type. A
+  wrong consumer type is a runtime cast error — same failure class as any decoder
+  type mismatch.
+- **Contract addition is source-breaking for binding authors.** Adding `Value` +
+  `Subscribe` means every `CustomElement` implementation must provide them; the
+  only implementors today are in-repo (text + counter), so the blast radius is
+  ours.
+- **Reentrancy.** The binding must update `Value`/fire `Subscribe` inside the
+  shared `Active` guard, exactly as it does its Yjs writes, so readback↔encode
+  don't loop. Same discipline as text.
+- **Readback churn (Step 2).** If unifying text+custom onto `Subscribe`,
+  re-verify every text test — the text readback trigger changes.
 
 ## Out of scope
 
