@@ -20,8 +20,12 @@ string`). Step 2 threaded it through `connect` (`Scheme.ListKeyField` +
 different orders (the connect-layer face of reorder) + an insert + concurrent
 edits **converge under `Scheme.byKey`** (text stays with its item, edits merge),
 while a contrast test shows `Scheme.flat` positional naming *splits* the item's
-edits — the bug id-naming fixes. *(127 tests green.)* Next step: **Step 4**
-(non-text containers — the *Open question*).
+edits — the bug id-naming fixes. Step 4 **resolved the *Open question*** (b):
+keep the hybrid for non-text containers (spike-confirmed whole-container LWW),
+document + test that guarantee, and defer true element-wise container CRDT to a
+future plan 0006 — consumers needing merged collections use id-named leaves
+(`Scheme.byKey`) or `Encode.custom`. *(128 tests green.)* Next step: **Step 5**
+(example + docs).
 
 ### Progress
 
@@ -45,9 +49,12 @@ edits — the bug id-naming fixes. *(127 tests green.)* Next step: **Step 4**
   merge, no cross-item clobber. A contrast test shows `Scheme.flat` positional
   naming *splits* the same item's edits across roots (the bug id-naming fixes).
   *(127 tests.)*
-- [ ] **Step 4** — *(open — defer to what Step 0 discovers)* Non-text containers
-  and full A3-safety: flatten lists/maps to roots, keep the hybrid, or adopt an
-  extension. The agent decides based on Step 0's findings; see *Open question*.
+- [x] **Step 4** — *Open question* **resolved (b)**: keep the 0002 hybrid for
+  non-text containers; a Step 4 spike + test pins the guarantee (structural
+  containers are **whole-container LWW** — `materialize` re-projects a fresh
+  `Y.Array`/`Y.Map` each update). Full element-wise container CRDT deferred to a
+  future plan 0006; escape hatches today are id-named leaves (`Scheme.byKey`) and
+  `Encode.custom`. Rationale + evidence in *Open question* / *Decisions*. *(128.)*
 - [ ] **Step 5** — Example + docs: a reorderable collaborative list; README
   guidance on `Scheme.flat` vs id-based naming and the fractional-index pattern.
 
@@ -129,24 +136,39 @@ Two gaps remain — and the plan treats them very differently:
    containers to roots, keep the hybrid, or lean on a Yjs extension is **left to
    what Step 0's research and spikes turn up** (see *Open question*).
 
-## Open question (Step 4) — deferred to agent discovery
+## Open question (Step 4) — RESOLVED (b): keep the hybrid, document + test the guarantee
 
 **Should `connect` flatten non-text containers (lists/maps) to top-level roots
-too, and if so how?** This is intentionally *not* pre-decided. The agent must let
-**Step 0's online research and extension spikes** drive it. Inputs to gather:
+too?** Resolved by Step 0's spikes + a Step 4 spike of the current behaviour:
+**no — keep the 0002 hybrid for containers, formally document and test its
+guarantee, and defer true element-wise container CRDT to a future plan.**
 
-- Re-confirm A3 for nested containers (does concurrent first-creation of a nested
-  `Y.Array`/`Y.Map` still clobber on the current Yjs?).
-- Survey and **try** Yjs ecosystem options that bear on keyed/ordered nested
-  state — e.g. `yjs/y-utility` `YKeyValue` (avoids `Y.Map` history bloat),
-  fractional-indexing libraries, subdocuments, or any newer "keyed collection"
-  support. Validate behaviour in a spike rather than trusting docs.
-- Then choose, with a written rationale: (a) full path-flattening of containers
-  to roots; (b) keep the 0002 hybrid and document its guarantees; (c) adopt a
-  specific extension. Record the choice and evidence in *Decisions* before Step 4
-  code.
+Evidence:
+- A3 (Step 0 spike): two peers concurrently *first-creating* the same nested
+  shared type **clobber** — confirmed on `yjs` 13.6.30.
+- Hybrid guarantee (Step 4 spike + test): because `materialize` re-projects a
+  **fresh** `Y.Array`/`Y.Map` each update, a structural container is
+  **whole-container last-writer-wins** — peers converge but the container is *not*
+  element-merged (concurrent appends lose one side).
 
-The expectation is a **researched, spike-backed** decision — not a guess.
+Why (b) over (a) full-flattening or (c) an extension:
+- **(a)** flattening arbitrary nested containers to delta-synced roots reshapes
+  `materialize` / `dematerialize` / the `withYlmish` readback wholesale — a large,
+  high-risk effort that is its own plan, not a sub-step here. The plan itself
+  flags "only undertake it with evidence and step-by-step verification".
+- **(c)** `YKeyValue` (Step 0) gives one top-level id-keyed `Y.Array`, sidestepping
+  the A3 nested-create race, but its values are **LWW** and it forbids nested Yjs
+  types — a partial win that still needs real integration work.
+- This plan's *actual* contribution — id-named collaborative **leaves** — already
+  unblocks consumers who need merged collections: model the collection as a list
+  whose **items** are collaborative leaves named by id (`Scheme.byKey`, Steps
+  1-3), or define a merging container with `Encode.custom` (plan 0003, e.g. a
+  `YKeyValue`/`Y.Array`-backed binding). Containers therefore have an **escape
+  hatch today**; whole-container LWW is an acceptable, documented default.
+
+So Step 4 ships the *documented, test-backed guarantee* and records full
+container-flattening as a candidate **plan 0006**, with this evidence to start
+from. (Spike-backed, not a guess — as required.)
 
 ## Design
 

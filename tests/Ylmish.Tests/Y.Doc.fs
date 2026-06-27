@@ -225,6 +225,33 @@ let tests = testList "Y.Doc" [
             Expect.equal (nestedMap.get "prop0") (Some "nested-value") "nested prop0"
         }
 
+        // Plan 0004, Step 4 — the documented guarantee of the hybrid for *non-text
+        // containers*. The Scheme/connect work (Steps 1-3) gives collaborative
+        // LEAVES (text, custom) identity-stable roots that CRDT-merge. A structural
+        // container (a list/map of values) stays on the materialize path, which
+        // re-projects a fresh Y.Array/Y.Map each update — so it is whole-container
+        // LAST-WRITER-WINS, not element-merged. This test pins that guarantee.
+        test "structural containers are whole-container LWW under the hybrid (Step 4 decision)" {
+            let mk (items : string list) : Example.Model =
+                { PropA = ""; PropB = None; PropC = IndexList.empty
+                  PropD = IndexList.ofList items; PropE = { Prop0 = "" }; PropF = None }
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            Y.Doc.materialize d1 (Example.Codec.encode (Example.AdaptiveModel.Create (mk [ "a"; "b" ])))
+            Y.Doc.materialize d2 (Example.Codec.encode (Example.AdaptiveModel.Create (mk [ "c"; "d" ])))
+
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            let propD (d : Y.Doc) =
+                match Example.Codec.decode () ([], Y.Doc.dematerialize d) |> AVal.force with
+                | Ok m -> IndexList.toList m.PropD
+                | Error e -> failwith $"decode failed: %A{e}"
+            Expect.equal (propD d1) (propD d2) "structural list converges across peers"
+            Expect.equal (List.length (propD d1)) 2
+                "whole-container LWW — one peer's list wins (element-merge would be 4 items)"
+        }
+
         // Plan 0003, Step 2 — a Custom leaf is connect-managed (its own root),
         // like Text, so the structural path must skip it: materialize emits the
         // non-custom fields and simply omits the custom one from the root map.
