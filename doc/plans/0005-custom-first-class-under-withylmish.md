@@ -19,7 +19,8 @@ Parent: plan 0003 (the `CustomElement` seam). No separate issue yet.
 and **text** `clist`s (`"ylmish-text"` via `gather`), but `gather` skips
 `Element.Custom`, so an inbound custom edit merges into its Y root yet never
 dispatches `Set`. Design is **decided** — an Adaptive-free contract
-(`Value : obj` + `Subscribe`); see *Decisions*. Next step: **Step 0**.
+(`Value : obj` + `Subscribe`) and a **single unified readback path** for text +
+custom; see *Decisions*. Next step: **Step 0**.
 
 ### Progress
 
@@ -33,10 +34,12 @@ dispatches `Set`. Design is **decided** — an Adaptive-free contract
   element* as a snapshot (drop the external value-cell parameter), unboxing under
   the consumer's type. Update the counter test/example to the no-cell surface.
   Connect tests green.
-- [ ] **Step 2** — Wire `withYlmish` readback to custom values: extend the
-  readback collector (`gather` + the `"ylmish-text"` sub, likely renamed) to
-  `Subscribe` to each `Element.Custom` and re-decode/`Set` on change, reusing
-  `isWritingToYDoc` + `readbackModel`.
+- [ ] **Step 2** — **Unify the readback collector onto `Subscribe`.** Replace the
+  text-specific `clist`-observing `"ylmish-text"` sub with a single collector that
+  walks the encoded tree and `Subscribe`s to *every* connect-managed leaf — text
+  and custom alike — through the one `CustomElement` contract, re-decoding/`Set`
+  on change, reusing `isWritingToYDoc` + `readbackModel`. Text rides the same
+  path (its `Subscribe` observes its `clist`); all text tests stay green.
 - [ ] **Step 3** — Headline e2e test: two `withYlmish` peers with a counter
   field; concurrent increments; **both Elmish models** converge on the sum (the
   custom analogue of the existing text e2e). Text e2e stays green.
@@ -82,11 +85,19 @@ dispatches `Set`. Design is **decided** — an Adaptive-free contract
   can stay separate top-level functions (encode builds the binding from the model
   field; decode reads its value) with no shared mutable cell — the awkward part
   of 0003 Step 4 disappears.
-- **Readback unification is a follow-on, not a goal here.** Once both text and
-  custom support `Subscribe`, the two readback collectors could merge into one
-  (subscribe to every connect-managed leaf). Tempting, but it changes the *text*
-  readback trigger; do it only if Step 2 lands it green without churn, otherwise
-  leave text's path intact and just *add* custom.
+- **Unify the readback collector onto `Subscribe` (decided — Step 2).** Once both
+  text and custom expose `Subscribe`, there should be **one** readback path, not a
+  text-specific `clist` observer plus a custom one. The collector walks the
+  encoded tree and subscribes to every connect-managed leaf through the single
+  `CustomElement` contract; text rides it too (`Text.binding.Subscribe` observes
+  the `clist`). This is the whole point of giving text a binding in 0003 Step 5 —
+  one connect contract — extended to readback: one *readback* contract. The cost
+  is that the text readback trigger moves from a direct `clist` observation to
+  `Text.binding.Subscribe` (same underlying `clist`, so behaviourally identical) —
+  Step 2 must re-verify every text test green. Mechanism is the implementer's
+  choice (reconstruct each leaf's binding from the tree to read its `Subscribe`,
+  or have `connect` hand its managed bindings back for reuse), but the *outcome*
+  is fixed: a single Subscribe-based collector covering text + custom.
 
 ### Blockers
 
@@ -176,14 +187,36 @@ let custom : Decoder<_,_,'a> = fun _ (path, el) ->
 Same *shape* as `Decode.text` (reads the value off the element), but a snapshot
 rather than a live aval — see *Decisions* for why that's fine under `withYlmish`.
 
-### `withYlmish` readback subscribes to custom changes
+### One unified readback collector (text + custom)
 
-Extend the readback collector so it also walks to each `Element.Custom b` and
-calls `b.Subscribe (fun () -> if not isWritingToYDoc then readback ())`, collecting
-the disposables, where `readback` is the existing
-`readbackModel () |> Option.iter (dispatch << Set)`. `mergeReadback` already takes
-the live side for `Custom`, so `readbackModel` decodes the merged value correctly
-once it re-runs.
+Today readback has a text-only collector: `gather` walks the tree for
+`Element.Text` leaves and observes each `clist`. Step 2 replaces it with a single
+collector that subscribes to **every** connect-managed leaf through the one
+`CustomElement` contract:
+
+```fsharp
+// One walk → a Subscribe per connect-managed leaf (text OR custom).
+let rec gather acc el =
+    match el with
+    | Element.Text chars -> (Text.binding chars).Subscribe :: acc  // text rides the same contract
+    | Element.Custom b    -> b.Subscribe :: acc
+    | Element.AMap m      -> // recurse
+    | Element.AList l     -> // recurse
+    | _                   -> acc
+
+// Then, identically for both:
+let subscriptions =
+    gather [] tree
+    |> List.map (fun subscribe ->
+        subscribe (fun () -> if not isWritingToYDoc then readback ()))
+```
+
+where `readback` is the existing `readbackModel () |> Option.iter (dispatch << Set)`.
+`mergeReadback` already takes the live side for `Custom`, so `readbackModel`
+decodes the merged value correctly once it re-runs. (`Text.binding chars` here is
+reconstructed purely to obtain its `Subscribe`, which observes the same shared
+`clist`; the implementer may instead have `connect` hand its managed bindings
+back so the same instances are reused — see *Decisions*.)
 
 ## Work breakdown — incremental, verify after every step
 
@@ -207,16 +240,19 @@ surface.
   rewritten to the no-cell surface, stays green.
 - **Exit check:** no external value cell remains; connect tests green.
 
-### Step 2 — Readback subscribes to custom changes under `withYlmish`
+### Step 2 — Unify the readback collector onto `Subscribe` (text + custom)
 
-Extend `gather`/the readback sub to collect each `Element.Custom` and `Subscribe`
-to it, re-decoding on change. Keep text's path working (add custom alongside, or
-unify onto `Subscribe` per *Decisions*).
+Replace the text-specific `clist` observer with **one** collector that walks the
+encoded tree and `Subscribe`s to every connect-managed leaf — text via
+`Text.binding.Subscribe`, custom via `b.Subscribe` — re-decoding/`Set` on change.
+There is then one readback contract, mirroring the one *connect* contract from
+0003 Step 5.
 
 - **Test:** a `withYlmish` program with a counter field; a *remote-style* Y edit
   to the counter root dispatches `Set` and the model reflects it (the custom
   analogue of "withYlmish reflects a remote text edit in the model").
-- **Exit check:** inbound custom edits update the model; suite green.
+- **Exit check:** inbound custom edits update the model; **every existing text
+  test stays green** (text now rides the unified path); suite green.
 
 ### Step 3 — End-to-end convergence test
 
@@ -251,8 +287,11 @@ peers and shows the model-level sum. README: customs are first-class under
 - **Reentrancy.** The binding must update `Value`/fire `Subscribe` inside the
   shared `Active` guard, exactly as it does its Yjs writes, so readback↔encode
   don't loop. Same discipline as text.
-- **Readback churn (Step 2).** If unifying text+custom onto `Subscribe`,
-  re-verify every text test — the text readback trigger changes.
+- **Readback churn (Step 2).** Unifying text+custom onto `Subscribe` moves the
+  text readback trigger from a direct `clist` observation to
+  `Text.binding.Subscribe` (same underlying `clist`). Behaviourally identical, but
+  every text test must be re-verified green — this is a committed check, not a
+  conditional one.
 
 ## Out of scope
 
