@@ -249,6 +249,22 @@ module Text =
                     encodeDisposable.Dispose()
         }
 
+    /// Express the built-in text attach as a `Codec.CustomElement`, so `connect`
+    /// drives text through the *same* `CustomElement.Connect` contract a consumer
+    /// binding uses — one attach contract in the system (plan 0003, Step 5). The
+    /// text root is the A3-safe top-level root named by the `Slot` the scheme
+    /// chose; `Connect` get-or-creates it and wires bi-directional delta sync.
+    let binding (chars : char clist) : Codec.CustomElement =
+        { new Codec.CustomElement with
+            member _.Kind = Codec.Kind.Text
+            member _.Connect (ctx : Codec.BindContext) =
+                let name =
+                    match ctx.Slot with
+                    | Codec.Slot.Named n -> n
+                    | Codec.Slot.Index i -> string i
+                let ytext = ctx.Doc.getText name
+                attach ctx.Active chars ytext }
+
     let ofAdaptive (atext : char clist) : Y.Text =
         let initial = System.String.Concat(atext)
         let ytext = Y.Text.Create (initial)
@@ -685,13 +701,23 @@ module Doc =
         (encoded : Codec.Encoded<Codec.Element<string>>)
         : IDisposable =
         let disposables = ResizeArray<IDisposable> ()
+        // The single attach contract: a connect-managed leaf is a `CustomElement`
+        // get-or-created at a scheme-named top-level root (A3-safe `Parent = Root`,
+        // relying on A1). Built-in text and consumer customs go through the very
+        // same `Connect` call (plan 0003, Step 5).
+        let dispatch (path : Codec.Path) (binding : Codec.CustomElement) =
+            let ctx : Codec.BindContext = {
+                Doc = doc
+                Parent = Codec.ParentContainer.Root
+                Slot = Codec.Slot.Named (scheme.RootName path)
+                Active = ref false
+            }
+            disposables.Add (binding.Connect ctx)
         let rec walk (path : Codec.Path) (element : Codec.Element<string>) =
             match element with
             | Codec.Element.Text chars ->
-                // Get-or-create the flattened top-level root for this leaf (A1).
-                let ytext = doc.getText (scheme.RootName path)
-                let active = ref false
-                disposables.Add (Text.attach active chars ytext)
+                // Built-in text, expressed as a CustomElement, through one contract.
+                dispatch path (Text.binding chars)
             | Codec.Element.AMap amap ->
                 AMap.force amap
                 |> HashMap.iter (fun key value ->
@@ -709,19 +735,11 @@ module Doc =
                 // Non-text: handled by the structural/LWW path, not connect.
                 ()
             | Codec.Element.Custom binding ->
-                // A consumer-defined element. Like Text, it is flattened to a
-                // top-level root named by the scheme (A3-safe: Parent = Root), so
-                // two peers get-or-create the same root (A1) rather than racing to
-                // create a nested shared type. The binding owns the get-or-create
-                // and both sync directions; we just build its context and collect
-                // the disposable.
-                let ctx : Codec.BindContext = {
-                    Doc = doc
-                    Parent = Codec.ParentContainer.Root
-                    Slot = Codec.Slot.Named (scheme.RootName path)
-                    Active = ref false
-                }
-                disposables.Add (binding.Connect ctx)
+                // A consumer-defined element, through the same contract as text:
+                // flattened to a scheme-named top-level root (A3-safe Parent = Root,
+                // relying on A1). The binding owns the get-or-create and both sync
+                // directions.
+                dispatch path binding
         match AVal.force encoded with
         | Some element -> walk [] element
         | None -> ()

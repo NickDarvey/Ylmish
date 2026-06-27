@@ -10,14 +10,15 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–4 done:
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–5 done:
 `BindContext`/`Slot`/`ParentContainer` + `CustomElement.Connect` (Option A);
 structural path skips `Element.Custom`; `connect` dispatches it to a
-scheme-named root (`Parent = Root`, A3-safe); and the public ergonomic surface
-`Encode.custom` / `Decode.custom` exists, with a consumer-style grow-only
-counter whose concurrent increments **sum** across two peers, read back through
-the decoder. Next step: **Step 5** (dogfood the built-in `Text` through the
-same attach primitive).
+scheme-named root (`Parent = Root`, A3-safe); public `Encode.custom` /
+`Decode.custom` with a consumer counter that **sums** concurrent increments;
+and the built-in `Text` now connects through the *same* `CustomElement.Connect`
+contract (`Text.binding` + one `dispatch` in `connect`) — one attach contract
+in the system, all text tests unchanged. Next step: **Step 6** (example +
+README "writing a custom element").
 
 ### Progress
 
@@ -42,8 +43,11 @@ same attach primitive).
   opaque binding). A consumer-style grow-only counter (Y.Array of ticks) sums
   two peers' concurrent increments, decoded back to the same value on both.
   *(124 tests green.)*
-- [ ] **Step 5** — Dogfood: route the built-in `Text` connect through the same
-  attach primitive `CustomElement.Connect` uses, so there is one attach contract.
+- [x] **Step 5** — Dogfood: `Text.binding` expresses the built-in text attach as
+  a `CustomElement`; `connect`'s `dispatch` builds one `BindContext` and calls
+  `binding.Connect` for *both* text and consumer customs — one attach contract.
+  `Element.Text` stays a concrete case (ergonomics + exhaustiveness). All text
+  tests unchanged. *(124 tests green.)*
 - [ ] **Step 6** — Example + docs: a `CounterElement` in/near
   `TodoCollaborative`; README "writing a custom element" section.
 
