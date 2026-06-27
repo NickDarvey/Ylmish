@@ -99,6 +99,7 @@ not a Yjs handle.
 | `Encode.value` / `Decode.value` | `Y.Map` entry | last-writer-wins | toggles, enums, numbers, ids |
 | `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT | prose, collaborative bodies |
 | `Encode.list` / `map` / `object` | `Y.Array` / `Y.Map` | structural CRDT | collections |
+| `Encode.custom` / `Decode.custom` | your choice (own root) | **you define it** | counters, sets, anything below |
 
 `Encode.text : aval<string> -> _` keeps the model field a plain `string`. The
 Adaptive layer recovers the character inserts/deletes by **diffing successive
@@ -126,6 +127,38 @@ laid out across the document's top-level roots by a `Codec.Scheme`. The default,
 Consumers who need a different persisted layout (for example a stable,
 id-based naming for text nested in a reorderable list) can supply their own
 `Scheme` to `Y.Doc.connectWith` rather than forking the library.
+
+**Writing a custom element.** The four built-ins don't have to be the end of the
+list. When a field needs a merge strategy of its own — a counter that *sums*
+concurrent increments, a grow-only set, a mergeable register — you can define it
+in your own code, without editing Ylmish's `Element` union or forking the
+library, through the `Custom` seam. You implement one contract:
+
+```fsharp
+type CustomElement =
+    abstract Kind    : Kind
+    /// Get-or-create your shared type at (Parent, Slot), wire both sync
+    /// directions honouring the shared Active reentrancy guard, and return a
+    /// disposable that tears both down.
+    abstract Connect : BindContext -> System.IDisposable
+```
+
+`Encode.custom` wraps your binding into the encoded tree and `Decode.custom`
+reads its merged value back, exactly like `Encode.text` / `Decode.text`:
+
+```fsharp
+"hits", Encode.custom (Counter.element model.Hits mergedCell)   // in your encoder
+let! hits = Decode.object.required "hits" (Decode.custom mergedCell)  // in your decoder
+```
+
+Like text, a custom element is get-or-created at its **own top-level root** (the
+A3-safe `Parent = Root`, relying on A1 root get-or-create) — never a freshly
+created nested shared type two peers would race to make — and the layout `Scheme`
+still chooses its root name. `Y.Doc.connect` dispatches built-in text and your
+custom elements through the *same* `Connect` contract. See
+[`examples/TodoCollaborative/Counter.fs`](examples/TodoCollaborative/Counter.fs)
+for a runnable grow-only counter (printed by `npm run demo`) whose two peers each
+increment once, concurrently, and converge on the **sum**.
 
 **Reserved for later — `Ref<>`.** For fields where the *delta structure itself*
 is worth keeping in the app model (large bodies, rich text, very high-frequency

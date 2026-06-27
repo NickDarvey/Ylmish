@@ -10,15 +10,18 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–5 done:
+**Last updated:** 2026-06-27 · **Status: COMPLETE.** All steps (0–6) done.
 `BindContext`/`Slot`/`ParentContainer` + `CustomElement.Connect` (Option A);
 structural path skips `Element.Custom`; `connect` dispatches it to a
-scheme-named root (`Parent = Root`, A3-safe); public `Encode.custom` /
-`Decode.custom` with a consumer counter that **sums** concurrent increments;
-and the built-in `Text` now connects through the *same* `CustomElement.Connect`
-contract (`Text.binding` + one `dispatch` in `connect`) — one attach contract
-in the system, all text tests unchanged. Next step: **Step 6** (example +
-README "writing a custom element").
+scheme-named root (`Parent = Root`, A3-safe) through one shared `dispatch`;
+public `Encode.custom` / `Decode.custom` with a consumer counter that **sums**
+concurrent increments; the built-in `Text` connects through the *same*
+`CustomElement.Connect` contract (`Text.binding`); and a runnable
+`examples/TodoCollaborative/Counter.fs` (printed by `npm run demo`) plus a
+README "Writing a custom element" section. *(124 tests green; demo runs.)*
+
+One known gap remains — custom fields are not yet wired into the `withYlmish`
+*model-readback* path; see *Follow-ups*.
 
 ### Progress
 
@@ -48,8 +51,11 @@ README "writing a custom element").
   `binding.Connect` for *both* text and consumer customs — one attach contract.
   `Element.Text` stays a concrete case (ergonomics + exhaustiveness). All text
   tests unchanged. *(124 tests green.)*
-- [ ] **Step 6** — Example + docs: a `CounterElement` in/near
-  `TodoCollaborative`; README "writing a custom element" section.
+- [x] **Step 6** — Example + docs: `examples/TodoCollaborative/Counter.fs` (a
+  grow-only counter on the public seam), exercised in-process by `npm run demo`
+  (`[counter] merged value: A=2 B=2 — the SUM`); README gains a `Custom` row in
+  the merge-semantics table and a "Writing a custom element" subsection.
+  *(124 tests green; demo runs.)*
 
 ### Decisions & lessons
 
@@ -69,9 +75,41 @@ README "writing a custom element").
   anti-corruption boundary is app-schema-vs-state-schema, not "avoid Yjs". Option
   B (a Y-layer sub-contract resolved by cast) is rejected as needless indirection.
 
+- **`Decode.custom` reads a consumer-threaded value cell, not the element.** A
+  `CustomElement` is opaque (`Kind` + `Connect`), so unlike `Decode.text` — which
+  reads the `clist` *inside* `Element.Text` — `Decode.custom` reads an
+  `aval<'a>` the consumer threads into both `Encode.custom`'s binding and the
+  decoder. Clean and Fable-safe (no downcast), but it means custom round-tripping
+  is a same-scope concern; see *Follow-ups* for what this implies under
+  `withYlmish`.
+
+- **One attach contract (Step 5).** Built-in `Text` and consumer customs both
+  flow through `connect`'s single `dispatch` → `BindContext` → `binding.Connect`.
+  `Element.Text` stays a concrete case for ergonomics/exhaustiveness; only the
+  *connect primitive* is shared (`Text.binding`), not the union case.
+
 ### Blockers
 
 - None.
+
+### Follow-ups (out of this plan's scope; for a future plan)
+
+- **Custom fields aren't in the `withYlmish` model-readback path (known gap).**
+  `withYlmish`'s `subs` wires two readback triggers: the `"ylmish-ydoc"` observer
+  on the structural root map, and the `"ylmish-text"` observer whose `gather`
+  walks the encoded tree collecting **`Element.Text`** leaves and observing their
+  `clist`s. `gather`'s catch-all skips `Element.Custom` (and the structural
+  observer never sees a custom's own root). **Consequence:** a *remote* edit to a
+  custom field merges into its Y root and updates the binding's value cell, but
+  no `Set` is dispatched, so the Elmish model doesn't reflect it until some other
+  change triggers a readback. Customs therefore fully work at the **connect
+  layer** (proven by tests + the demo) but are **not yet first-class under
+  `withYlmish`**. Fixing it means giving `gather`/readback a way to observe a
+  custom's merged-value cell — most naturally by having `CustomElement` expose an
+  observable "changed" signal (or its value `aval`) that connect subscribes to,
+  the same way it subscribes to text `clist`s. That also subsumes the
+  value-cell-threading awkwardness above (the binding could surface its value
+  directly). This is the natural **plan 0005**.
 
 ### Agent pickup prompt
 

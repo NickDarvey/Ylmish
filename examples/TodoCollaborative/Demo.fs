@@ -117,6 +117,11 @@ let runPeer (name : string) =
 
 let runLauncher () =
     let selfPath = Node.argv.[1]
+
+    // First, a self-contained custom-element demo: a grow-only counter whose
+    // concurrent increments SUM (something last-writer-wins could never do).
+    Counter.run ()
+
     printfn "[launcher] forking two peers (A and B)…"
 
     let peerA = Node.fork selfPath [| "--peer"; "A" |]
