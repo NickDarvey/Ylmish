@@ -725,11 +725,31 @@ module Doc =
                     | Some child -> walk (Codec.ObjectKey key :: path) child
                     | None -> ())
             | Codec.Element.AList alist ->
+                // If the scheme keys this list by an item field, name each item by
+                // its stable id (KeyById) rather than its position (ArrayIndex), so
+                // a collaborative leaf inside it survives concurrent reorder/insert
+                // (plan 0004). Extraction lives here so the Scheme stays Element-free.
+                let keyField = scheme.ListKeyField path
+                let itemId (item : Codec.Element<string>) : string option =
+                    match keyField with
+                    | None -> None
+                    | Some field ->
+                        match item with
+                        | Codec.Element.AMap amap ->
+                            match AMap.force amap |> HashMap.tryFind field with
+                            | Some (Some (Codec.Element.Value id)) -> Some id
+                            | _ -> None
+                        | _ -> None
                 AList.force alist
                 |> IndexList.toList
                 |> List.iteri (fun i value ->
                     match value with
-                    | Some child -> walk (Codec.ArrayIndex i :: path) child
+                    | Some child ->
+                        let seg =
+                            match itemId child with
+                            | Some id -> Codec.KeyById id
+                            | None -> Codec.ArrayIndex i
+                        walk (seg :: path) child
                     | None -> ())
             | Codec.Element.Value _ ->
                 // Non-text: handled by the structural/LWW path, not connect.

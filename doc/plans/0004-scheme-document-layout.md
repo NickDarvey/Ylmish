@@ -11,14 +11,16 @@ Parent: plan 0002. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–1 done. Step 0
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–2 done. Step 0
 (research + spikes) re-confirmed A1/A3/reorder against real `yjs` 13.6.30 and
 validated the reorderable scenario with `fractional-indexing` — see *Step 0 —
-findings*. Step 1 fixed the **identity convention**: a new
-`PathSegment.KeyById of string` (a stable, *immutable* id) carries item identity
-into the `Scheme`; `Scheme.flat` and `Path.toString` handle it (id → its string);
-nothing emits it yet, so behaviour is unchanged (124 tests green). Next step:
-**Step 2** (thread the id through `connect`'s list walk + `Scheme.byKey`).
+findings*. Step 1 fixed the **identity convention** (`PathSegment.KeyById of
+string`, an immutable id). Step 2 **threaded it through `connect`**: `Scheme`
+gained `ListKeyField : Path -> string option`, the list walk emits `KeyById id`
+(reading the item's id field) for keyed lists, and `Scheme.byKey "id"` is the
+convenience — so a list's text leaves get `items.<id>.body` roots. `Scheme.flat`
+stays positional. *(125 tests green; new: "Scheme.byKey names … by item id".)*
+Next step: **Step 3** (convergence under concurrent reorder).
 
 ### Progress
 
@@ -31,9 +33,11 @@ nothing emits it yet, so behaviour is unchanged (124 tests green). Next step:
   (emitted by the list walk from a resolver in Step 2). `Scheme.flat` /
   `Path.toString` handle it. Wire-format decision recorded in *Decisions*; types
   compile, suite green. *(124 tests.)*
-- [ ] **Step 2** — Thread identity through `connect`'s list walk and let a
-  `Scheme` name by it (e.g. an id-aware `flat`, plus a `Scheme.byKey "id"`
-  convenience). `Scheme.flat` stays available for positional use.
+- [x] **Step 2** — Threaded identity through `connect`'s list walk: `Scheme`
+  gained `ListKeyField : Path -> string option`; the walk emits `KeyById id`
+  (extracting the item's id field) when a list is keyed, else `ArrayIndex i`.
+  `Scheme.byKey "id"` convenience added; `Scheme.flat` stays positional.
+  Extraction lives in the walk so `Scheme` stays `Element`-free. *(125 tests.)*
 - [ ] **Step 3** — Test: a list of objects with a collaborative text field
   converges across two peers **under concurrent reorder/insert**, using a
   consumer-supplied stable id (a fractional index or a guid).

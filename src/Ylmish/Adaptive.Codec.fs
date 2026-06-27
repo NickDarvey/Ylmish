@@ -203,14 +203,21 @@ module Path =
 type Scheme = {
     /// The top-level root name for a collaborative leaf at this path.
     RootName : Path -> string
+    /// For a list encountered at this path, the item-field name whose value is
+    /// each item's stable, immutable id — so list items are named by identity
+    /// (`KeyById`) rather than position (`ArrayIndex`). `None` keeps positional
+    /// naming (correct for constant-indexed, append-only lists). The connect-time
+    /// walk reads this and does the extraction; the `Scheme` stays `Element`-free
+    /// (it speaks only `Path` and `string`).
+    ListKeyField : Path -> string option
 }
 
 module Scheme =
     /// The default, A3-safe scheme: flatten the path to a dotted top-level name
     /// (e.g. `items[2].body` -> `"items.2.body"`). Each collaborative leaf
-    /// becomes its own root. Suitable when leaf positions are stable;
-    /// collaborative text nested inside a concurrently-reordered list wants a
-    /// custom, id-based scheme instead (the seam this type exists to provide).
+    /// becomes its own root, named **positionally**. Correct when list positions
+    /// are stable (append-only); a list that is concurrently reordered wants
+    /// `Scheme.byKey` (or a custom id-aware scheme) so text stays with its item.
     let flat : Scheme = {
         RootName = fun path ->
             path
@@ -220,7 +227,16 @@ module Scheme =
                 | ArrayIndex i -> string i
                 | KeyById id -> id)
             |> String.concat "."
+        ListKeyField = fun _ -> None
     }
+
+    /// Like `flat`, but names **every** list's items by a stable id read from the
+    /// given item field (e.g. `byKey "id"` → `items.<id>.body`). Use this when a
+    /// list is reordered concurrently: the id must be **immutable** (a guid), so
+    /// the root name stays with the logical item across reorder/insert. Ordering
+    /// is separate ordinary state (e.g. a fractional `order` field); see plan 0004.
+    let byKey (field : string) : Scheme =
+        { flat with ListKeyField = fun _ -> Some field }
 
 type Error =
     | UnexpectedKind of {|

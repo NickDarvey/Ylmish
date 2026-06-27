@@ -743,7 +743,7 @@ let tests = testList "Y.Doc" [
 
         test "a custom Scheme controls root names (consumer seam)" {
             // A consumer-defined scheme that namespaces every root under "app/".
-            let scheme : Scheme = { RootName = fun path -> "app/" + Scheme.flat.RootName path }
+            let scheme : Scheme = { Scheme.flat with RootName = fun path -> "app/" + Scheme.flat.RootName path }
             let s = cval ""
             let enc : Encoded<Element<string>> = Encode.object [ "body", Encode.text s ]
             let d = Y.Doc.Create ()
@@ -854,6 +854,31 @@ let tests = testList "Y.Doc" [
 
             Expect.equal (read enc1 m1) 2 "peer1 decodes the summed count"
             Expect.equal (read enc2 m2) 2 "peer2 decodes the summed count"
+        }
+
+        // Plan 0004, Step 2 — Scheme.byKey names a list's items by a stable id read
+        // from an item field, so a collaborative leaf inside the list gets an
+        // identity-based root (items.<id>.body) instead of a positional one
+        // (items.0.body). This is the naming half of surviving concurrent reorder.
+        test "Scheme.byKey names a nested list's text by item id, not index" {
+            let body = cval ""
+            // One item: { id = "abc", body = <text> }, inside a list under "items".
+            let itemEnc (_ : int) : Encoded<Element<string>> =
+                Encode.object [
+                    "id",   Encode.value id (AVal.constant "abc")
+                    "body", Encode.text body
+                ]
+            let enc : Encoded<Element<string>> =
+                Encode.object [ "items", Encode.list itemEnc (clist [ 0 ] :> alist<_>) ]
+
+            let d = Y.Doc.Create ()
+            use _ = Y.Doc.connectWith (Scheme.byKey "id") d enc
+            transact (fun () -> body.Value <- "hello")
+
+            Expect.equal ((d.getText "items.abc.body").toString ()) "hello"
+                "text is stored under the id-named root items.abc.body"
+            Expect.equal ((d.getText "items.0.body").toString ()) ""
+                "the positional root items.0.body is unused under Scheme.byKey"
         }
     ]
 ]
