@@ -1,42 +1,61 @@
-# 0004 — Scheme: stable document layout for nested collaborative state
+# 0004 — Scheme: pluggable document layout for nested collaborative state
 
 Completes the layout seam introduced by
-[0002](./0002-crdt-text-through-the-codec.md): make `Codec.Scheme` produce
-**stable** root names for collaborative leaves nested inside reorderable
-collections, and close the A3 gap that plan 0002's pragmatic slice left open for
-non-text containers.
+[0002](./0002-crdt-text-through-the-codec.md): make `Codec.Scheme` expressive
+enough that a consumer can give collaborative leaves **stable** root names even
+when they live inside reorderable collections — by threading each item's
+*identity* into the scheme — and resolve, by research + spike, how far the
+library should go in flattening non-text containers to roots.
 
 Parent: plan 0002. No separate issue yet.
 
 ## State
 
 **Last updated:** 2026-06-27 · **Status: NOT STARTED.** `Scheme` exists as
-`{ RootName : Path -> string }` with an A3-safe-for-*flat*-models default
-(`Scheme.flat`, dotted path names). It flattens **text** leaves to roots; non-text
-stays on the structural/materialize path. Next step: **Step 0** (reproduce the
-instability).
+`{ RootName : Path -> string }` with `Scheme.flat` (dotted path names). `connect`
+flattens **text** leaves to roots via the scheme; non-text stays on the
+structural/materialize path. The scheme only sees positional `ArrayIndex`
+segments, so it cannot name list items by a stable identity. Next step:
+**Step 0** (online research + spikes).
 
 ### Progress
 
-- [ ] **Step 0** — Spike: reproduce divergence/clobber for **index-named** text
-  nested in a list when two peers reorder/insert concurrently. Pins the motive.
-- [ ] **Step 1** — Decide the **stable-id convention**: how an item's identity
-  reaches the scheme (a `PathSegment.KeyById`, an `itemId : Element -> string`
-  resolver, or a reserved id field). Decision step (fixes wire format).
-- [ ] **Step 2** — Make `connect`'s list walk emit id-based path segments and add
-  `Scheme.byId` (or make `flat` id-aware). Text nested in a list gets a stable
-  root name.
+- [ ] **Step 0** — **Research + spikes (go online).** Validate the Yjs
+  assumptions this plan rests on and survey/**try** relevant Yjs extensions
+  (keyed collections, fractional-indexing libraries). Record findings *into this
+  plan* (a "Step 0 — findings" subsection), as plan 0002 did. This informs both
+  the id convention (Step 1) and the deferred container decision (Step 4).
+- [ ] **Step 1** — Decide the **identity convention**: how an item's stable id
+  reaches the `Scheme` (a `PathSegment.KeyById`, an `itemId : Element -> string`
+  resolver, or the scheme reading a reserved field). Wire-format decision,
+  informed by Step 0.
+- [ ] **Step 2** — Thread identity through `connect`'s list walk and let a
+  `Scheme` name by it (e.g. an id-aware `flat`, plus a `Scheme.byKey "id"`
+  convenience). `Scheme.flat` stays available for positional use.
 - [ ] **Step 3** — Test: a list of objects with a collaborative text field
-  converges across two peers **under concurrent reorder/insert** (the A3 tail).
-- [ ] **Step 4** *(bigger, optional)* — Generalise `connect` so **non-text
-  containers** (lists/maps) are also flattened roots, closing A3 for them too —
-  or formalise the hybrid and document the trade-off.
-- [ ] **Step 5** — Example + docs: a reorderable list with collaborative text
-  items; README note on choosing/ writing a `Scheme`.
+  converges across two peers **under concurrent reorder/insert**, using a
+  consumer-supplied stable id (a fractional index or a guid).
+- [ ] **Step 4** — *(open — defer to what Step 0 discovers)* Non-text containers
+  and full A3-safety: flatten lists/maps to roots, keep the hybrid, or adopt an
+  extension. The agent decides based on Step 0's findings; see *Open question*.
+- [ ] **Step 5** — Example + docs: a reorderable collaborative list; README
+  guidance on `Scheme.flat` vs id-based naming and the fractional-index pattern.
 
 ### Decisions & lessons
 
-- _(none yet)_
+- **Index instability is a consumer policy, not a library bug (decided).**
+  Positional root names (`items.2.body`) diverge if peers reorder/insert
+  concurrently. That is *acceptable*: the library's job is the **seam**, not the
+  ordering policy.
+  - A consumer whose list is **constant-indexed** (append-only, no reorder) uses
+    `Scheme.flat` as-is.
+  - A consumer who **reorders** supplies a **stable id per item** — e.g. a
+    [fractional index](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
+    (the standard CRDT ordering trick; off-the-shelf libraries exist) or a plain
+    guid — carried in their model, and an **id-aware `Scheme`** names roots by it.
+  - This plan's deliverable is therefore to make identity *reachable* by the
+    scheme (Steps 1–2) and to **document the fractional-index pattern**, not to
+    implement fractional indexing in the library.
 
 ### Blockers
 
@@ -51,11 +70,13 @@ instability).
 > bump *Last updated*, record decisions/blockers); commit one focused commit to
 > the working branch (no PR unless asked); compact context; continue. Stop when
 > all steps are checked or a blocker needs a human decision — especially the
-> Step 1 wire-format decision.
+> Step 1 wire-format decision. For **Step 0**, actually go online (WebSearch /
+> WebFetch), and where feasible **run** an extension in a spike to confirm it
+> behaves as documented before relying on it; record what you found and tried.
 
 ## Problem
 
-Plan 0002 chose the *flattened-top-level-name* path (A3: nested concurrent
+Plan 0002 took the flattened-top-level-name path (A3: nested concurrent
 get-or-create clobbers, so every collaborative leaf is a top-level root, relying
 on A1). `Scheme.flat` names a leaf by its flattened path:
 
@@ -63,141 +84,153 @@ on A1). `Scheme.flat` names a leaf by its flattened path:
 [ObjectKey "items"; ArrayIndex 2; ObjectKey "body"]  ->  "items.2.body"
 ```
 
-Two gaps remain:
+Two gaps remain — and the plan treats them very differently:
 
-1. **Indices aren't stable identities.** `ArrayIndex 2` is positional. If peers
-   insert/remove/reorder list items concurrently, "the body of item 2" means
-   different items on different peers, so they bind to the *same* root name for
-   *different* logical text — divergence, or one item's text leaking into
-   another. Plan 0002 documented this as the deferred A3 tail.
-2. **Non-text containers aren't roots.** Nested lists/maps still live in the
-   structural root map (materialize path), so two peers concurrently *creating*
-   the same nested list/map can clobber (A3). 0002's pragmatic slice accepted
-   this (the #83 focus was text).
+1. **Indices aren't identities — `OK, consumer's choice`.** `ArrayIndex 2` is
+   positional; under concurrent reorder/insert peers disagree about which item is
+   "2", so they bind the same root name to different logical text. Per the
+   decision above, the fix is a **stable id chosen by the consumer** (fractional
+   index or guid) plus an id-aware scheme — the library only has to make identity
+   reachable by the scheme and document the pattern.
 
-## Goal
+2. **Non-text containers aren't roots — `open, agent decides`.** Nested
+   lists/maps still live in the structural root map, so two peers concurrently
+   *creating* the same nested list/map can clobber (A3). Whether to flatten
+   containers to roots, keep the hybrid, or lean on a Yjs extension is **left to
+   what Step 0's research and spikes turn up** (see *Open question*).
 
-- A **stable** scheme in the box: a collaborative leaf nested in a list is named
-  by the item's *identity*, not its index — `"items.<id>.body"` — so peers agree
-  regardless of order. Define how identity flows from model → codec → scheme.
-- Optionally make the layout fully A3-safe for non-text containers too, or
-  formalise the hybrid.
-- Keep `Scheme` the single place that defines the persisted wire format, so
-  consumers can swap layouts without forking `connect`.
+## Open question (Step 4) — deferred to agent discovery
+
+**Should `connect` flatten non-text containers (lists/maps) to top-level roots
+too, and if so how?** This is intentionally *not* pre-decided. The agent must let
+**Step 0's online research and extension spikes** drive it. Inputs to gather:
+
+- Re-confirm A3 for nested containers (does concurrent first-creation of a nested
+  `Y.Array`/`Y.Map` still clobber on the current Yjs?).
+- Survey and **try** Yjs ecosystem options that bear on keyed/ordered nested
+  state — e.g. `yjs/y-utility` `YKeyValue` (avoids `Y.Map` history bloat),
+  fractional-indexing libraries, subdocuments, or any newer "keyed collection"
+  support. Validate behaviour in a spike rather than trusting docs.
+- Then choose, with a written rationale: (a) full path-flattening of containers
+  to roots; (b) keep the 0002 hybrid and document its guarantees; (c) adopt a
+  specific extension. Record the choice and evidence in *Decisions* before Step 4
+  code.
+
+The expectation is a **researched, spike-backed** decision — not a guess.
 
 ## Design
 
-### Identity in the path, not position
+### Identity reachable by the scheme
 
-The cleanest fix is to replace positional segments with identity segments when
-walking a keyed collection. Introduce an id-bearing path segment and teach
-`connect`'s list walk to use it:
+The scheme can only name by what the walk hands it. Today that is a `Path` of
+`ObjectKey`/`ArrayIndex`. To name a list item by a stable id, the walk must
+surface that id. Likely shape (final form decided in Step 1 from Step 0
+findings):
 
 ```fsharp
 type PathSegment =
     | ObjectKey of string
-    | ArrayIndex of int        // kept for positional/uniquely-created cases
-    | KeyById   of string      // stable identity of a collection item
+    | ArrayIndex of int        // positional; fine for constant-indexed lists
+    | KeyById   of string      // a stable identity supplied by the consumer
 ```
 
-`connect`, when walking an `AList` whose items carry an id, emits
-`KeyById id :: path` instead of `ArrayIndex i :: path`. `Scheme.flat` over an
-id-path yields `"items.<id>.body"` — stable across reorder. How the id is
-obtained is the Step 1 decision:
+`connect`, walking an `AList`, asks an identity resolver for each item and emits
+`KeyById id` instead of `ArrayIndex i` when one is available. An id-aware
+`Scheme` then yields `items.<id>.body`, stable across reorder. The resolver is
+the consumer's hook to plug in **their** id — a fractional index field, a guid,
+whatever. The library ships `Scheme.flat` (positional) and a small convenience
+(e.g. `Scheme.byKey "id"`), and documents the fractional-index recipe; it does
+not implement fractional indexing.
 
-- **(A)** A resolver supplied alongside the encoder: `itemId : Element -> string`
-  (reads a known field of each item). Most flexible; no path-type change forced.
-- **(B)** A reserved id field convention (e.g. each collaborative list item must
-  encode an `"id"` value); `connect` reads it. Simplest, most opinionated.
-- **(C)** `Scheme` itself resolves identity (given the item element). Keeps it in
-  the layout seam.
+### `Scheme` may widen only if Step 4 needs it
 
-This is a **wire-format decision** (the names are persisted), so it is the
-plan's first real choice and gets a `Blockers`-style call-out before code.
-
-### Optionally: containers as roots
-
-To close A3 for non-text, `connect` would get-or-create lists/maps as top-level
-roots (named by the scheme) via `Y.Array`/`Y.Map` root get-or-create, instead of
-nesting them in the structural map — the full README-TODO-6 flattening. This is
-larger and reshapes how `withYlmish` reads non-text back (the structural path
-would shrink). Step 4 weighs doing this vs. documenting the hybrid as intentional
-for collections that are only ever created by one writer.
-
-### `Scheme` may grow beyond `RootName`
-
-If the scheme is to govern non-text layout too, `RootName : Path -> string` is
-not enough — it needs the element/kind at the path to decide placement. The plan
-considers widening it (e.g. `Locate : Path -> Kind -> Location`) only if Step 4
-is pursued; otherwise `RootName` stays minimal and id-aware.
+If Step 4 decides to flatten non-text containers, `RootName : Path -> string`
+likely needs the element/kind at the path to place containers — at which point a
+wider surface (e.g. `Locate : Path -> Kind -> Location`) is considered. If Step 4
+keeps the hybrid, `RootName` stays minimal and id-aware. Don't widen speculatively.
 
 ## Work breakdown — incremental, verify after every step
 
-### Step 0 — Reproduce the instability (no production code)
+### Step 0 — Research + spikes (go online; record findings here)
 
-A spike test: two docs, a list with a collaborative text item; concurrently
-insert an item at the front on one peer while editing an existing item's text on
-the other; sync; show that index-based names bind the wrong roots (divergence or
-cross-talk).
+Pure investigation, like plan 0002's Step 0. **Go online** (WebSearch/WebFetch)
+and, where feasible, **run** what you find:
 
-- **Exit check:** the failure is demonstrated and pinned, justifying the design.
+- Re-confirm the load-bearing Yjs assumptions: root get-or-create idempotency at
+  scale (A1), nested concurrent create clobber (A3), and how reorder interacts
+  with root names. Spike against the real `yjs` (plain JS is fine for raw checks,
+  mirroring 0002's approach) before trusting docs.
+- Survey **and try** ecosystem options relevant to keyed/ordered nested state:
+  `y-utility`/`YKeyValue`, fractional-indexing libraries (e.g. the common
+  `fractional-indexing` package and any Yjs-specific ones), subdocuments. Note
+  maintenance, fit, and whether they actually behave as claimed in a small spike.
+- Write a **"Step 0 — findings"** subsection in this file capturing: what was
+  validated, what was tried (with the observed result), and how it steers Step 1
+  (identity convention) and Step 4 (containers).
 
-### Step 1 — Decide & document the stable-id convention
+- **Exit check:** findings recorded here; the Step 1 and Step 4 decisions have
+  concrete, spike-backed evidence to draw on. No production code.
 
-Choose (A) resolver / (B) reserved id field / (C) scheme-resolves. Record the
-decision (it fixes the wire format). Add the `KeyById` segment if needed.
+### Step 1 — Decide & document the identity convention
 
-- **Exit check:** decision written under *Decisions*; types compile; suite green.
+From Step 0, choose how identity reaches the scheme: `KeyById` segment +
+resolver / reserved id field / scheme-reads-element. Record it (it fixes the
+wire format for id-named roots).
 
-### Step 2 — id-aware connect + `Scheme.byId`
+- **Exit check:** decision under *Decisions*; types compile; suite green.
 
-`connect`'s `AList` walk emits id segments per the convention; `Scheme.byId`
-(or an id-aware `flat`) names roots stably. Keep `Scheme.flat` for positional/
-flat use.
+### Step 2 — Identity-aware connect + `Scheme` support
 
-- **Test:** a nested-list text field gets a name keyed by id, not index.
-- **Exit check:** stable names; suite green.
+`connect`'s `AList` walk surfaces item identity per the convention; add an
+id-aware naming path (id-aware `flat` and/or `Scheme.byKey`). Keep positional
+`Scheme.flat`.
+
+- **Test:** a nested-list text field is named by id, not index, given a resolver.
+- **Exit check:** stable names available; suite green.
 
 ### Step 3 — Convergence under reorder
 
-The headline test: a list of objects each with a collaborative text field; two
-peers concurrently reorder/insert items *and* edit text; after sync the right
-text stays attached to the right item and edits merge.
+Headline test: a list of objects each with a collaborative text field; two peers
+concurrently reorder/insert items **and** edit text, using a consumer-supplied
+stable id; after sync the right text stays with the right item and edits merge.
+(Use a guid or a fractional index as the id — whichever the spike in Step 0
+showed is cleanest to demo.)
 
-- **Exit check:** the A3 tail is closed for text-in-lists. Pins A1 + the id
-  convention.
+- **Exit check:** the reorder case works *given a stable id*; the index caveat is
+  now a documented consumer choice, not a defect. Pins A1 + the convention.
 
-### Step 4 *(optional/bigger)* — containers as roots
+### Step 4 — Containers (open; per Step 0 findings)
 
-Generalise `connect` to flatten non-text lists/maps to roots, or formalise the
-hybrid. If pursued, rework the `withYlmish` read-back accordingly and possibly
-widen the `Scheme` surface.
+Execute whatever *Open question* resolved to: flatten containers to roots, keep
+the hybrid (with a test-backed statement of guarantees), or wire in the chosen
+extension. Follow the same incremental, test-each-step discipline; if it reshapes
+the `withYlmish` non-text read path, mirror plan 0002's care there.
 
-- **Exit check:** either full A3-safety for containers, or a documented,
-  test-backed statement of the hybrid's guarantees.
+- **Exit check:** the resolved option is implemented or the hybrid is formally
+  documented + tested; suite green.
 
 ### Step 5 — Example + docs
 
 A reorderable collaborative list in/near `TodoCollaborative`; README guidance on
-picking `Scheme.flat` vs `Scheme.byId` and writing a custom `Scheme`.
+`Scheme.flat` vs id-based naming, and a worked **fractional-index** recipe for
+reorderable lists (pointing at an off-the-shelf library, not a bundled one).
 
 - **Exit check:** docs match behaviour; example runs.
 
 ## Assumptions / risks
 
-- **Wire-format permanence.** Root names are persisted; changing the scheme later
-  is a migration. Step 1 is therefore a deliberate, hard-to-reverse decision.
-- **Model must carry identity.** Stable naming needs per-item ids; models without
-  them keep using `Scheme.flat` (positional) with its documented caveat.
-- **Interaction with `Encode.list`.** The encoder maps items without ids today;
-  the id convention must thread an id through the list walk without forcing every
-  list to be keyed.
-- **Step 4 scope.** Full container flattening reshapes the non-text read path
-  (the 0002 hybrid); only undertake it with the same incremental, test-each-step
-  discipline.
+- **Wire-format permanence.** Id-named roots are persisted; the Step 1 convention
+  is a deliberate, hard-to-reverse decision — hence the Step 0 research first.
+- **Identity is the consumer's.** Stable naming needs per-item ids the consumer
+  provides (fractional index / guid). Models without ids keep `Scheme.flat` and
+  its documented positional caveat — which is fine (decided).
+- **Extension risk (Step 0).** Any adopted Yjs extension must be *tried*, not
+  assumed; check it converges and is maintained before depending on it.
+- **Step 4 scope.** Full container flattening reshapes the 0002 hybrid read path;
+  only undertake it with evidence from Step 0 and step-by-step verification.
 
 ## Out of scope
 
 - The merge *strategy* of a field — that is plan 0003 (`CustomElement`).
-- Non-Yjs backends.
-- Automatic id assignment/migration for existing persisted documents.
+- **Implementing** fractional indexing in the library (consumers bring their own).
+- Non-Yjs backends; automatic id assignment/migration for existing documents.
