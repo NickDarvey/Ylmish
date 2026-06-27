@@ -98,14 +98,13 @@ type Kind =
     | Map
     | Custom
 
-/// Extension seam (plan 0002): a consumer-defined binding between an adaptive
-/// source and a Yjs shared type, surfaced through the `Element.Custom` case so
-/// that the well-known kinds stay closed while open-ended growth goes through a
-/// single door. The concrete connect surface (`Connect` / `BindContext`) is
-/// added in Step 5 when `Y.Doc.connect` is generalised; for now this reserves
-/// the open contract and the union case.
-type IShareBinding =
-    /// The kind this binding reports, for error messages / `Kind` dispatch.
+/// Extension seam (plans 0002/0003): a consumer-defined element backed by its
+/// own merge strategy, surfaced through the `Element.Custom` case so that the
+/// well-known kinds stay closed while open-ended growth goes through a single
+/// door. The concrete connect surface (`Connect` / `BindContext`) is added by
+/// plan 0003; for now this reserves the open contract and the union case.
+type CustomElement =
+    /// The kind this element reports, for error messages / `Kind` dispatch.
     abstract Kind : Kind
 
 [<RequireQualifiedAccess>]
@@ -114,7 +113,7 @@ type Element<'Value> =
     | Text of clist<char>                           // character-level CRDT
     | AList of alist<Element<'Value> option>
     | AMap of amap<string, Element<'Value> option>
-    | Custom of IShareBinding                        // extension seam (see IShareBinding)
+    | Custom of CustomElement                        // extension seam (see CustomElement)
     with
     member this.toKind () =
         match this with

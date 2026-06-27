@@ -16,9 +16,9 @@ shared note concurrently.
   reproduced in plain-JS yjs 13.6. **A3 confirmed FALSE (clobber)** → Step 5
   takes the flattened-top-level-name path. A1/A6 confirmed, A2 throws, A4 ok.
 - [x] **Step 1** — Add the `Element.Text` representation — **DONE.** Added
-  `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
+  `Element.Text of clist<char>` and `Element.Custom of CustomElement` to
   `Adaptive.Codec.fs` (plus `Kind.Text`/`Kind.Custom`, `toKind`, a minimal
-  `IShareBinding`). Suite still **105 passing**.
+  `CustomElement`). Suite still **105 passing**.
 - [x] **Step 2** — Bridge `Element.Text` ↔ `Y.Element.Text` — **DONE.** Added
   `Y.Element.Text of Y.Text`; wired `Element.toAdaptive`/`ofAdaptive` (both
   Fable + .NET) to route `Text` through the existing `Text.attach`. New tests in
@@ -43,7 +43,7 @@ shared note concurrently.
   `Scheme.flat` is the A3-safe default and consumers can pass their own
   (`connectWith`). Non-text leaves are skipped (left on the structural/LWW path,
   composed in Step 6). Tests: nested-text flatten, custom-scheme seam, multi-root,
-  A4 teardown. **Deferred:** A2 kind-drift guard, the `IShareBinding` dogfood
+  A4 teardown. **Deferred:** A2 kind-drift guard, the `CustomElement` dogfood
   refactor, and full path-flattening of *non-text* containers. Suite
   **116 passing**.
 - [x] **Step 6** — Rewire `withYlmish` write path — **DONE** (hybrid). `init`
@@ -139,7 +139,7 @@ shared note concurrently.
   into a doc (`ymap.set`); only then does the pending content materialise. Any
   round-trip/read-back must integrate first. `connect` (Steps 4–5) must create
   children *via* the parent or otherwise integrate before reading.
-- **Step 1 layering.** `IShareBinding` lives in the **codec** layer but is kept
+- **Step 1 layering.** `CustomElement` lives in the **codec** layer but is kept
   *Y-agnostic for now* (only `abstract Kind : Kind`); the concrete
   `Connect`/`BindContext` surface — which needs Fable.Yjs types — is added in
   Step 5, so Step 1 doesn't drag Y into the codec prematurely. Adding the two
@@ -166,7 +166,7 @@ roots; non-text stays on the structural/LWW path), and make the layout a
 path-flattened scheme may ship in the box later; consumers can supply their own.
 Implemented as `Codec.Scheme` (`RootName : Path -> string`) with `Scheme.flat`
 the default, and `Y.Doc.connectWith scheme`. This is the layout counterpart to
-the `IShareBinding` merge-type seam (Step 1).
+the `CustomElement` merge-type seam (Step 1).
 
 The original analysis (why the schema is load-bearing) is preserved below.
 
@@ -181,7 +181,7 @@ The original analysis (why the schema is load-bearing) is preserved below.
      value-map **plus** flattened text/list/map roots," not purely flat roots —
      and binding a *subset* of an object's fields (the scalars) to one root map
      while routing its text/list/map fields to other roots is the awkward part
-     without the per-leaf `IShareBinding` walk.
+     without the per-leaf `CustomElement` walk.
   2. **Text nested inside a *list*** (`items[2].body`) needs a *stable* root
      name; indices aren't stable across peers, so this needs a per-item stable
      id the model doesn't currently carry.
@@ -195,14 +195,14 @@ The original analysis (why the schema is load-bearing) is preserved below.
     leaf/container is a root keyed by dotted path; forces a list-item id
     convention now.
   - **C — Spec first:** write the flattened-schema design note (scalars, nested
-    text, list-item ids, `IShareBinding` shape) for review before any code.
+    text, list-item ids, `CustomElement` shape) for review before any code.
   - **D — Skip to Steps 6–9:** wire `withYlmish` to the current single-object
     connect path (value-map + flattened text roots, top level only), prove
     end-to-end + example, leave deep nesting for a later plan.
 
   Recommendation: **A** (keeps momentum, A3-safe, defers only the hardest
   sub-problem) — but this fixes the schema, so confirm before committing code.
-  The full `IShareBinding`/`BindContext` dogfood refactor is also deferred until
+  The full `CustomElement`/`BindContext` dogfood refactor is also deferred until
   this is settled; the seam itself already exists (`Element.Custom`, Step 1).
 
 ### Agent pickup prompt
@@ -321,7 +321,7 @@ type Element<'Value> =
     | Text   of clist<char>                       // character CRDT
     | AList  of alist<Element<'Value> option>
     | AMap   of amap<string, Element<'Value> option>
-    | Custom of IShareBinding                      // extension seam (see below)
+    | Custom of CustomElement                      // extension seam (see below)
 ```
 
 ```fsharp
@@ -440,7 +440,7 @@ We must let consumers add their own CRDT-backed field types (a counter, a
 rich-text type, a custom mergeable structure) **without editing our union or
 forking the library**, and without making the common case messy.
 
-The seam is a single open contract, `IShareBinding`, surfaced through the closed
+The seam is a single open contract, `CustomElement`, surfaced through the closed
 union's one escape-hatch case `Element.Custom`. Well-known kinds
 (`Value`/`Text`/`AList`/`AMap`) stay concrete; everything else goes through one
 door:
@@ -448,7 +448,7 @@ door:
 ```fsharp
 /// A consumer-defined binding between an adaptive source and a Yjs shared type.
 /// Built-in text/list/map are themselves expressible as instances of this.
-type IShareBinding =
+type CustomElement =
     /// For error reporting / Kind dispatch.
     abstract Kind : Kind
     /// Get-or-create the shared type under the parent container at this key/index,
@@ -599,7 +599,7 @@ confirmed by observation, not just docs.
 
 ### Step 1 — Add the `Element.Text` representation (compile-green only)
 
-Add `Element.Text of clist<char>` and `Element.Custom of IShareBinding` to
+Add `Element.Text of clist<char>` and `Element.Custom of CustomElement` to
 `Adaptive.Codec.fs`; extend `Kind`, `toKind`, `Error`. No behaviour. The
 compiler's exhaustiveness checking forces every `match` on `Element` to
 acknowledge the new cases — that *is* the verification.
@@ -640,9 +640,9 @@ bi-directionally. No nesting, no list/map yet — relies only on **A1**.
 - **Exit check:** the headline #83 fix is demonstrably real at the connect layer
   *before* the `withYlmish` rewire. Pins **A1**.
 
-### Step 5 — Generalise `connect` to full trees via `IShareBinding`
+### Step 5 — Generalise `connect` to full trees via `CustomElement`
 
-Walk the whole `Encoded<Element<_>>` tree; define `IShareBinding`/`BindContext`
+Walk the whole `Encoded<Element<_>>` tree; define `CustomElement`/`BindContext`
 and refactor `text`/`list`/`map` attach into instances of it. **Step 0's desk
 check decided the flattened-top-level-name path** (A3 confirmed false): each
 collaborative leaf is a root shared type keyed by a stable name/id, relying only
@@ -754,7 +754,7 @@ keeps `connect`'s location logic behind one function so this swap is local.
   calls and multiple peers agree on the same shared types.
 - **Schema evolution / split directions** (plan 0001 Objective 6). `connect`'s
   encode and decode directions should remain separable so encode and decode can
-  use different schemas across versions; the `IShareBinding` contract keeps both
+  use different schemas across versions; the `CustomElement` contract keeps both
   directions in one place but they need not be symmetric.
 
 ---

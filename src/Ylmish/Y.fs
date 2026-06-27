@@ -704,9 +704,9 @@ module Doc =
                 // Non-text: handled by the structural/LWW path, not connect.
                 ()
             | Codec.Element.Custom _ ->
-                // Consumer-defined merge bindings dispatch here once the
-                // IShareBinding/BindContext surface lands (deferred).
-                failwith "Y.Doc.connect: Element.Custom is not dispatched yet (IShareBinding pending)"
+                // Consumer-defined elements dispatch here once the
+                // CustomElement.Connect/BindContext surface lands (plan 0003).
+                failwith "Y.Doc.connect: Element.Custom is not dispatched yet (CustomElement pending, plan 0003)"
         match AVal.force encoded with
         | Some element -> walk [] element
         | None -> ()
