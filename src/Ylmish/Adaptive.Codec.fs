@@ -157,9 +157,21 @@ type Element<'Value> =
         | AMap _ -> Kind.Map
         | Custom b -> b.Kind
 
-type PathSegment = 
+type PathSegment =
     | ObjectKey   of string
     | ArrayIndex  of int
+    /// A list item named by a **stable, immutable** identity (a consumer guid),
+    /// not its position. The connect-time list walk emits this instead of
+    /// `ArrayIndex` when an identity resolver is available (plan 0004, Step 2),
+    /// so a collaborative leaf inside a reorderable list gets a root name that
+    /// stays with its logical item across concurrent reorder/insert. Positional
+    /// `ArrayIndex` remains correct for constant-indexed (append-only) lists.
+    ///
+    /// Immutability matters: the id *names a persisted root*, so it must never
+    /// change for a given item — a fractional **order** index is the wrong thing
+    /// here (it is mutable by design); use a guid for identity and keep ordering
+    /// as ordinary model state. (Step 0 finding.)
+    | KeyById     of string
 
 type Path = PathSegment list
 
@@ -174,6 +186,8 @@ module Path =
                 ignore <| sb.Append $".%s{k}"
             | ArrayIndex i ->
                 ignore <| sb.Append $"[%i{i}]"
+            | KeyById id ->
+                ignore <| sb.Append $"[#%s{id}]"
         $"${sb.ToString ()}"
 
 /// A `Scheme` decides how an encoded Element tree is laid out across a Y.Doc's
@@ -201,7 +215,10 @@ module Scheme =
         RootName = fun path ->
             path
             |> List.rev
-            |> List.map (function ObjectKey k -> k | ArrayIndex i -> string i)
+            |> List.map (function
+                | ObjectKey k -> k
+                | ArrayIndex i -> string i
+                | KeyById id -> id)
             |> String.concat "."
     }
 

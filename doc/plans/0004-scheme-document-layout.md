@@ -11,14 +11,14 @@ Parent: plan 0002. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Step 0 (research +
-spikes) done — see *Step 0 — findings*. All four load-bearing assumptions were
-re-confirmed against real `yjs` 13.6.30, and the full reorderable scenario was
-validated with the `fractional-indexing` library. Key sharpening for Step 1:
-**naming wants an *immutable* id (a guid), not the fractional index** (which is
-*mutable* — it changes to reorder). `Scheme` still only sees positional
-`ArrayIndex`, so it can't name list items by identity. Next step: **Step 1**
-(decide the identity convention).
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–1 done. Step 0
+(research + spikes) re-confirmed A1/A3/reorder against real `yjs` 13.6.30 and
+validated the reorderable scenario with `fractional-indexing` — see *Step 0 —
+findings*. Step 1 fixed the **identity convention**: a new
+`PathSegment.KeyById of string` (a stable, *immutable* id) carries item identity
+into the `Scheme`; `Scheme.flat` and `Path.toString` handle it (id → its string);
+nothing emits it yet, so behaviour is unchanged (124 tests green). Next step:
+**Step 2** (thread the id through `connect`'s list walk + `Scheme.byKey`).
 
 ### Progress
 
@@ -26,10 +26,11 @@ validated with the `fractional-indexing` library. Key sharpening for Step 1:
   reorder against real `yjs` 13.6.30, and validated the end-to-end reorderable
   list with `fractional-indexing` + `y-utility` survey. Findings recorded below.
   *(No production code.)*
-- [ ] **Step 1** — Decide the **identity convention**: how an item's stable id
-  reaches the `Scheme` (a `PathSegment.KeyById`, an `itemId : Element -> string`
-  resolver, or the scheme reading a reserved field). Wire-format decision,
-  informed by Step 0.
+- [x] **Step 1** — **Identity convention decided:** a `PathSegment.KeyById of
+  string` segment carries an item's stable, immutable id into the `Scheme`
+  (emitted by the list walk from a resolver in Step 2). `Scheme.flat` /
+  `Path.toString` handle it. Wire-format decision recorded in *Decisions*; types
+  compile, suite green. *(124 tests.)*
 - [ ] **Step 2** — Thread identity through `connect`'s list walk and let a
   `Scheme` name by it (e.g. an id-aware `flat`, plus a `Scheme.byKey "id"`
   convenience). `Scheme.flat` stays available for positional use.
@@ -55,6 +56,18 @@ validated with the `fractional-indexing` library. Key sharpening for Step 1:
     names roots by it.
   - This plan's deliverable is therefore to make identity *reachable* by the
     scheme (Steps 1–2), not to implement ordering in the library.
+- **Identity convention: `PathSegment.KeyById of string` (Step 1, decided).** Of
+  the three shapes the plan floated — a `KeyById` path segment, an
+  `itemId : Element -> string` resolver param on `connect`, or the scheme reading
+  a reserved field — we chose the **`KeyById` segment**. Rationale: identity is a
+  *layout/path* concern, and `Path` is exactly the layout vocabulary the `Scheme`
+  already consumes; adding a segment keeps all naming logic in one place (the
+  scheme's `RootName : Path -> string`) and lets a scheme mix positional and
+  id-named segments freely. The list walk emits `KeyById id` (from a resolver
+  wired in Step 2) instead of `ArrayIndex i` when an id is available; positional
+  `ArrayIndex` stays the default for constant-indexed lists. The wire format for
+  an id-named root is therefore the scheme's rendering of the path (e.g.
+  `Scheme.flat` → `items.<id>.body`) — a deliberate, persisted choice.
 - **Naming id ≠ ordering id (Step 0 finding, decided).** A
   [fractional index](https://www.figma.com/blog/realtime-editing-of-ordered-sequences/)
   is *mutable by design* — you change it to reorder — so it must **not** name the
