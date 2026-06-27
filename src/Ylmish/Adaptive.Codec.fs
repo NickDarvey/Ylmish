@@ -1,6 +1,7 @@
 module Ylmish.Adaptive.Codec
 
 open FSharp.Data.Adaptive
+open Yjs
 
 type Validation<'Ok, 'Error> = Result<'Ok, 'Error list>
 
@@ -98,11 +99,38 @@ type Kind =
     | Map
     | Custom
 
+/// Where a custom element is placed within a Y.Doc. `Y.Map` / `Y.Array` here are
+/// the Fable.Yjs bindings — under the Option-A layering (plan 0003) the codec,
+/// whose whole job is to map to Yjs, names Yjs types directly rather than behind
+/// an abstraction. A binding never invents a root name (the `Scheme` owns
+/// layout); it only needs its parent + slot to get-or-create convergently. The
+/// safe default is `Root` (a top-level root, relying on A1), never a freshly
+/// created nested shared type both peers race to make (A3).
+type ParentContainer =
+    | Root                          // a top-level root, named by Slot (the A3-safe case)
+    | InMap   of Y.Map<obj>
+    | InArray of Y.Array<obj>
+
+/// The slot a custom element occupies within its `ParentContainer`.
+and Slot =
+    | Named of string               // root name / map key
+    | Index of int                  // array index
+
+/// What a custom element needs in order to attach itself to a Y.Doc. `connect`
+/// builds one of these from the current parent/slot/reentrancy-guard and hands
+/// it to `CustomElement.Connect` (plan 0003, Step 1).
+and BindContext = {
+    Doc    : Y.Doc                  // the document
+    Parent : ParentContainer        // where this element is placed
+    Slot   : Slot                   // its slot within the parent
+    Active : bool ref               // the shared reentrancy guard threaded by connect
+}
+
 /// Extension seam (plans 0002/0003): a consumer-defined element backed by its
 /// own merge strategy, surfaced through the `Element.Custom` case so that the
 /// well-known kinds stay closed while open-ended growth goes through a single
-/// door. The concrete connect surface (`Connect` / `BindContext`) is added by
-/// plan 0003; for now this reserves the open contract and the union case.
+/// door. The concrete connect surface (`Connect`) is added by plan 0003, Step 1;
+/// for now this reserves the open contract and the union case.
 type CustomElement =
     /// The kind this element reports, for error messages / `Kind` dispatch.
     abstract Kind : Kind

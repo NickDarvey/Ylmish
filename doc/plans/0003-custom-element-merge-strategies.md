@@ -10,16 +10,17 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: NOT STARTED.** `CustomElement` exists
-as a one-method contract (`abstract Kind : Kind`) and `Element.Custom` is a
-reserved case that every bridge throws on. Layering is **decided (Option A)** —
-see *Decisions*. Next step: **Step 0** (Option-A skeleton).
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Step 0 done:
+`Adaptive.Codec.fs` opens `Yjs` and defines `BindContext` / `ParentContainer` /
+`Slot` naming the Fable.Yjs `Y` types directly (Option A). `CustomElement` still
+exposes only `Kind`; `Element.Custom` remains a reserved case every bridge
+throws on. Next step: **Step 1** (add `Connect` to `CustomElement`).
 
 ### Progress
 
-- [ ] **Step 0** — Option-A skeleton (layering already decided): `Adaptive.Codec.fs`
-  opens `Yjs`; `BindContext` names the Fable.Yjs `Y` types directly. Compile-green
-  skeleton only.
+- [x] **Step 0** — Option-A skeleton (layering already decided): `Adaptive.Codec.fs`
+  opens `Yjs`; `BindContext` / `ParentContainer` / `Slot` name the Fable.Yjs `Y`
+  types directly. Compile-green skeleton only. *(121 tests green.)*
 - [ ] **Step 1** — Add `Connect : BindContext -> IDisposable` to `CustomElement`
   and define `BindContext` / `ParentContainer` / `Slot`. Compile-green.
 - [ ] **Step 2** — Skip `Element.Custom` in the structural path
