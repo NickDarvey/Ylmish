@@ -299,6 +299,15 @@ module Encode =
         ) |> ignore
         AVal.constant (Some (Element.Text chars))
 
+    /// Encode a consumer-defined collaborative field as `Element.Custom`. The
+    /// `binding` owns its Yjs get-or-create and bi-directional, delta-level merge
+    /// (see `CustomElement` / `BindContext`); `Y.Doc.connect` dispatches it.
+    /// Pair it with `Decode.custom` over the same merged-value cell to read the
+    /// converged result back into the model — symmetric with `Encode.text` /
+    /// `Decode.text`.
+    let custom (binding : CustomElement) : Encoded<Element<'b>> =
+        AVal.constant (Some (Element.Custom binding))
+
     let list (f : 'a -> Encoded<Element<'b>>) (a : 'a alist) : Encoded<Element<'b>> =
         a
         |> AList.mapA f
@@ -442,6 +451,23 @@ module Decode =
                     Expected = [ Kind.Text ]
                 |}
 
+        /// Decode an `Element.Custom` field by reading a consumer-supplied
+        /// adaptive view of its merged value. The merge itself is the binding's
+        /// job (wired by `connect`); the decoder just surfaces the current value,
+        /// recomputing as the binding updates it — symmetric with `text`. The
+        /// consumer threads the same value cell into the binding (`Encode.custom`)
+        /// and here, so reading never has to reach inside the opaque binding.
+        let custom (value : aval<'a>) : Decoder<_,_,'a> = fun _ (path, el) ->
+            match el with
+            | Element.Custom _ ->
+                value |> AVal.map Validation.ok
+            | el ->
+                Decoded.error <| UnexpectedKind {|
+                    Path = path
+                    Actual = el.toKind ()
+                    Expected = [ Kind.Custom ]
+                |}
+
     let optional (f : Decoder<_,_,_>) : Decoder<_,_,_> = fun model (path, el) ->
         match el with
         | Some el ->
@@ -458,6 +484,10 @@ module Decode =
 
     /// Decode a collaborative-text field as a plain `string`.
     let text : Decoder<_,_,string> = Element.text
+
+    /// Decode a consumer-defined collaborative field by reading the merged-value
+    /// cell threaded through `Encode.custom` (see `Element.custom`).
+    let custom (value : aval<'a>) : Decoder<_,_,'a> = Element.custom value
 
     let inline tryParse x = Element.value Decoder.tryParse x
 

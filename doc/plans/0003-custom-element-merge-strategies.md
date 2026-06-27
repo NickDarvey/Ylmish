@@ -10,15 +10,14 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–3 done:
-`Adaptive.Codec.fs` opens `Yjs`, defines `BindContext` / `ParentContainer` /
-`Slot` (Option A), `CustomElement` carries
-`Connect : BindContext -> IDisposable`, the structural path skips
-`Element.Custom` (own connect-managed root), and `connect` now **dispatches**
-`Element.Custom` — flattening it to a scheme-named top-level root
-(`Parent = Root`, A3-safe) and calling `binding.Connect`. Proven end-to-end by
-a grow-only counter whose concurrent increments merge across two peers. Next
-step: **Step 4** (consumer-style helpers + a counter with the sum assertion).
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–4 done:
+`BindContext`/`Slot`/`ParentContainer` + `CustomElement.Connect` (Option A);
+structural path skips `Element.Custom`; `connect` dispatches it to a
+scheme-named root (`Parent = Root`, A3-safe); and the public ergonomic surface
+`Encode.custom` / `Decode.custom` exists, with a consumer-style grow-only
+counter whose concurrent increments **sum** across two peers, read back through
+the decoder. Next step: **Step 5** (dogfood the built-in `Text` through the
+same attach primitive).
 
 ### Progress
 
@@ -38,8 +37,11 @@ step: **Step 4** (consumer-style helpers + a counter with the sum assertion).
   (`Parent = Root`, A3-safe — same discipline as `Text`). Proven by an in-test
   grow-only counter (Y.Array of ticks) whose concurrent increments merge across
   two peers (no LWW). *(123 tests green.)*
-- [ ] **Step 4** — A worked, *consumer-style* custom element (a counter) with
-  `Encode`/`Decode` helpers; two peers' counters converge end-to-end.
+- [x] **Step 4** — Public `Encode.custom` / `Decode.custom` helpers (the consumer
+  threads one merged-value cell into both, so reading never reaches inside the
+  opaque binding). A consumer-style grow-only counter (Y.Array of ticks) sums
+  two peers' concurrent increments, decoded back to the same value on both.
+  *(124 tests green.)*
 - [ ] **Step 5** — Dogfood: route the built-in `Text` connect through the same
   attach primitive `CustomElement.Connect` uses, so there is one attach contract.
 - [ ] **Step 6** — Example + docs: a `CounterElement` in/near
