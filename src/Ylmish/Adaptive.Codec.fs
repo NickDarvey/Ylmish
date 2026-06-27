@@ -134,6 +134,12 @@ and BindContext = {
 type CustomElement =
     /// The kind this element reports, for error messages / `Kind` dispatch.
     abstract Kind : Kind
+    /// Get-or-create the shared type at (`Parent`, `Slot`), wire both sync
+    /// directions honouring the shared `Active` reentrancy guard, and return a
+    /// disposable that tears *both* directions down. This is the same attach
+    /// primitive the built-ins use, so there is one connect contract.
+    /// Dispatched by `Y.Doc.connect` (plan 0003, Step 3).
+    abstract Connect : BindContext -> System.IDisposable
 
 [<RequireQualifiedAccess>]
 type Element<'Value> =

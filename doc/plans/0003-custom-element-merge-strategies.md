@@ -10,19 +10,21 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Step 0 done:
-`Adaptive.Codec.fs` opens `Yjs` and defines `BindContext` / `ParentContainer` /
-`Slot` naming the Fable.Yjs `Y` types directly (Option A). `CustomElement` still
-exposes only `Kind`; `Element.Custom` remains a reserved case every bridge
-throws on. Next step: **Step 1** (add `Connect` to `CustomElement`).
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–1 done:
+`Adaptive.Codec.fs` opens `Yjs`, defines `BindContext` / `ParentContainer` /
+`Slot` (Option A), and `CustomElement` now carries
+`Connect : BindContext -> IDisposable`. No dispatch yet — `connect` and the
+bridges still throw on `Element.Custom`. Next step: **Step 2** (skip `Custom` in
+the structural path).
 
 ### Progress
 
 - [x] **Step 0** — Option-A skeleton (layering already decided): `Adaptive.Codec.fs`
   opens `Yjs`; `BindContext` / `ParentContainer` / `Slot` name the Fable.Yjs `Y`
   types directly. Compile-green skeleton only. *(121 tests green.)*
-- [ ] **Step 1** — Add `Connect : BindContext -> IDisposable` to `CustomElement`
-  and define `BindContext` / `ParentContainer` / `Slot`. Compile-green.
+- [x] **Step 1** — Add `Connect : BindContext -> IDisposable` to `CustomElement`
+  (`BindContext` / `ParentContainer` / `Slot` already in place from Step 0).
+  Compile-green. *(121 tests green.)*
 - [ ] **Step 2** — Skip `Element.Custom` in the structural path
   (`materialize`/`elementToY`, `Element.ofAdaptive`/`elementToY`,
   `mergeReadback`) exactly as `Text` is skipped — custom lives in its own root.
