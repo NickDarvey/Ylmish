@@ -11,16 +11,17 @@ Parent: plan 0002. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–2 done. Step 0
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–3 done. Step 0
 (research + spikes) re-confirmed A1/A3/reorder against real `yjs` 13.6.30 and
 validated the reorderable scenario with `fractional-indexing` — see *Step 0 —
 findings*. Step 1 fixed the **identity convention** (`PathSegment.KeyById of
-string`, an immutable id). Step 2 **threaded it through `connect`**: `Scheme`
-gained `ListKeyField : Path -> string option`, the list walk emits `KeyById id`
-(reading the item's id field) for keyed lists, and `Scheme.byKey "id"` is the
-convenience — so a list's text leaves get `items.<id>.body` roots. `Scheme.flat`
-stays positional. *(125 tests green; new: "Scheme.byKey names … by item id".)*
-Next step: **Step 3** (convergence under concurrent reorder).
+string`). Step 2 threaded it through `connect` (`Scheme.ListKeyField` +
+`Scheme.byKey`). Step 3 proved the **headline**: two peers holding a list in
+different orders (the connect-layer face of reorder) + an insert + concurrent
+edits **converge under `Scheme.byKey`** (text stays with its item, edits merge),
+while a contrast test shows `Scheme.flat` positional naming *splits* the item's
+edits — the bug id-naming fixes. *(127 tests green.)* Next step: **Step 4**
+(non-text containers — the *Open question*).
 
 ### Progress
 
@@ -38,9 +39,12 @@ Next step: **Step 3** (convergence under concurrent reorder).
   (extracting the item's id field) when a list is keyed, else `ArrayIndex i`.
   `Scheme.byKey "id"` convenience added; `Scheme.flat` stays positional.
   Extraction lives in the walk so `Scheme` stays `Element`-free. *(125 tests.)*
-- [ ] **Step 3** — Test: a list of objects with a collaborative text field
-  converges across two peers **under concurrent reorder/insert**, using a
-  consumer-supplied stable id (a fractional index or a guid).
+- [x] **Step 3** — Headline proven: two peers holding the list in different
+  orders (the connect-layer face of concurrent reorder) + an insert + concurrent
+  edits **converge under `Scheme.byKey`** — text stays with its item, edits
+  merge, no cross-item clobber. A contrast test shows `Scheme.flat` positional
+  naming *splits* the same item's edits across roots (the bug id-naming fixes).
+  *(127 tests.)*
 - [ ] **Step 4** — *(open — defer to what Step 0 discovers)* Non-text containers
   and full A3-safety: flatten lists/maps to roots, keep the hybrid, or adopt an
   extension. The agent decides based on Step 0's findings; see *Open question*.

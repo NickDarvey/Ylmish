@@ -880,5 +880,82 @@ let tests = testList "Y.Doc" [
             Expect.equal ((d.getText "items.0.body").toString ()) ""
                 "the positional root items.0.body is unused under Scheme.byKey"
         }
+
+        // Plan 0004, Step 3 — the headline: a list of objects each with a
+        // collaborative text field, where the two peers hold the list in DIFFERENT
+        // orders (the connect-layer face of a concurrent reorder) and one peer has
+        // inserted an extra item. With Scheme.byKey the text is named by stable id,
+        // so the same logical item maps to the same root on both peers and its
+        // concurrent edits merge; reorder + insert don't disturb it.
+        test "Scheme.byKey: text stays with its item across reorder + insert, edits merge" {
+            // Build a peer whose "items" list holds (id, body-text) in a given order.
+            let mkPeer (items : (string * cval<string>) list) : Encoded<Element<string>> =
+                let itemEnc (idStr, body) =
+                    Encode.object [ "id", Encode.value id (AVal.constant idStr); "body", Encode.text body ]
+                Encode.object [ "items", Encode.list itemEnc (clist items :> alist<_>) ]
+
+            let a1, b1 = cval "", cval ""
+            let a2, b2, c2 = cval "", cval "", cval ""
+            let enc1 = mkPeer [ "a", a1; "b", b1 ]            // peer1 order: [a, b]
+            let enc2 = mkPeer [ "b", b2; "a", a2; "c", c2 ]  // peer2: reordered + inserted c
+
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            use _ = Y.Doc.connectWith (Scheme.byKey "id") d1 enc1
+            use _ = Y.Doc.connectWith (Scheme.byKey "id") d2 enc2
+
+            // Concurrent edits to the SAME logical item (a), plus text on the insert.
+            transact (fun () -> a1.Value <- "X")
+            transact (fun () -> a2.Value <- "Y")
+            transact (fun () -> c2.Value <- "c-text")
+
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            let aOn (d : Y.Doc) = (d.getText "items.a.body").toString ()
+            Expect.equal (aOn d1) (aOn d2) "item a converges across peers (id-named root)"
+            Expect.isTrue ((aOn d1).Contains "X" && (aOn d1).Contains "Y")
+                "item a's concurrent edits merge — the right text stays with the right item"
+            Expect.equal ((d1.getText "items.b.body").toString ()) ""
+                "item b is untouched — no cross-item clobber from the reorder"
+            Expect.equal ((d1.getText "items.c.body").toString ()) "c-text"
+                "the inserted item c syncs to peer1 by its own id"
+            Expect.equal ((d2.getText "items.c.body").toString ()) "c-text"
+                "the inserted item c is present on peer2"
+        }
+
+        // Plan 0004, Step 3 (contrast) — the SAME scenario under positional naming
+        // (Scheme.flat) is exactly the bug id-naming fixes: because the peers hold
+        // item `a` at different indices, flat binds it to different roots per peer,
+        // so its two concurrent edits land in SEPARATE roots and never merge.
+        test "Scheme.flat (positional): a reordered item's concurrent edits do NOT merge" {
+            let mkPeer (items : (string * cval<string>) list) : Encoded<Element<string>> =
+                let itemEnc (idStr, body) =
+                    Encode.object [ "id", Encode.value id (AVal.constant idStr); "body", Encode.text body ]
+                Encode.object [ "items", Encode.list itemEnc (clist items :> alist<_>) ]
+
+            let a1, b1 = cval "", cval ""
+            let a2, b2 = cval "", cval ""
+            let enc1 = mkPeer [ "a", a1; "b", b1 ]   // a at index 0
+            let enc2 = mkPeer [ "b", b2; "a", a2 ]   // a at index 1 (reordered)
+
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            use _ = Y.Doc.connect d1 enc1            // default Scheme.flat (positional)
+            use _ = Y.Doc.connect d2 enc2
+
+            transact (fun () -> a1.Value <- "X")     // peer1: a -> items.0.body
+            transact (fun () -> a2.Value <- "Y")     // peer2: a -> items.1.body
+
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            let r0 = (d1.getText "items.0.body").toString ()
+            let r1 = (d1.getText "items.1.body").toString ()
+            Expect.isFalse (r0.Contains "X" && r0.Contains "Y")
+                "positional root 0 did not merge item a's two edits"
+            Expect.isFalse (r1.Contains "X" && r1.Contains "Y")
+                "positional root 1 did not merge item a's two edits — they were split across roots"
+        }
     ]
 ]
