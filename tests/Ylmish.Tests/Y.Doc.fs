@@ -710,5 +710,68 @@ let tests = testList "Y.Doc" [
             Expect.equal ((d.getText "body").toString ()) ""
                 "the default-named root is unused under the custom scheme"
         }
+
+        // Plan 0003, Step 3 — connect dispatches Element.Custom to the binding's
+        // Connect. The binding here is a grow-only counter backed by a Y.Array of
+        // ticks (value = array length). Concurrent increments on two peers BOTH
+        // survive because Y.Array merges concurrent inserts — last-writer-wins
+        // would lose one. Proves the dispatch + the one-attach-contract end to end.
+        test "connect dispatches a Custom element; concurrent increments merge (no LWW)" {
+            let counter (count : cval<int>) : CustomElement =
+                { new CustomElement with
+                    member _.Kind = Kind.Custom
+                    member _.Connect (ctx : BindContext) =
+                        let name =
+                            match ctx.Slot with
+                            | Slot.Named n -> n
+                            | Slot.Index i -> string i
+                        let arr : Y.Array<obj> = ctx.Doc.getArray name
+                        let active = ctx.Active
+                        let len () = arr.toArray().Count
+                        // Decode (Y -> count): the merged array length is the value.
+                        let observe (_e : Y.Array.Event<obj>) (_t : Y.Transaction) =
+                            if not active.Value then
+                                active.Value <- true
+                                try transact (fun () -> count.Value <- len ())
+                                finally active.Value <- false
+                        arr.observe observe
+                        // Encode (count -> Y): push the positive delta of new ticks.
+                        let cb =
+                            count.AddCallback (fun n ->
+                                if not active.Value then
+                                    active.Value <- true
+                                    try
+                                        let toAdd = n - len ()
+                                        if toAdd > 0 then
+                                            ctx.Doc.transact (fun _ ->
+                                                for _ in 1 .. toAdd do arr.push [| box 1 |])
+                                    finally active.Value <- false)
+                        { new System.IDisposable with
+                            member _.Dispose () =
+                                arr.unobserve observe
+                                cb.Dispose () } }
+
+            let c1 = cval 0
+            let c2 = cval 0
+            let enc1 : Encoded<Element<string>> =
+                Encode.object [ "hits", AVal.constant (Some (Element.Custom (counter c1))) ]
+            let enc2 : Encoded<Element<string>> =
+                Encode.object [ "hits", AVal.constant (Some (Element.Custom (counter c2))) ]
+
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            use _ = Y.Doc.connect d1 enc1
+            use _ = Y.Doc.connect d2 enc2
+
+            // Concurrent increments, no pre-sync.
+            transact (fun () -> c1.Value <- 1)
+            transact (fun () -> c2.Value <- 1)
+
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+
+            Expect.equal c1.Value 2 "peer1 sees both increments (CRDT merge, not LWW)"
+            Expect.equal c2.Value 2 "peer2 sees both increments (CRDT merge, not LWW)"
+        }
     ]
 ]

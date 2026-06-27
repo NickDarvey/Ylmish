@@ -10,13 +10,15 @@ Parent: plan 0002 (the `#83` collaborative-text work). No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–2 done:
+**Last updated:** 2026-06-27 · **Status: IN PROGRESS.** Steps 0–3 done:
 `Adaptive.Codec.fs` opens `Yjs`, defines `BindContext` / `ParentContainer` /
 `Slot` (Option A), `CustomElement` carries
-`Connect : BindContext -> IDisposable`, and the structural path now skips
-`Element.Custom` exactly as it skips `Text` (own connect-managed root). No
-dispatch yet — `connect` still throws on `Element.Custom`. Next step:
-**Step 3** (dispatch `Custom` in `connect`).
+`Connect : BindContext -> IDisposable`, the structural path skips
+`Element.Custom` (own connect-managed root), and `connect` now **dispatches**
+`Element.Custom` — flattening it to a scheme-named top-level root
+(`Parent = Root`, A3-safe) and calling `binding.Connect`. Proven end-to-end by
+a grow-only counter whose concurrent increments merge across two peers. Next
+step: **Step 4** (consumer-style helpers + a counter with the sum assertion).
 
 ### Progress
 
@@ -31,8 +33,11 @@ dispatch yet — `connect` still throws on `Element.Custom`. Next step:
   live side) exactly as `Text` is skipped — custom lives in its own root. Bare
   `Custom` arms in `elementToY`/`ofAdaptive` `failwith` "connect-managed root"
   (mirroring `Text`). *(122 tests green; new: "materialize skips a Custom field…".)*
-- [ ] **Step 3** — Dispatch `Element.Custom` in `Y.Doc.connect` (root + nested)
-  to `binding.Connect ctx`. Prove with a trivial in-test binding.
+- [x] **Step 3** — Dispatch `Element.Custom` in `Y.Doc.connect` to
+  `binding.Connect ctx`, flattening it to a scheme-named top-level root
+  (`Parent = Root`, A3-safe — same discipline as `Text`). Proven by an in-test
+  grow-only counter (Y.Array of ticks) whose concurrent increments merge across
+  two peers (no LWW). *(123 tests green.)*
 - [ ] **Step 4** — A worked, *consumer-style* custom element (a counter) with
   `Encode`/`Decode` helpers; two peers' counters converge end-to-end.
 - [ ] **Step 5** — Dogfood: route the built-in `Text` connect through the same

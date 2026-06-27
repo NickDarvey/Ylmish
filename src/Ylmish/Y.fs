@@ -708,10 +708,20 @@ module Doc =
             | Codec.Element.Value _ ->
                 // Non-text: handled by the structural/LWW path, not connect.
                 ()
-            | Codec.Element.Custom _ ->
-                // Consumer-defined elements dispatch here once the
-                // CustomElement.Connect/BindContext surface lands (plan 0003).
-                failwith "Y.Doc.connect: Element.Custom is not dispatched yet (CustomElement pending, plan 0003)"
+            | Codec.Element.Custom binding ->
+                // A consumer-defined element. Like Text, it is flattened to a
+                // top-level root named by the scheme (A3-safe: Parent = Root), so
+                // two peers get-or-create the same root (A1) rather than racing to
+                // create a nested shared type. The binding owns the get-or-create
+                // and both sync directions; we just build its context and collect
+                // the disposable.
+                let ctx : Codec.BindContext = {
+                    Doc = doc
+                    Parent = Codec.ParentContainer.Root
+                    Slot = Codec.Slot.Named (scheme.RootName path)
+                    Active = ref false
+                }
+                disposables.Add (binding.Connect ctx)
         match AVal.force encoded with
         | Some element -> walk [] element
         | None -> ()
