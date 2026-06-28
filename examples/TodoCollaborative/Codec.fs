@@ -3,25 +3,43 @@ module TodoCollaborative.Codec
 open FSharp.Data.Adaptive
 open Ylmish.Adaptive.Codec
 
-let encode (amodel : AdaptiveTodoModel) = Encode.object [
-    "items", Encode.list (fun s -> Encode.value id (AVal.constant s)) amodel.Items
-    "newItem", amodel.NewItem |> Encode.value id
-    // Collaborative text: character-level CRDT merge instead of last-writer-wins.
-    "note", amodel.Note |> Encode.text
+// Step 0 codec: a straightforward *structural* mapping so the app compiles and
+// persists/syncs round-trip. It is intentionally NOT yet collaborative at the
+// collection level — that arrives in Step 3, when `todos` becomes an element-wise
+// `Encode.collection` (concurrent adds merge) with per-item CRDT text. `Filter` is
+// local view state and is deliberately not persisted.
+
+// Every scalar leaf is `Element<string>` (the codec's value type is uniform per
+// object, and materialize/connect work over `Element<string>`), so `Done : bool`
+// is encoded as a string and parsed back on decode.
+let private todoEncode (t : AdaptiveTodo) = Encode.object [
+    "id",    t.Id    |> Encode.value id
+    "text",  t.Text  |> Encode.value id
+    "done",  t.Done  |> Encode.value (fun b -> if b then "true" else "false")
+    "order", t.Order |> Encode.value id
 ]
 
+let encode (amodel : AdaptiveTodoModel) = Encode.object [
+    "todos",   Encode.list todoEncode amodel.Todos
+    "newItem", amodel.NewItem |> Encode.value id
+]
+
+let private todoDecode : Decoder<_, _, Todo> = Decode.object {
+    let! id    = Decode.object.required "id" Decode.value
+    let! text  = Decode.object.required "text" Decode.value
+    let! doneStr = Decode.object.required "done" Decode.value
+    let! order = Decode.object.required "order" Decode.value
+    return { Id = id; Text = text; Done = (doneStr = "true"); Order = order }
+}
+
 let decode : Decoder<TodoModel, _, TodoModel> = Decode.object {
-    // `note` lives in its own Y.Text root (connect), so it is absent from the
-    // structural root map that raw `dematerialize` reads. Decode it optionally
-    // and fall back to the current model's note via `ask`; under `withYlmish`
-    // the live tree always carries it, so the merged text is what we read.
+    // `Filter` is local, not in the doc — keep the current model's value via `ask`.
     let! current = Decode.object.ask ()
-    let! items = Decode.object.required "items" (Decode.list.required Decode.value)
+    let! todos = Decode.object.required "todos" (Decode.list.required todoDecode)
     let! newItem = Decode.object.required "newItem" Decode.value
-    let! note = Decode.object.optional "note" Decode.text
     return {
-        Items = items
+        Todos = todos
         NewItem = newItem
-        Note = note |> Option.defaultValue current.Note
+        Filter = current.Filter
     }
 }

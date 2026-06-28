@@ -14,112 +14,71 @@ open Expecto
 
 open TodoCollaborative
 
+let private ids (todos : Todo list) = todos |> List.map (fun t -> t.Id)
+let private texts (m : TodoModel) = TodoModel.ordered m |> List.map (fun t -> t.Text)
+
+/// Fold a sequence of messages over the initial model — the Elmish loop, run.
+let private run (msgs : Msg list) : TodoModel =
+    msgs |> List.fold (fun m msg -> TodoModel.update msg m) TodoModel.init
+
 let tests = testList "TodoCollaborative" [
-    test "two-doc sync: docs converge after sync" {
-        // Create two independent Y.Doc instances (simulating two peers)
-        let doc1 = Y.Doc.Create ()
-        let doc2 = Y.Doc.Create ()
 
-        // Peer 1: materialize a todo model with one item
-        let model1 = { TodoModel.init with Items = IndexList.ofList [ "Buy milk" ] }
-        let amodel1 = AdaptiveTodoModel.Create model1
-        let encoded1 = Codec.encode amodel1
-        Y.Doc.materialize doc1 encoded1
+    // Step 0 — the pure Elmish loop: model + update + fractional-index ordering,
+    // no Ylmish. These pin the readable core before any sync is involved.
+    testList "update (pure Elmish loop)" [
 
-        // Sync doc1 → doc2
-        Main.sync doc1 doc2
+        test "Add appends items, in priority order, clearing the new-item box" {
+            let m = run [ SetNewItem "a"; Add "1"; SetNewItem "b"; Add "2"; SetNewItem "c"; Add "3" ]
+            Expect.equal (TodoModel.ordered m |> ids) [ "1"; "2"; "3" ] "added items keep insertion order"
+            Expect.equal (texts m) [ "a"; "b"; "c" ] "each item carries its text"
+            Expect.equal m.NewItem "" "the new-item box is cleared after Add"
+        }
 
-        // Peer 2 should now have the same state
-        let element2 = Y.Doc.dematerialize doc2
-        let decoded2 = Codec.decode model1 ([], element2) |> AVal.force
-        match decoded2 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Buy milk" ]) "Items should match after sync"
-            Expect.equal result.NewItem "" "NewItem should match after sync"
-        | Error errors ->
-            failwithf "Failed to decode doc2: %s" (Error.printAll errors)
-    }
+        test "Move to the front reorders by fractional key" {
+            let m = run [ SetNewItem "a"; Add "1"; SetNewItem "b"; Add "2"; SetNewItem "c"; Add "3" ]
+            // Place 3 before 1 (no prev neighbour, next = 1).
+            let m = TodoModel.update (Move ("3", None, Some "1")) m
+            Expect.equal (TodoModel.ordered m |> ids) [ "3"; "1"; "2" ] "3 moved to the front"
+        }
 
-    test "two-doc sync: bidirectional sync converges" {
-        let doc1 = Y.Doc.Create ()
-        let doc2 = Y.Doc.Create ()
+        test "Move between two items" {
+            let m = run [ SetNewItem "a"; Add "1"; SetNewItem "b"; Add "2"; SetNewItem "c"; Add "3" ]
+            // Place 1 between 2 and 3.
+            let m = TodoModel.update (Move ("1", Some "2", Some "3")) m
+            Expect.equal (TodoModel.ordered m |> ids) [ "2"; "1"; "3" ] "1 moved between 2 and 3"
+        }
 
-        // Peer 1: materialize initial model
-        let model1 = { TodoModel.init with Items = IndexList.ofList [ "Task A" ]; NewItem = "draft" }
-        let amodel1 = AdaptiveTodoModel.Create model1
-        let encoded1 = Codec.encode amodel1
-        Y.Doc.materialize doc1 encoded1
+        test "Toggle flips done; visible respects the filter" {
+            let m = run [ SetNewItem "a"; Add "1"; SetNewItem "b"; Add "2" ]
+            let m = TodoModel.update (Toggle "1") m
+            Expect.equal (TodoModel.update (SetFilter Active) m |> TodoModel.visible |> ids) [ "2" ]
+                "Active hides the done item"
+            Expect.equal (TodoModel.update (SetFilter Completed) m |> TodoModel.visible |> ids) [ "1" ]
+                "Completed shows only the done item"
+        }
 
-        // Sync doc1 → doc2
-        Main.sync doc1 doc2
+        test "Edit changes text; Remove drops the item" {
+            let m = run [ SetNewItem "a"; Add "1"; SetNewItem "b"; Add "2" ]
+            let m = TodoModel.update (Edit ("1", "aa")) m
+            let m = TodoModel.update (Remove "2") m
+            Expect.equal (TodoModel.ordered m |> ids) [ "1" ] "item 2 removed"
+            Expect.equal (texts m) [ "aa" ] "item 1 edited"
+        }
+    ]
 
-        // Peer 2: update the model on doc2
-        let model2 = { model1 with Items = IndexList.ofList [ "Task A"; "Task B" ]; NewItem = "" }
-        let amodel2 = AdaptiveTodoModel.Create model2
-        let encoded2 = Codec.encode amodel2
-        Y.Doc.materialize doc2 encoded2
-
-        // Sync doc2 → doc1
-        Main.sync doc2 doc1
-
-        // Both docs should now have converged to the same state
-        let element1 = Y.Doc.dematerialize doc1
-        let decoded1 = Codec.decode model2 ([], element1) |> AVal.force
-        match decoded1 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc1 after sync"
-            Expect.equal result.NewItem "" "NewItem should be empty after sync"
-        | Error errors ->
-            failwithf "Failed to decode doc1 after bidirectional sync: %s" (Error.printAll errors)
-
-        let element2 = Y.Doc.dematerialize doc2
-        let decoded2 = Codec.decode model2 ([], element2) |> AVal.force
-        match decoded2 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc2 after sync"
-            Expect.equal result.NewItem "" "NewItem should be empty on doc2"
-        | Error errors ->
-            failwithf "Failed to decode doc2 after bidirectional sync: %s" (Error.printAll errors)
-    }
-
-    test "Program.withYlmish wired with TodoCollaborative model" {
+    // The model rides through withYlmish and round-trips the persisted shape.
+    // (Step 0's codec is structural; element-wise collaborative merge is Step 3.)
+    test "withYlmish persists a todo (structural round-trip)" {
         let doc = Y.Doc.Create ()
-        use dispatcher =
-            Main.makeProgram doc
-            |> Elmish.Program.test
-
-        // Dispatch AddItem via the User message wrapper
-        dispatcher.Dispatch (Ylmish.Program.Message.User (AddItem "Buy eggs"))
-
-        Expect.equal (dispatcher.Model.Items |> IndexList.toList) [ "Buy eggs" ] "Items should contain the added item"
-
-        // Verify the Y.Doc has the data by dematerializing and decoding
+        use disp = Main.makeProgram doc |> Elmish.Program.test
+        disp.Dispatch (Ylmish.Program.Message.User (SetNewItem "Buy eggs"))
+        disp.Dispatch (Ylmish.Program.Message.User (Add "1"))
+        Expect.equal (texts disp.Model) [ "Buy eggs" ] "the model holds the added item"
         let element = Y.Doc.dematerialize doc
-        let decoded = Codec.decode dispatcher.Model ([], element) |> AVal.force
-        match decoded with
+        match Codec.decode disp.Model ([], element) |> AVal.force with
         | Ok result ->
-            Expect.equal (result.Items |> IndexList.toList) [ "Buy eggs" ] "Y.Doc should contain the item after decode"
-        | Error errors ->
-            failwithf "Failed to decode Y.Doc: %s" (Error.printAll errors)
-    }
-
-    // Plan 0002, Step 9 — the example's collaborative Note field (Encode.text)
-    // CRDT-merges across peers, where the old materialize path would clobber.
-    test "collaborative note merges across two withYlmish peers (#83)" {
-        let d1 = Y.Doc.Create ()
-        let d2 = Y.Doc.Create ()
-        use p1 = Main.makeProgram d1 |> Elmish.Program.test
-        use p2 = Main.makeProgram d2 |> Elmish.Program.test
-
-        // Both peers edit the note concurrently, before any sync.
-        p1.Dispatch (Ylmish.Program.Message.User (SetNote "AAA"))
-        p2.Dispatch (Ylmish.Program.Message.User (SetNote "BBB"))
-
-        Main.sync d1 d2
-        Main.sync d2 d1
-
-        Expect.equal p1.Model.Note p2.Model.Note "notes converge across peers"
-        Expect.isTrue (p1.Model.Note.Contains "AAA" && p1.Model.Note.Contains "BBB")
-            "both peers' concurrent note edits interleave in the model (CRDT merge, not clobber)"
+            Expect.equal (result.Todos |> IndexList.toList |> List.map (fun t -> t.Text)) [ "Buy eggs" ]
+                "the Y.Doc round-trips the item"
+        | Error errors -> failwithf "decode failed: %s" (Error.printAll errors)
     }
 ]

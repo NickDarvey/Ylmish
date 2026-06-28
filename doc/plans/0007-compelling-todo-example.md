@@ -15,8 +15,12 @@ Step 0.
 
 ### Progress
 
-- [ ] **Step 0** — Pure Elmish todo: model + `update` + `view` + fractional-index
-  ordering, with unit tests. **No Ylmish yet** — establish the readable loop first.
+- [x] **Step 0** — Pure Elmish todo: reshaped `Model.fs` (`Todo = {Id;Text;Done;
+  Order}`, `Model = {Todos;NewItem;Filter}`, intention-named `Msg`, pure `update`,
+  `ordered`/`visible` helpers); fractional-index ordering via a consumer
+  `Ordering` module (`fractional-indexing`); a temporary structural `Codec`;
+  updated `Demo`; rewrote the example tests (pure update + ordering + structural
+  round-trip). No Yjs in `Model.fs`. 153 passing.
 - [ ] **Step 1** — Library: `Encode.collection` / `Decode.collection` — an
   element-wise keyed collection of records (membership + per-item LWW value
   fields), promoting 0006's Option E. Harness/library tests.

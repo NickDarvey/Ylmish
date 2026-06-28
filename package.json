@@ -30,6 +30,7 @@
     "source-map-support": "0.5.21"
   },
   "dependencies": {
+    "fractional-indexing": "^4.0.0",
     "yjs": "^13.6.0"
   }
 }

@@ -93,16 +93,18 @@ let runPeer (name : string) =
         | "update" ->
             Y.applyUpdate (doc, numsToBytes (msg?bytes), "remote")
         | "op-add" ->
-            dispatch (Program.Message.User (AddItem (msg?text)))
-        | "op-note" ->
-            dispatch (Program.Message.User (SetNote (msg?text)))
+            // Type into the new-item box, then add it with a fresh id.
+            dispatch (Program.Message.User (SetNewItem (msg?text)))
+            dispatch (Program.Message.User (Add (System.Guid.NewGuid().ToString ())))
+        | "op-toggle" ->
+            dispatch (Program.Message.User (Toggle (msg?id)))
         | _ -> ())
 
     // Run the Ylmish-wired program, capturing dispatch and logging each model.
     let setState (model : TodoModel) (d : Program.Message<TodoModel, Msg> -> unit) =
         dispatch <- d
-        printfn "[peer %s] items=%A note=%A"
-            name (model.Items |> IndexList.toList) model.Note
+        let render (t : Todo) = sprintf "%s%s" (if t.Done then "[x] " else "[ ] ") t.Text
+        printfn "[peer %s] %A" name (TodoModel.visible model |> List.map render)
 
     Main.makeProgram doc
     |> Program.withSetState setState
@@ -151,13 +153,8 @@ let runLauncher () =
                     printfn "[launcher] -> B: add \"Walk the dog\""
                     Node.childSend peerB {| kind = "op-add"; text = "Walk the dog" |})
 
-                // Both peers edit the collaborative note CONCURRENTLY. With
-                // last-writer-wins one would clobber the other; Encode.text makes
-                // the edits CRDT-merge, so both fragments survive on both peers.
-                Node.setTimeout 1100 (fun () ->
-                    printfn "[launcher] -> A & B: concurrent note edits (should merge)"
-                    Node.childSend peerA {| kind = "op-note"; text = "A-says-hi " |}
-                    Node.childSend peerB {| kind = "op-note"; text = "B-says-yo " |})
+                // (Step 0: a structural codec, so concurrent adds don't yet merge —
+                // that becomes the headline once Step 3 wires Encode.collection.)
 
                 // Wrap up.
                 Node.setTimeout 2000 (fun () ->
