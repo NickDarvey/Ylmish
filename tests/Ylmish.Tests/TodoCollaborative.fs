@@ -141,4 +141,62 @@ let tests = testList "TodoCollaborative" [
             Expect.equal (List.sort (orderedIds p1)) [ "1"; "2"; "3" ] "no item lost in the reorder"
         }
     ]
+
+    // Step 4 — the codec is the schema-migration boundary. v2 renamed the
+    // completion flag `done` -> `completed`. There is no single migration moment in
+    // a CRDT doc, so the codec reads both shapes and dual-writes both keys, letting
+    // v1 and v2 peers coexist on the same live document.
+    testList "schema evolution (v1/v2 coexistence)" [
+
+        let dispatch (d : Elmish.Program.ElmishDispatcher<_, _>) (msg : Msg) =
+            d.Dispatch (Ylmish.Program.Message.User msg)
+        let todoDone (d : Elmish.Program.ElmishDispatcher<_, _>) id =
+            TodoModel.ordered d.Model |> List.tryFind (fun t -> t.Id = id) |> Option.map (fun t -> t.Done)
+
+        // Author a doc directly with given collection items (simulating a peer on a
+        // particular schema), connected so its keyed Y.Map is populated.
+        let mkRawDoc (items : CollectionItem list) =
+            let cl = clist items
+            let merged = cval ([] : CollectionItem list)
+            let enc = Encode.object [ "todos", Encode.collection [ "text" ] (fun it -> AVal.constant it) merged (cl :> alist<_>) ]
+            let doc = Y.Doc.Create ()
+            Y.Doc.connect doc enc |> ignore
+            doc
+
+        let v1Item id (isDone : bool) order text : CollectionItem =
+            { Id = id; Fields = [ "done", (if isDone then "true" else "false"); "order", order ]; Texts = [ "text", text ] }
+
+        // A v1-authored doc (only the old `done` key) loads correctly in v2.
+        yield test "a v1-authored doc loads in v2 (decoder falls back to the old key)" {
+            let v1 = mkRawDoc [ v1Item "1" true "a0" "legacy" ]
+            let d2 = Y.Doc.Create ()
+            use p2 = Main.makeProgram d2 |> Elmish.Program.test
+            Main.sync v1 d2
+            Expect.equal (todoDone p2 "1") (Some true)
+                "v2 reads the v1 'done' field via the decoder's fallback"
+        }
+
+        // A v2 peer dual-writes both keys, so a still-running v1 peer keeps seeing
+        // the completion state after the rename.
+        yield test "a v2 peer dual-writes 'done' and 'completed' (so v1 peers still read it)" {
+            let d = Y.Doc.Create ()
+            use p = Main.makeProgram d |> Elmish.Program.test
+            dispatch p (SetNewItem "x"); dispatch p (Add "1"); dispatch p (Toggle "1")
+            let keys = ResizeArray<string> ()
+            (d.getMap "todos").forEach (fun _ k _ -> keys.Add k)
+            Expect.isTrue (Seq.contains "1/completed" keys) "writes the v2 key 'completed'"
+            Expect.isTrue (Seq.contains "1/done" keys) "also writes the v1 key 'done' for backward compatibility"
+        }
+
+        // When both keys are present but disagree, v2 prefers its own.
+        yield test "the decoder prefers the v2 key when both are present" {
+            let weird : CollectionItem =
+                { Id = "1"; Fields = [ "done", "false"; "completed", "true"; "order", "a0" ]; Texts = [ "text", "x" ] }
+            let src = mkRawDoc [ weird ]
+            let d2 = Y.Doc.Create ()
+            use p2 = Main.makeProgram d2 |> Elmish.Program.test
+            Main.sync src d2
+            Expect.equal (todoDone p2 "1") (Some true) "v2's 'completed' wins over the legacy 'done'"
+        }
+    ]
 ]

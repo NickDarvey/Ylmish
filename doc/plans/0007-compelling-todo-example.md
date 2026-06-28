@@ -39,9 +39,11 @@ Step 0.
   the shared `merged` cell. Two-peer `withYlmish` tests (+3): concurrent adds both
   survive, same-todo text merges character-wise, concurrent toggles both stick,
   concurrent reorders converge with no loss. 162 passing.
-- [ ] **Step 4** — Schema-migration demo: a **field rename with v1/v2
-  coexistence** (tolerant decoder reads both keys; non-destructive encoder). Tests
-  proving a v1-authored doc loads in v2 and mixed-version peers converge.
+- [x] **Step 4** — Schema migration: renamed `done` → `completed` in the example
+  codec, with **read-both** (decode `completed` ?? `done`) + **dual-write** (encode
+  both keys) so v1/v2 peers coexist on one live doc. Tests (+3): a v1-authored doc
+  loads in v2 (fallback), a v2 peer dual-writes both keys (v1 still reads it), and
+  the decoder prefers the v2 key. 165 passing.
 - [ ] **Step 5** — Headless two-peer demo (`Demo.fs`): scripted concurrent
   scenario (adds survive, edits merge, reorder merges, a v1↔v2 beat). `npm run
   demo` runs clean.
