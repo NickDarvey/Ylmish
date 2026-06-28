@@ -28,9 +28,12 @@ Step 0.
   `CollectionItem = { Id; Fields }`. Tests (`Codec.Collection.fs`, 4): concurrent
   adds both survive, different-item field edits merge, same-field edits converge
   (LWW), removal propagates. 157 passing.
-- [ ] **Step 2** — Library: compose **per-item CRDT text** under the collection
-  (id-named roots, the 0006 "next increment"). Tests: same-item edits merge,
-  survive concurrent membership changes/reorder.
+- [x] **Step 2** — Per-item **CRDT text** under the collection: each text field
+  lives in a top-level `Y.Text` root named `<name>/<id>/<field>`, mirrored by
+  affix-diff and observed lazily per item. `CollectionItem` gains `Texts`;
+  `Encode.collection` takes `textFields`. Tests (+2): same-item text merges
+  character-by-character (not LWW), and survives a concurrent membership change.
+  159 passing.
 - [ ] **Step 3** — Wire the example codec with `Encode.collection` (text CRDT,
   done/order LWW) under `withYlmish`. Two-peer convergence tests: concurrent add,
   edit, reorder, toggle.
