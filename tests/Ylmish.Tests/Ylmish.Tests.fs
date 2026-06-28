@@ -14,6 +14,7 @@ let tests = [
    Y.Doc.tests
    Program.tests
    TodoCollaborative.tests
+   Adaptive.Spike.tests
    Harness.tests
 ]
 

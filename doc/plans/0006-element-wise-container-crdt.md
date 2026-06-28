@@ -34,10 +34,12 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
   pinpoints the lost id (red on the known bug); the hybrid *matches* sequentially
   (harness discriminates — not blindly hostile); hybrid converges yet violates
   no-loss (P1≠P2); minimality meter shows raw is `O(Δ)` vs hybrid `O(|state|)`.
-- [ ] **Step 1** — The **decisive early experiment**: characterize what
-  FSharp.Data.Adaptive's `alist`/`amap` actually emit when adaptify's `Update`
-  assigns a *whole fresh* immutable collection. One spike that discriminates
-  Option A's viability **and** quantifies what Adaptive is worth (informs B).
+- [x] **Step 1** — Characterized Adaptive's reassignment deltas
+  (`tests/Ylmish.Tests/Adaptive.Spike.fs`, 6 tests, observed counts pinned). The
+  decisive answer is **"it depends on the app, and even then it's positional, not
+  keyed"** — see *Decisions* below. This both **conditionally kills Option A** and
+  **prices Option B** (Adaptive only gives a positional diff we'd have to replace
+  anyway).
 - [ ] **Step 2** — **Per-option falsification spikes.** For each option (A–E),
   the single cheapest experiment that could *kill* it, run against the Step 0
   harness on one representative datatype. Record pass/fail + scores.
@@ -55,7 +57,48 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
 
 ### Decisions & lessons
 
-- *(none yet — this plan exists to produce them with evidence.)*
+- **Step 0 — the harness is trustworthy.** It is green on the raw-Yjs oracle and
+  red on the known hybrid bug, *and* it discriminates (passes the hybrid when
+  edits are sequential). Differential testing against raw Yjs means there is no
+  self-authored spec to be wrong about. This is the foundation every option is
+  now judged on.
+
+- **Step 1 — what adaptify actually emits on whole-collection reassignment
+  (measured, pinned):**
+  - adaptify turns an `IndexList<'T>` field into a plain `clist`, and `Update`
+    sets the **whole new `IndexList`** (`_PropD_.Value <- value.PropD`). The delta
+    is whatever `ChangeableIndexList`/`IndexList.computeDelta` produces, and that
+    aligns the two lists **positionally by `Index`**, not by value/item identity.
+  - **Identity-preserving regime** — when the next model is derived by *structural
+    ops on the previous `IndexList`* (`.Add`/`.Prepend`/`.RemoveAt`): deltas are
+    **minimal and O(1)** (append = 1 Set, prepend = 1 Set, remove = 1 Remove).
+    Adaptive genuinely earns its keep here.
+  - **Rebuild regime** — when the next model is a *fresh* list
+    (`IndexList.ofList […]`, i.e. the idiomatic `{ model with Items = recompute () }`):
+    a logically-O(1) prepend becomes **4 Sets / 0 Removes** (positional value-
+    rewrite of all 3 survivors + 1 append). It does **not** recognise that a/b/c
+    survived — it rebinds positions. O(n), not identity-stable.
+  - **Reorder** — has **no** identity-preserving form in `IndexList`; reversing
+    `[a;b;c]→[c;b;a]` is 2 Sets / 0 Removes. A move is never a move — always
+    positional churn.
+  - **Nested state** — `ChangeableModelList` reuses the inner `AdaptiveSubmodel`
+    objects **positionally**: a rebuilt prepend *hijacks* position 0's adaptive
+    object (it was item "a", now holds "x"). So a `Y.Text`/custom hung off an item
+    by position is orphaned/rebound on any insert or reorder.
+  - **Consequences for the options:**
+    - **Option A is conditionally dead.** Feeding Adaptive's delta to Yjs gives
+      correct element-wise ops *only if* the app preserves `Index` identity by
+      mutating the prior `IndexList` — fragile app discipline — and **never** for
+      reorder/move, and the identity it tracks is *positional Index*, not a stable
+      item key, so moves orphan nested state regardless. It cannot deliver
+      identity-stable moves at all.
+    - **Option B is fairly priced.** Adaptive is only buying a *positional*
+      `computeDelta` — not the *keyed* diff correct merge needs. We'd have to
+      replace it with a keyed diff anyway, so cutting Adaptive from the sync path
+      throws away little. (B still needs stable item identity — Step 3.)
+    - **Every diff-based option (A/B/E) needs an explicit stable item id**;
+      Adaptive's `Index` is not it. Identity is now the pivotal cross-cutting
+      question (Step 3), not an Adaptive detail.
 
 ### Blockers / human decisions needed
 
