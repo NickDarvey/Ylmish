@@ -98,16 +98,19 @@ not a Yjs handle.
 |---|---|---|---|
 | `Encode.value` / `Decode.value` | `Y.Map` entry | last-writer-wins | toggles, enums, numbers, ids |
 | `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT | prose, collaborative bodies |
-| `Encode.list` / `map` / `object` | `Y.Array` / `Y.Map` | structural CRDT | collections |
+| `Encode.list` / `map` / `object` | `Y.Array` / `Y.Map` | structural (whole-container LWW) | small fixed collections |
+| `Encode.collection` / `Decode.collection` | top-level `Y.Map` + per-item `Y.Text` (own roots) | **element-wise**: add/remove merge, fields per-id LWW, text CRDT | collaborative lists keyed by id |
 | `Encode.custom` / `Decode.custom` | your choice (own root) | **you define it** | counters, sets, anything below |
 
 `Encode.text : aval<string> -> _` keeps the model field a plain `string`. The
 Adaptive layer recovers the character inserts/deletes by **diffing successive
 string values** — the same "successive models → operations" idea this library
 already applies to lists, one level down — so concurrent edits *interleave*
-instead of clobbering. See `examples/TodoCollaborative` for a runnable, two-peer
-demo (`npm run demo`) where both peers edit a shared note at once and both edits
-survive.
+instead of clobbering. See [`examples/TodoCollaborative`](examples/TodoCollaborative)
+for a runnable, two-peer demo (`npm run demo`) of a prioritised collaborative todo
+list where concurrent adds both survive, two peers editing the *same* todo's text
+both land, reordering merges, and a v1-authored document still loads under the v2
+schema.
 
 ```fsharp
 let encode (m : AdaptiveModel) = Encode.object [
@@ -150,29 +153,39 @@ own. See
 (printed by `npm run demo`) for two peers holding a list in different orders whose
 edits still merge onto the right item.
 
-*Containers themselves are last-writer-wins.* The `Scheme` governs collaborative
-**leaves** (text, customs), which CRDT-merge. A **container** (a `list`/`map` of
-values) stays on the structural path, which re-projects the whole container each
-update — so a container is **whole-container LWW**: peers converge, but concurrent
-structural edits to the *same* container don't element-merge (one side wins). To
-get a merged collection, make its **items** collaborative leaves named by id (as
-above), or define a merging container with `Encode.custom`.
+*Small fixed containers are last-writer-wins; use `Encode.collection` for
+collaborative lists.* The plain `Encode.list` / `map` path re-projects the whole
+container each update, so it is **whole-container LWW** — fine for a small, rarely-
+contended collection, but concurrent structural edits to the *same* container lose
+one side. For a list that several peers edit at once, reach for **`Encode.collection`**.
 
-*Element-wise collections (validated approach).* A collection whose concurrent
-adds/removes element-merge — no lost items — is achievable today with the same
-`Encode.custom` seam: keep a **top-level `Y.Array` of item ids** and, on each
-model change, reconcile it to the new ids **by id** (an add is one insert;
-concurrent adds compose). Identity is an explicit per-item id the model carries,
-and per-item nested state (text/custom) is named by that id (`Scheme.byKey`) so it
-survives a reorder. Plan [0006](doc/plans/0006-element-wise-container-crdt.md)
-researched this rigorously — a differential correctness harness vs raw Yjs,
-property-based concurrent schedules, and a thin slice proven end-to-end under
-`withYlmish` (two peers' concurrent adds both survive in both Elmish models). The
-model field stays a plain immutable list. Known limit: `Y.Array` has no native
-move, so a value array's *concurrent* moves of the same item may duplicate (they
-still converge); ordering that must merge belongs on a fractional-order key per
-item, not on array position. `withYlmish` keeps such top-level collection roots
-live in the model via a whole-document remote-transaction read-back.
+*Element-wise collections — `Encode.collection`.* This is the merging-collection
+combinator: concurrent **adds/removes merge** (no lost items), each item's scalar
+**fields are per-id LWW**, and named **text fields merge character-by-character**.
+You project each model item to a `CollectionItem` (its stable id + named string
+fields + named text fields); the same `merged` cell read by `Decode.collection`
+gives the converged list back. Identity is an explicit per-item id your model
+carries — the collection is an *unordered keyed set*, so impose display order with
+a **field** (a fractional-index key), not the item's position:
+
+```fsharp
+// in your encoder — `done`/`order` are per-id LWW, `text` is a per-item CRDT
+"todos", Encode.collection [ "text" ] toItem mergedCell amodel.Todos
+// in your decoder
+let! items = Decode.object.required "todos" (Decode.collection mergedCell)
+```
+
+Under the hood it is one top-level `Y.Map` (`<id>/<field>` keys + an `@<id>`
+presence marker) plus a top-level `Y.Text` per item text field, reconciled against
+live Yjs by key/affix-diff; top-level roots make concurrent creation safe (A1), and
+`withYlmish` keeps them live in the model via a whole-document remote-transaction
+read-back. The model field stays a plain immutable list. The approach was derived
+rigorously in plan [0006](doc/plans/0006-element-wise-container-crdt.md)
+(differential correctness harness vs raw Yjs, property-based concurrent schedules).
+Known limit: there is no native *move*, so ordering that must merge belongs on a
+fractional-order **field** per item (one LWW write per reorder), not on array
+position — which is exactly how the todo example prioritises its list. See
+[`examples/TodoCollaborative`](examples/TodoCollaborative) for the worked app.
 
 **Writing a custom element.** The four built-ins don't have to be the end of the
 list. When a field needs a merge strategy of its own — a counter that *sums*

@@ -9,9 +9,13 @@ Parent: builds on 0002 (text merge), 0003 (custom seam), 0004 (identity/`Scheme`
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: NOT STARTED (broken into steps).**
-Direction concurred; open questions resolved (see *Decisions*). Ready to execute
-Step 0.
+**Last updated:** 2026-06-28 · **Status: COMPLETE.** All 7 steps done (165 tests
+passing; `npm run demo` runs clean). The example is a prioritised collaborative
+todo app: a textbook-clean Elmish loop (no Yjs in `Model.fs`), an element-wise
+`Encode.collection` (library) with per-item CRDT text + per-id LWW fields,
+fractional-index ordering (consumer), and a field-rename schema migration with live
+v1/v2 coexistence. Follow-ons: dropping the legacy `done` key once all peers are
+v2; richer `Decode` ergonomics for migrations if a pattern recurs.
 
 ### Progress
 
@@ -48,8 +52,11 @@ Step 0.
   (concurrent adds both survive, concurrent text edits merge, toggles stick,
   reorder converges) + a `Migration.run ()` vignette (a v1-authored todo loads in
   v2). `npm run demo` runs clean and prints the whole story.
-- [ ] **Step 6** — Docs: README example section + an example walkthrough doc
-  (model, codec mapping, ordering, the migration pattern).
+- [x] **Step 6** — Docs: README merge-semantics table gains an
+  `Encode.collection` row; the container/element-wise section rewritten to describe
+  the shipped combinator; the demo reference updated to the todo app. Added an
+  example walkthrough (`examples/TodoCollaborative/README.md`) covering the
+  readable loop, ordering, the codec mapping, and the migration pattern.
 
 ### Decisions (resolved with the human, 2026-06-28)
 
