@@ -10,6 +10,7 @@
     <Compile Include="Counter.fs" />
     <Compile Include="ReorderableList.fs" />
     <Compile Include="Main.fs" />
+    <Compile Include="Migration.fs" />
     <Compile Include="Demo.fs" />
   </ItemGroup>
   <ItemGroup>

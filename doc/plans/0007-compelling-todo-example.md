@@ -44,9 +44,10 @@ Step 0.
   both keys) so v1/v2 peers coexist on one live doc. Tests (+3): a v1-authored doc
   loads in v2 (fallback), a v2 peer dual-writes both keys (v1 still reads it), and
   the decoder prefers the v2 key. 165 passing.
-- [ ] **Step 5** — Headless two-peer demo (`Demo.fs`): scripted concurrent
-  scenario (adds survive, edits merge, reorder merges, a v1↔v2 beat). `npm run
-  demo` runs clean.
+- [x] **Step 5** — Headless demo: enriched `Demo.fs`'s scripted scenario
+  (concurrent adds both survive, concurrent text edits merge, toggles stick,
+  reorder converges) + a `Migration.run ()` vignette (a v1-authored todo loads in
+  v2). `npm run demo` runs clean and prints the whole story.
 - [ ] **Step 6** — Docs: README example section + an example walkthrough doc
   (model, codec mapping, ordering, the migration pattern).
 

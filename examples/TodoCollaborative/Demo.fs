@@ -93,11 +93,16 @@ let runPeer (name : string) =
         | "update" ->
             Y.applyUpdate (doc, numsToBytes (msg?bytes), "remote")
         | "op-add" ->
-            // Type into the new-item box, then add it with a fresh id.
+            // Type into the new-item box, then add it with the given id.
             dispatch (Program.Message.User (SetNewItem (msg?text)))
-            dispatch (Program.Message.User (Add (System.Guid.NewGuid().ToString ())))
+            dispatch (Program.Message.User (Add (msg?id)))
+        | "op-edit" ->
+            dispatch (Program.Message.User (Edit (msg?id, msg?text)))
         | "op-toggle" ->
             dispatch (Program.Message.User (Toggle (msg?id)))
+        | "op-move" ->
+            let opt (s : string) = if System.String.IsNullOrEmpty s then None else Some s
+            dispatch (Program.Message.User (Move (msg?id, opt (msg?prev), opt (msg?next))))
         | _ -> ())
 
     // Run the Ylmish-wired program, capturing dispatch and logging each model.
@@ -120,11 +125,13 @@ let runPeer (name : string) =
 let runLauncher () =
     let selfPath = Node.argv.[1]
 
-    // First, two self-contained seam demos:
-    //  - a custom-element grow-only counter whose concurrent increments SUM, and
-    //  - a reorderable collaborative list whose text survives reorder via id naming.
+    // First, three self-contained vignettes:
+    //  - a custom-element grow-only counter whose concurrent increments SUM,
+    //  - a reorderable collaborative list whose text survives reorder via id naming,
+    //  - a schema-migration demo: a v1-authored todo loads in the v2 codec.
     Counter.run ()
     ReorderableList.run ()
+    Migration.run ()
 
     printfn "[launcher] forking two peers (A and B)…"
 
@@ -143,21 +150,32 @@ let runLauncher () =
             if readyCount = 2 then
                 printfn "[launcher] both peers ready — running scenario"
 
-                // Peer A adds an item; it should appear on B.
+                // A and B add a todo each, CONCURRENTLY. The element-wise collection
+                // merges both — neither add is lost (the old whole-list LWW dropped one).
                 Node.setTimeout 250 (fun () ->
-                    printfn "[launcher] -> A: add \"Buy milk\""
-                    Node.childSend peerA {| kind = "op-add"; text = "Buy milk" |})
+                    printfn "[launcher] -> A & B: concurrent adds (both should survive)"
+                    Node.childSend peerA {| kind = "op-add"; id = "1"; text = "milk" |}
+                    Node.childSend peerB {| kind = "op-add"; id = "2"; text = "walk the dog" |})
 
-                // Peer B adds an item; it should appear on A.
-                Node.setTimeout 750 (fun () ->
-                    printfn "[launcher] -> B: add \"Walk the dog\""
-                    Node.childSend peerB {| kind = "op-add"; text = "Walk the dog" |})
+                // Both edit todo 1's text CONCURRENTLY; the per-item CRDT text merges.
+                Node.setTimeout 900 (fun () ->
+                    printfn "[launcher] -> A & B: concurrent edits to todo 1's text (should merge)"
+                    Node.childSend peerA {| kind = "op-edit"; id = "1"; text = "buy milk" |}
+                    Node.childSend peerB {| kind = "op-edit"; id = "1"; text = "milk (2%)" |})
 
-                // (Step 0: a structural codec, so concurrent adds don't yet merge —
-                // that becomes the headline once Step 3 wires Encode.collection.)
+                // Toggle different todos; both completions stick.
+                Node.setTimeout 1300 (fun () ->
+                    printfn "[launcher] -> A: complete todo 1;  B: complete todo 2"
+                    Node.childSend peerA {| kind = "op-toggle"; id = "1" |}
+                    Node.childSend peerB {| kind = "op-toggle"; id = "2" |})
+
+                // Reorder: A moves todo 2 to the front (a single fractional-key write).
+                Node.setTimeout 1700 (fun () ->
+                    printfn "[launcher] -> A: prioritise todo 2 (move it to the front)"
+                    Node.childSend peerA {| kind = "op-move"; id = "2"; prev = ""; next = "1" |})
 
                 // Wrap up.
-                Node.setTimeout 2000 (fun () ->
+                Node.setTimeout 2400 (fun () ->
                     printfn "[launcher] done — shutting peers down"
                     Node.childKill peerA
                     Node.childKill peerB
