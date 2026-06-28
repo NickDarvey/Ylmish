@@ -19,6 +19,7 @@
     <Compile Include="Y.Doc.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
+    <Compile Include="Harness.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
   <ItemGroup>

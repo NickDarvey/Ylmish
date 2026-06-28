@@ -17,17 +17,23 @@ Parent: plans 0002/0004. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-27 · **Status: NOT STARTED (research).** The
-whole-container-LWW limitation is spike-confirmed (0004 Step 4) and reproduced as
-the "a peer merely typing clobbers a concurrent add" hazard. Next step: **Step 0**
-(build the harness, prove it catches today's bug).
+**Last updated:** 2026-06-28 · **Status: IN PROGRESS (research).** Step 0 done —
+the harness exists, is green on the raw-Yjs oracle, and *catches* today's hybrid
+lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
+**Step 1** (characterize Adaptive's reassignment deltas — decisive for Option A).
 
 ### Progress
 
-- [ ] **Step 0** — Build the **validation harness + oracle** (option-independent).
-  Acceptance: it **passes** for raw-Yjs ground truth and **fails (red)** for the
-  current `materialize` hybrid by reproducing the known lost-item bug. A harness
-  that can't catch today's bug is worthless.
+- [x] **Step 0** — Built the **validation harness + oracle** (option-independent)
+  in `tests/Ylmish.Tests/Harness.fs`. A `Bridge` takes whole immutable models in
+  and reads a converged model out (the `withYlmish` contract); the `run` driver
+  replays a per-replica schedule with a delivery policy and models `withYlmish`'s
+  remote-update→read-back→`Set` loop; `differential` compares any SUT against the
+  raw-Yjs oracle (M1). Acceptance met (5 tests): oracle keeps both concurrent adds
+  (ground truth no-loss); the hybrid **disagrees** with the oracle and the harness
+  pinpoints the lost id (red on the known bug); the hybrid *matches* sequentially
+  (harness discriminates — not blindly hostile); hybrid converges yet violates
+  no-loss (P1≠P2); minimality meter shows raw is `O(Δ)` vs hybrid `O(|state|)`.
 - [ ] **Step 1** — The **decisive early experiment**: characterize what
   FSharp.Data.Adaptive's `alist`/`amap` actually emit when adaptify's `Update`
   assigns a *whole fresh* immutable collection. One spike that discriminates
