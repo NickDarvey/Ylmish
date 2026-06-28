@@ -66,19 +66,79 @@ let tests = testList "TodoCollaborative" [
         }
     ]
 
-    // The model rides through withYlmish and round-trips the persisted shape.
-    // (Step 0's codec is structural; element-wise collaborative merge is Step 3.)
-    test "withYlmish persists a todo (structural round-trip)" {
-        let doc = Y.Doc.Create ()
-        use disp = Main.makeProgram doc |> Elmish.Program.test
-        disp.Dispatch (Ylmish.Program.Message.User (SetNewItem "Buy eggs"))
-        disp.Dispatch (Ylmish.Program.Message.User (Add "1"))
-        Expect.equal (texts disp.Model) [ "Buy eggs" ] "the model holds the added item"
-        let element = Y.Doc.dematerialize doc
-        match Codec.decode disp.Model ([], element) |> AVal.force with
-        | Ok result ->
-            Expect.equal (result.Todos |> IndexList.toList |> List.map (fun t -> t.Text)) [ "Buy eggs" ]
-                "the Y.Doc round-trips the item"
-        | Error errors -> failwithf "decode failed: %s" (Error.printAll errors)
-    }
+    // Step 3 — the app is genuinely collaborative end-to-end under withYlmish.
+    testList "collaborative (two withYlmish peers)" [
+
+        let dispatch (d : Elmish.Program.ElmishDispatcher<_, _>) (msg : Msg) =
+            d.Dispatch (Ylmish.Program.Message.User msg)
+        let orderedIds (d : Elmish.Program.ElmishDispatcher<_, _>) =
+            TodoModel.ordered d.Model |> List.map (fun t -> t.Id)
+        let todo (d : Elmish.Program.ElmishDispatcher<_, _>) id =
+            TodoModel.ordered d.Model |> List.tryFind (fun t -> t.Id = id)
+        let exchange (a : Y.Doc) (b : Y.Doc) = Main.sync a b; Main.sync b a
+
+        // A two-peer fixture sharing a base list, synced.
+        let mkPair () =
+            let d1, d2 = Y.Doc.Create (), Y.Doc.Create ()
+            Main.makeProgram d1 |> Elmish.Program.test,
+            Main.makeProgram d2 |> Elmish.Program.test,
+            d1, d2
+
+        yield test "concurrent adds: both todos survive in both models (element-wise, not LWW)" {
+            let p1, p2, d1, d2 = mkPair ()
+            use _ = p1
+            use _ = p2
+            dispatch p1 (SetNewItem "milk"); dispatch p1 (Add "1")
+            dispatch p2 (SetNewItem "eggs"); dispatch p2 (Add "2")
+            exchange d1 d2
+            Expect.equal (orderedIds p1) (orderedIds p2) "models converge"
+            Expect.equal (List.sort (orderedIds p1)) [ "1"; "2" ] "both concurrent adds survive"
+        }
+
+        yield test "concurrent edits to the same todo's text merge character-wise" {
+            let p1, p2, d1, d2 = mkPair ()
+            use _ = p1
+            use _ = p2
+            dispatch p1 (SetNewItem "hi"); dispatch p1 (Add "1")
+            exchange d1 d2   // both peers now have todo 1, text "hi"
+            dispatch p1 (Edit ("1", "hiA"))
+            dispatch p2 (Edit ("1", "hiB"))
+            exchange d1 d2
+            let t1 = todo p1 "1" |> Option.map (fun t -> t.Text) |> Option.defaultValue ""
+            Expect.equal (todo p1 "1" |> Option.map (fun t -> t.Text)) (todo p2 "1" |> Option.map (fun t -> t.Text))
+                "text converges"
+            Expect.isTrue (t1.Contains "A" && t1.Contains "B") "both edits merged (CRDT, not LWW)"
+        }
+
+        yield test "concurrent toggles of different todos both stick" {
+            let p1, p2, d1, d2 = mkPair ()
+            use _ = p1
+            use _ = p2
+            dispatch p1 (SetNewItem "a"); dispatch p1 (Add "1")
+            dispatch p1 (SetNewItem "b"); dispatch p1 (Add "2")
+            exchange d1 d2
+            dispatch p1 (Toggle "1")
+            dispatch p2 (Toggle "2")
+            exchange d1 d2
+            Expect.equal (todo p1 "1" |> Option.map (fun t -> t.Done)) (Some true) "1 completed (peer 1)"
+            Expect.equal (todo p1 "2" |> Option.map (fun t -> t.Done)) (Some true) "2 completed (peer 2)"
+            Expect.equal (List.map (fun t -> t.Id, t.Done) (TodoModel.ordered p1.Model))
+                         (List.map (fun t -> t.Id, t.Done) (TodoModel.ordered p2.Model)) "models converge"
+        }
+
+        yield test "concurrent reorders of different todos converge" {
+            let p1, p2, d1, d2 = mkPair ()
+            use _ = p1
+            use _ = p2
+            dispatch p1 (SetNewItem "a"); dispatch p1 (Add "1")
+            dispatch p1 (SetNewItem "b"); dispatch p1 (Add "2")
+            dispatch p1 (SetNewItem "c"); dispatch p1 (Add "3")
+            exchange d1 d2   // both: [1;2;3]
+            dispatch p1 (Move ("3", None, Some "1"))     // peer 1 moves 3 to the front
+            dispatch p2 (Move ("1", Some "3", None))     // peer 2 moves 1 to the end
+            exchange d1 d2
+            Expect.equal (orderedIds p1) (orderedIds p2) "the priority order converges across peers"
+            Expect.equal (List.sort (orderedIds p1)) [ "1"; "2"; "3" ] "no item lost in the reorder"
+        }
+    ]
 ]

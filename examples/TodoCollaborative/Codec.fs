@@ -3,43 +3,48 @@ module TodoCollaborative.Codec
 open FSharp.Data.Adaptive
 open Ylmish.Adaptive.Codec
 
-// Step 0 codec: a straightforward *structural* mapping so the app compiles and
-// persists/syncs round-trip. It is intentionally NOT yet collaborative at the
-// collection level — that arrives in Step 3, when `todos` becomes an element-wise
-// `Encode.collection` (concurrent adds merge) with per-item CRDT text. `Filter` is
-// local view state and is deliberately not persisted.
+// The codec is the whole sync story — and it stays out of the Elmish loop. `todos`
+// is an element-wise, id-keyed `Encode.collection`: concurrent adds/removes MERGE
+// (no lost items), each todo's `text` merges character-by-character, and `done` /
+// `order` are per-id last-writer-wins. `NewItem` and `Filter` are local per-peer
+// state and are deliberately not synced.
 
-// Every scalar leaf is `Element<string>` (the codec's value type is uniform per
-// object, and materialize/connect work over `Element<string>`), so `Done : bool`
-// is encoded as a string and parsed back on decode.
-let private todoEncode (t : AdaptiveTodo) = Encode.object [
-    "id",    t.Id    |> Encode.value id
-    "text",  t.Text  |> Encode.value id
-    "done",  t.Done  |> Encode.value (fun b -> if b then "true" else "false")
-    "order", t.Order |> Encode.value id
-]
-
-let encode (amodel : AdaptiveTodoModel) = Encode.object [
-    "todos",   Encode.list todoEncode amodel.Todos
-    "newItem", amodel.NewItem |> Encode.value id
-]
-
-let private todoDecode : Decoder<_, _, Todo> = Decode.object {
-    let! id    = Decode.object.required "id" Decode.value
-    let! text  = Decode.object.required "text" Decode.value
-    let! doneStr = Decode.object.required "done" Decode.value
-    let! order = Decode.object.required "order" Decode.value
-    return { Id = id; Text = text; Done = (doneStr = "true"); Order = order }
+/// Project a todo to its CRDT shape (keyed by the immutable id).
+let private toItem (t : AdaptiveTodo) : aval<CollectionItem> = adaptive {
+    let! id = t.Id
+    let! text = t.Text
+    let! isDone = t.Done
+    let! order = t.Order
+    return {
+        Id = id
+        Fields = [ "done", (if isDone then "true" else "false"); "order", order ]
+        Texts = [ "text", text ]
+    }
 }
 
-let decode : Decoder<TodoModel, _, TodoModel> = Decode.object {
-    // `Filter` is local, not in the doc — keep the current model's value via `ask`.
+let private fieldOf (ci : CollectionItem) name def =
+    ci.Fields |> List.tryFind (fst >> (=) name) |> Option.map snd |> Option.defaultValue def
+
+let private toTodo (ci : CollectionItem) : Todo =
+    let text = ci.Texts |> List.tryFind (fst >> (=) "text") |> Option.map snd |> Option.defaultValue ""
+    { Id = ci.Id
+      Text = text
+      Done = (fieldOf ci "done" "false" = "true")
+      Order = fieldOf ci "order" "" }
+
+/// Build the encoder. The `merged` cell is shared with `decode` (the converged
+/// collection is written there by the collection binding and read back here),
+/// exactly like `Encode.custom` / `Decode.custom`.
+let encode (merged : cval<CollectionItem list>) (amodel : AdaptiveTodoModel) = Encode.object [
+    "todos", Encode.collection [ "text" ] toItem merged amodel.Todos
+]
+
+let decode (merged : cval<CollectionItem list>) : Decoder<TodoModel, _, TodoModel> = Decode.object {
     let! current = Decode.object.ask ()
-    let! todos = Decode.object.required "todos" (Decode.list.required todoDecode)
-    let! newItem = Decode.object.required "newItem" Decode.value
+    let! items = Decode.object.required "todos" (Decode.collection merged)
     return {
-        Todos = todos
-        NewItem = newItem
+        Todos = items |> List.map toTodo |> IndexList.ofList
+        NewItem = current.NewItem
         Filter = current.Filter
     }
 }

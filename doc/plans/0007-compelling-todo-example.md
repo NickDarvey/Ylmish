@@ -34,9 +34,11 @@ Step 0.
   `Encode.collection` takes `textFields`. Tests (+2): same-item text merges
   character-by-character (not LWW), and survives a concurrent membership change.
   159 passing.
-- [ ] **Step 3** — Wire the example codec with `Encode.collection` (text CRDT,
-  done/order LWW) under `withYlmish`. Two-peer convergence tests: concurrent add,
-  edit, reorder, toggle.
+- [x] **Step 3** — Wired the example codec to `Encode.collection` (text CRDT,
+  done/order LWW; `NewItem`/`Filter` local, not synced); `Main.makeProgram` threads
+  the shared `merged` cell. Two-peer `withYlmish` tests (+3): concurrent adds both
+  survive, same-todo text merges character-wise, concurrent toggles both stick,
+  concurrent reorders converge with no loss. 162 passing.
 - [ ] **Step 4** — Schema-migration demo: a **field rename with v1/v2
   coexistence** (tolerant decoder reads both keys; non-destructive encoder). Tests
   proving a v1-authored doc loads in v2 and mixed-version peers converge.
