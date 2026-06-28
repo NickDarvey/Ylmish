@@ -17,6 +17,7 @@ let tests = [
    Adaptive.Spike.tests
    Harness.tests
    HarnessOptions.tests
+   HarnessIdentity.tests
 ]
 
 #if FABLE_COMPILER

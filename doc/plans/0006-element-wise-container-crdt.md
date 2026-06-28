@@ -48,9 +48,13 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
   are O(Δ), a sequential move reorders losslessly, and concurrent same-item moves
   converge (P1) but may duplicate (the no-native-move limit, pinned). Per-option
   evidence/verdicts in *Decisions*.
-- [ ] **Step 3** — **Identity across model versions** (cross-cutting): decide
-  where an item's stable id comes from for *diffing* successive models (reserved
-  guid field / reuse 0004 `KeyById`). Required by every diff-based option.
+- [x] **Step 3** — **Identity decided + move-preserves-nested-state proven**
+  (`tests/Ylmish.Tests/Harness.Identity.fs`, 2 tests). Identity = an explicit
+  stable per-item id the model carries; nested collaborative state is named by it
+  (reuse 0004 `Scheme.byKey`/`KeyById`). Proof: id-keyed nested text survives a
+  concurrent reorder+edit and merges onto the right item; the *same* schedule with
+  position-keyed nested text corrupts (the edit sticks to the slot, mislabelling
+  the moved row). See *Decisions*.
 - [ ] **Step 4** — **Score & decide** against the rubric; surface the *product*
   question (relax immutable-model purity for collections? — Options C/D) to the
   human. Record the decision + evidence in *Decisions*.
@@ -147,6 +151,20 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
     / time-travel / test-replay no longer hold for those fields. Verdict:
     correctness-strong, but it abandons the plain-immutable-model promise that
     differentiates Ylmish. Pure **product** decision (see Blockers).
+
+- **Step 3 — identity + nested-state-on-move (decided + proven):**
+  - **Identity source:** an explicit, stable per-item id the model carries (a
+    guid). Nested collaborative state (per-item text/custom) is named by that id,
+    reusing 0004's `Scheme.byKey`/`PathSegment.KeyById`. Explicitly *not*
+    positional `Index` (mutable, Step 1) and *not* the fractional order key (that
+    is for ordering and changes on reorder — 0004's immutable-id-vs-mutable-order
+    split). The model already needs this id for the codec; no new concept.
+  - **Move preserves nested state — proven green:** because a nested root's *name*
+    is the item id, a reorder never touches it. Test: an id-keyed nested text
+    survives a concurrent reorder+edit and the edit merges onto the right item; the
+    counter-example (position-keyed) corrupts under the identical schedule. This
+    confirms the front-runner representation (keyed items + id-named nested state)
+    clears the one wall Step 2 flagged.
 
 ### Blockers / human decisions needed
 
