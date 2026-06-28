@@ -17,10 +17,13 @@ Parent: plans 0002/0004. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: IN PROGRESS (research).** Step 0 done —
-the harness exists, is green on the raw-Yjs oracle, and *catches* today's hybrid
-lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
-**Step 1** (characterize Adaptive's reassignment deltas — decisive for Option A).
+**Last updated:** 2026-06-28 · **Status: AWAITING HUMAN DECISION (Step 4).**
+Steps 0–3 complete and committed (146 tests passing). Evidence points to **Option
+E** (keyed reconcile vs live Yjs, on a keyed-map + id-named nested state +
+fractional order layout) as the engineering front-runner — see the scored rubric
+in *Decisions*. **Stopped at the Step 4 product question** (relax plain-immutable
+purity for collections? — see Blockers) before fixing the option and starting the
+Step 5 thin slice.
 
 ### Progress
 
@@ -55,9 +58,9 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
   concurrent reorder+edit and merges onto the right item; the *same* schedule with
   position-keyed nested text corrupts (the edit sticks to the slot, mislabelling
   the moved row). See *Decisions*.
-- [ ] **Step 4** — **Score & decide** against the rubric; surface the *product*
-  question (relax immutable-model purity for collections? — Options C/D) to the
-  human. Record the decision + evidence in *Decisions*.
+- [~] **Step 4** — **Scored** against the rubric (table in *Decisions*);
+  front-runner = **Option E**. **STOPPED at the human product question** (immutable
+  purity — Blockers). The chosen option is fixed only once the human answers.
 - [ ] **Step 5** — **Thin vertical slice** of the winner, end-to-end under
   `withYlmish` for one datatype, passing the full harness (incl. minimality +
   liveness). Proves it composes with `materialize`/`connect` and the 0005 readback.
@@ -165,6 +168,34 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
     counter-example (position-keyed) corrupts under the identical schedule. This
     confirms the front-runner representation (keyed items + id-named nested state)
     clears the one wall Step 2 flagged.
+
+- **Step 4 — scored rubric (evidence from Steps 0–3).** Gate = must pass M1–M4.
+
+  | Option | Correctness (gate) | Minimality | Immutable model | Move / nested | Complexity / blast | Adaptive footprint | Verdict |
+  |---|---|---|---|---|---|---|---|
+  | **A** lean into Adaptive | **fails** (positional, no move; conditional on app discipline) | cond. | preserved | poor (orphans) | low | keeps | **eliminated** (Step 1) |
+  | **B** cut Adaptive, diff vs prev model | pass* | O(Δ) | preserved | good w/ keyed-map | med–high (reimpl diff + prev/read-back coupling) | drops | viable, heavier than E for no gain |
+  | **C** capture `Msg` intent | partial (no move msg; msg-only) | O(Δ) | preserved | needs synthetic msgs | med (2nd sync surface) | n/a | niche + product |
+  | **D** handle in model (`Ref<>`) | pass (native Yjs) | O(Δ) | **breaks** | native | low | drops | simplest+correct, **abandons immutability** (product) |
+  | **E** reconcile vs live Yjs (keyed) | **pass** (the validated bridge) | O(Δ) | preserved | good w/ keyed-map | med (stateless; composes w/ materialize/connect) | drops from sync path | **front-runner** |
+
+  \*B stays correct only if the read-back feeds it the merged model (same coupling
+  the hybrid has); its one edge over E (move-intent) only pays off under the
+  keyed-map layout, which E gets anyway.
+
+  **Recommendation (engineering):** **Option E** — a keyed reconcile against live
+  Yjs — on a **keyed-map of items + id-named nested state + fractional order key**
+  representation (0004). It is the only option that is *simultaneously* correct
+  (M1–M4 ✓), minimal (O(Δ) ✓), nested-safe on moves (Step 3 ✓), and **preserves
+  the plain-immutable model**, with the least moving parts (stateless; no prev
+  plumbing; composes with today's `materialize`/`connect`). It also lets us drop
+  Adaptive from the *sync path* (Step 1 showed it only contributes a positional
+  diff there) without removing it elsewhere.
+
+  **The decision is gated on the human product question below** (immutable purity):
+  E is recommended *because* it preserves immutability — but if that constraint is
+  not actually required, D (a Y-backed handle) is materially simpler. So we stop
+  here for that call before fixing the option and starting Step 5.
 
 ### Blockers / human decisions needed
 
