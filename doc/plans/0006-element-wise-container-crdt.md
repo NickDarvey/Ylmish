@@ -40,9 +40,14 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
   keyed"** — see *Decisions* below. This both **conditionally kills Option A** and
   **prices Option B** (Adaptive only gives a positional diff we'd have to replace
   anyway).
-- [ ] **Step 2** — **Per-option falsification spikes.** For each option (A–E),
-  the single cheapest experiment that could *kill* it, run against the Step 0
-  harness on one representative datatype. Record pass/fail + scores.
+- [x] **Step 2** — **Per-option falsifiers.** Built the positive experiment — a
+  **keyed element-wise bridge** (`tests/Ylmish.Tests/Harness.Options.fs`, 5 tests)
+  reconciling a stable `Y.Array` of ids by item id — and validated it on the
+  ordered representative datatype (add/remove/**move**): sequential order matches
+  the model fold, concurrent adds preserve both (matches the oracle), add/remove
+  are O(Δ), a sequential move reorders losslessly, and concurrent same-item moves
+  converge (P1) but may duplicate (the no-native-move limit, pinned). Per-option
+  evidence/verdicts in *Decisions*.
 - [ ] **Step 3** — **Identity across model versions** (cross-cutting): decide
   where an item's stable id comes from for *diffing* successive models (reserved
   guid field / reuse 0004 `KeyById`). Required by every diff-based option.
@@ -99,6 +104,49 @@ lost-add bug (asserted as a passing test, so `npm test` stays green). Next:
     - **Every diff-based option (A/B/E) needs an explicit stable item id**;
       Adaptive's `Index` is not it. Identity is now the pivotal cross-cutting
       question (Step 3), not an Adaptive detail.
+
+- **Step 2 — per-option evidence (run against the Step 0 harness):**
+  - **The keyed element-wise mechanism works.** A stable `Y.Array` of ids,
+    reconciled by item id against each new model, passes the harness on the
+    ordered datatype: convergent, no-loss on concurrent adds (matches the oracle),
+    O(Δ) on add/remove, lossless sequential moves. This is the *application layer*
+    every viable option (B and E) produces, so the family is validated.
+  - **The wall is moves, and it is a *representation* problem, not an op-source
+    one.** `Y.Array` has no native move, so a move is delete+insert: it duplicates
+    under concurrent moves and would orphan any per-item nested state (Step 3).
+    This wall is hit identically by A/B/E because they all target a *value array*.
+    The escape is a different **layout** — a keyed **map of items + a fractional
+    order key** (0004): then a move is a key *update* (nested-state-safe, merges),
+    not delete+insert. Elevate this for Step 5; it matters more than A-vs-B-vs-E.
+  - **Option E (reconcile vs live Yjs)** = the validated `keyed` bridge itself:
+    stateless, robust to remote updates landing between local ops (it always
+    diffs against live Yjs). Strongest "just works", least state. Needs a stable
+    id (Step 3); shares the move limit.
+  - **Option B (diff vs previous immutable model)** = the same application layer
+    plus a *previous model* to recover intent. Two findings: (1) it must still
+    apply against *live* Yjs indices, so a `prev` that has diverged from Yjs (a
+    remote update arrived) mis-diffs — B only stays correct if the read-back loop
+    feeds it the merged model, the *same* coupling the hybrid has; (2) the one
+    thing `prev` buys over E is **move-intent**, which a value array can't honour
+    natively anyway — so B's edge over E only pays off under the keyed-map +
+    fractional-order layout above. Verdict: viable, but no free lunch over E.
+  - **Option C (capture intent from `Msg`)** — falsifier run by inspection of the
+    example message sets (`Example.Message`, TodoCollaborative `Msg`): Add/Remove/
+    Set map cleanly, but there is **no reorder/move message** — the apps don't
+    model it, so move-intent can't be captured without inventing synthetic
+    messages. Deeper: C couples `Msg` to sync (a *second* sync surface beside the
+    codec) and only covers state changed *through* messages. Verdict: viable only
+    for apps whose every collaborative mutation is a message *and* who add explicit
+    move messages; inverts Ylmish's "the codec is the only sync concern." Also a
+    product question.
+  - **Option D (handle in the model, `Ref<>`)** — falsifier is ergonomic/values,
+    not empirical: a live Y-backed handle gives exact native ops with zero diffing
+    (mechanically the simplest, and it sidesteps the move/identity problems by
+    using Yjs types directly), but it **breaks referential transparency** for
+    collection fields — `update` is no longer a pure prev→next, and model equality
+    / time-travel / test-replay no longer hold for those fields. Verdict:
+    correctness-strong, but it abandons the plain-immutable-model promise that
+    differentiates Ylmish. Pure **product** decision (see Blockers).
 
 ### Blockers / human decisions needed
 

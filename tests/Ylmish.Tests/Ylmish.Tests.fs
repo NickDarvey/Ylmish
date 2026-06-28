@@ -16,6 +16,7 @@ let tests = [
    TodoCollaborative.tests
    Adaptive.Spike.tests
    Harness.tests
+   HarnessOptions.tests
 ]
 
 #if FABLE_COMPILER

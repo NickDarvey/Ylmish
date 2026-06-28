@@ -21,6 +21,7 @@
     <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Adaptive.Spike.fs" />
     <Compile Include="Harness.fs" />
+    <Compile Include="Harness.Options.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
   <ItemGroup>
