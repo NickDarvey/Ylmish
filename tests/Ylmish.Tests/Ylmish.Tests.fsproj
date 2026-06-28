@@ -17,6 +17,7 @@
     <Compile Include="Y.Map.fs" />
     <Compile Include="Y.Element.fs" />
     <Compile Include="Y.Doc.fs" />
+    <Compile Include="Codec.Collection.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Adaptive.Spike.fs" />

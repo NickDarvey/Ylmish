@@ -21,9 +21,13 @@ Step 0.
   `Ordering` module (`fractional-indexing`); a temporary structural `Codec`;
   updated `Demo`; rewrote the example tests (pure update + ordering + structural
   round-trip). No Yjs in `Model.fs`. 153 passing.
-- [ ] **Step 1** — Library: `Encode.collection` / `Decode.collection` — an
-  element-wise keyed collection of records (membership + per-item LWW value
-  fields), promoting 0006's Option E. Harness/library tests.
+- [x] **Step 1** — Library `Encode.collection` / `Decode.collection` (in
+  `Adaptive.Codec.fs`): an element-wise, id-keyed collection over one top-level
+  `Y.Map` with `<id>/<field>` keys + an `@<id>` presence marker, reconciled by key
+  against live Yjs. Concurrent add/remove merge; per-item fields are per-id LWW.
+  `CollectionItem = { Id; Fields }`. Tests (`Codec.Collection.fs`, 4): concurrent
+  adds both survive, different-item field edits merge, same-field edits converge
+  (LWW), removal propagates. 157 passing.
 - [ ] **Step 2** — Library: compose **per-item CRDT text** under the collection
   (id-named roots, the 0006 "next increment"). Tests: same-item edits merge,
   survive concurrent membership changes/reorder.
