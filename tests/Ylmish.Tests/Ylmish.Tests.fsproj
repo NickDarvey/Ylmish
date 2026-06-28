@@ -24,6 +24,7 @@
     <Compile Include="Harness.Options.fs" />
     <Compile Include="Harness.Identity.fs" />
     <Compile Include="Harness.Slice.fs" />
+    <Compile Include="Harness.Stress.fs" />
     <Compile Include="Ylmish.Tests.fs" />
   </ItemGroup>
   <ItemGroup>

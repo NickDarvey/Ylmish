@@ -158,6 +158,22 @@ structural edits to the *same* container don't element-merge (one side wins). To
 get a merged collection, make its **items** collaborative leaves named by id (as
 above), or define a merging container with `Encode.custom`.
 
+*Element-wise collections (validated approach).* A collection whose concurrent
+adds/removes element-merge — no lost items — is achievable today with the same
+`Encode.custom` seam: keep a **top-level `Y.Array` of item ids** and, on each
+model change, reconcile it to the new ids **by id** (an add is one insert;
+concurrent adds compose). Identity is an explicit per-item id the model carries,
+and per-item nested state (text/custom) is named by that id (`Scheme.byKey`) so it
+survives a reorder. Plan [0006](doc/plans/0006-element-wise-container-crdt.md)
+researched this rigorously — a differential correctness harness vs raw Yjs,
+property-based concurrent schedules, and a thin slice proven end-to-end under
+`withYlmish` (two peers' concurrent adds both survive in both Elmish models). The
+model field stays a plain immutable list. Known limit: `Y.Array` has no native
+move, so a value array's *concurrent* moves of the same item may duplicate (they
+still converge); ordering that must merge belongs on a fractional-order key per
+item, not on array position. `withYlmish` keeps such top-level collection roots
+live in the model via a whole-document remote-transaction read-back.
+
 **Writing a custom element.** The four built-ins don't have to be the end of the
 list. When a field needs a merge strategy of its own — a counter that *sums*
 concurrent increments, a grow-only set, a mergeable register — you can define it

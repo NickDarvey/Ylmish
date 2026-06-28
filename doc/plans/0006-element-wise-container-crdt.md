@@ -17,13 +17,15 @@ Parent: plans 0002/0004. No separate issue yet.
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: AWAITING HUMAN DECISION (Step 4).**
-Steps 0–3 complete and committed (146 tests passing). Evidence points to **Option
-E** (keyed reconcile vs live Yjs, on a keyed-map + id-named nested state +
-fractional order layout) as the engineering front-runner — see the scored rubric
-in *Decisions*. **Stopped at the Step 4 product question** (relax plain-immutable
-purity for collections? — see Blockers) before fixing the option and starting the
-Step 5 thin slice.
+**Last updated:** 2026-06-28 · **Status: COMPLETE.** All steps done (151 tests
+passing). The human chose **Option E** (immutability preserved). Deliverables: a
+trustworthy differential correctness harness (Step 0), a measured characterization
+of Adaptive's deltas that eliminated Option A (Step 1), per-option falsifiers
+(Step 2), the identity decision proven on moves (Step 3), the scored decision
+(Step 4), a thin Option-E slice working end-to-end under `withYlmish` (Step 5),
+and property-based stress + README write-up (Step 6). A general `Encode.collection`
+library combinator (promoting the validated slice) and per-item nested text under
+a dynamic collection are the natural follow-ons.
 
 ### Progress
 
@@ -65,8 +67,12 @@ Step 5 thin slice.
   `withYlmish`** (`tests/Ylmish.Tests/Harness.Slice.fs`, 3 tests). Landed the
   minimal custom-root read-back hook (0005's core) in `withYlmish` and built the
   Option E collection element. See *Decisions*.
-- [ ] **Step 6** — **Adversarial/stress + write-up**: large random schedules,
-  partitions, nesting; document the guarantees *and* the limits; update README.
+- [x] **Step 6** — **Adversarial/stress + write-up.** Property-based random
+  add/remove schedules over two replicas (`tests/Ylmish.Tests/Harness.Stress.fs`,
+  M2): on every one, the keyed bridge converges (P1) and matches the raw-Yjs
+  oracle membership (M1/P2), under both Concurrent and Immediate delivery (100
+  schedules each, deterministic). README's merge-semantics section updated with
+  the element-wise-collection approach, the guarantees, and the move limit.
 
 ### Decisions & lessons
 
