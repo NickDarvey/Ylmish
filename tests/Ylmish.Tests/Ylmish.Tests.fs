@@ -18,6 +18,7 @@ let tests = [
    Harness.tests
    HarnessOptions.tests
    HarnessIdentity.tests
+   HarnessSlice.tests
 ]
 
 #if FABLE_COMPILER

@@ -61,9 +61,10 @@ Step 5 thin slice.
 - [~] **Step 4** — **Scored** against the rubric (table in *Decisions*);
   front-runner = **Option E**. **STOPPED at the human product question** (immutable
   purity — Blockers). The chosen option is fixed only once the human answers.
-- [ ] **Step 5** — **Thin vertical slice** of the winner, end-to-end under
-  `withYlmish` for one datatype, passing the full harness (incl. minimality +
-  liveness). Proves it composes with `materialize`/`connect` and the 0005 readback.
+- [x] **Step 5** — **Thin vertical slice of Option E, end-to-end under
+  `withYlmish`** (`tests/Ylmish.Tests/Harness.Slice.fs`, 3 tests). Landed the
+  minimal custom-root read-back hook (0005's core) in `withYlmish` and built the
+  Option E collection element. See *Decisions*.
 - [ ] **Step 6** — **Adversarial/stress + write-up**: large random schedules,
   partitions, nesting; document the guarantees *and* the limits; update README.
 
@@ -169,6 +170,25 @@ Step 5 thin slice.
     confirms the front-runner representation (keyed items + id-named nested state)
     clears the one wall Step 2 flagged.
 
+- **Step 5 — Option E works end-to-end under `withYlmish`:**
+  - **Read-back hook (the minimal 0005 core):** added a whole-document
+    `afterTransaction` observer to `withYlmish` that re-decodes on every *remote*
+    transaction (`tr.local = false` — echo-free by construction, needs no extra
+    guard). This makes connect-managed **top-level roots** (text, custom, and
+    Option-E collections) live in the model — the root-map observer never sees
+    them. No regression: all 23 `Program` tests stay green.
+  - **The collection element:** a consumer `CustomElement` over a top-level
+    `Y.Array` of ids that reconciles the live array to each new model by item id
+    (Option E). The model field stays a plain immutable `string list`.
+  - **Proven (3 tests):** two `withYlmish` peers concurrently add to the same
+    collection and **both adds survive in both Elmish models** (P1+P2 — the exact
+    bug today's hybrid loses), a remote add reaches the other peer's model with no
+    local dispatch (P6 liveness via the new hook), and sequential add/remove
+    round-trips. Minimality (P4) and the keyed mechanism are covered in Step 2.
+  - **Scope:** membership + order over a `string list`. Per-item nested
+    collaborative text composes on top via id-named roots (proven independently in
+    Step 3 / 0004's `Scheme.byKey`) and is the next increment, not this slice.
+
 - **Step 4 — scored rubric (evidence from Steps 0–3).** Gate = must pass M1–M4.
 
   | Option | Correctness (gate) | Minimality | Immutable model | Move / nested | Complexity / blast | Adaptive footprint | Verdict |
@@ -199,11 +219,21 @@ Step 5 thin slice.
 
 ### Blockers / human decisions needed
 
-- **Product question (decide after Step 2 evidence):** is it acceptable to relax
-  the "plain immutable F# model" promise for *collection* fields (Options C/D,
-  which hold a handle / capture intent), or is preserving it a hard constraint
-  (forcing a diff-based option A/B/E even if costlier)? This is a values call, not
-  an empirical one — the agent must **stop and ask** once the spikes have priced it.
+- **RESOLVED (2026-06-28) — immutable purity is a hard constraint; chosen option =
+  E.** The human chose **Option E** (keyed reconcile vs live Yjs), preserving the
+  plain-immutable F# model for collection fields. C/D (relax immutability) are off
+  the table. Step 5 builds a thin vertical slice of E on the keyed-map + id-named
+  nested state + fractional order layout.
+  - *Original question, for the record:* is it acceptable to relax the "plain
+    immutable F# model" promise for *collection* fields (Options C/D), or is
+    preserving it a hard constraint (forcing a diff-based option A/B/E)? Answer:
+    preserve it.
+  - *Discovered prerequisite:* a robust (A1-safe) Option E collection lives at a
+    **top-level Yjs root** (concurrent get-or-create converges; a nested-in-root-map
+    array would hit the A3 create-time clobber and still lose the cold concurrent
+    add). Top-level roots are not seen by `withYlmish`'s root-map observer, so
+    read-back **liveness (P6)** needs the custom-root read-back hook that plan
+    **0005** designed. Step 5 therefore lands the minimal version of that hook.
 
 ### Agent pickup prompt
 

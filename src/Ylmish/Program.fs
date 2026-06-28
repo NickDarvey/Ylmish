@@ -7,6 +7,18 @@ open Yjs
 
 open Ylmish.Adaptive.Codec
 
+// Yjs' whole-document transaction event. A remote update applied via
+// `applyUpdate` produces a transaction with `local = false`; every local write
+// (materialize, a connect binding's mirror) produces `local = true`. Observing it
+// lets `withYlmish` re-decode on remote changes to *any* root — including the
+// top-level roots that connect-managed leaves (text/custom, and Option-E keyed
+// collections) live on, which the root-map observer never sees.
+[<Fable.Core.Emit("$0.on('afterTransaction', $1)")>]
+let private onAfterTransaction (_doc : Y.Doc) (_handler : Y.Transaction -> unit) : unit = ()
+
+[<Fable.Core.Emit("$0.off('afterTransaction', $1)")>]
+let private offAfterTransaction (_doc : Y.Doc) (_handler : Y.Transaction -> unit) : unit = ()
+
 // module Unpersist =
     
 //     let create (init : 'T -> 'AdaptiveT) (update : 'AdaptiveT -> 'T -> unit) = 
@@ -175,6 +187,22 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
                             else readback ()))
                 { new System.IDisposable with
                     member _.Dispose() = for d in disposables do d.Dispose() }
+            ]
+            [ ["ylmish-remote"], fun dispatch ->
+                // A connect-managed leaf can own a *top-level* Y root (text, custom,
+                // and Option-E keyed collections live there because top-level
+                // get-or-create converges — A1 — whereas a nested root would hit the
+                // A3 create-time clobber). Such roots are invisible to the root-map
+                // observer above. Re-decode on every *remote* transaction so those
+                // roots stay live in the model. `tr.local` is false exactly for
+                // updates applied from a peer, so this fires only on real remote
+                // changes and never echoes our own writes — no extra guard needed.
+                let handler (tr : Y.Transaction) =
+                    if not tr.local then
+                        readbackModel () |> Option.iter (fun m -> dispatch (Set m))
+                onAfterTransaction options.Doc handler
+                { new System.IDisposable with
+                    member _.Dispose() = offAfterTransaction options.Doc handler }
             ]
         ]
 
