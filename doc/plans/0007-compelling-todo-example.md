@@ -9,8 +9,52 @@ Parent: builds on 0002 (text merge), 0003 (custom seam), 0004 (identity/`Scheme`
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: PROPOSAL (awaiting concurrence).** No code
-yet. Once the direction + open questions are settled we break it into steps.
+**Last updated:** 2026-06-28 · **Status: NOT STARTED (broken into steps).**
+Direction concurred; open questions resolved (see *Decisions*). Ready to execute
+Step 0.
+
+### Progress
+
+- [ ] **Step 0** — Pure Elmish todo: model + `update` + `view` + fractional-index
+  ordering, with unit tests. **No Ylmish yet** — establish the readable loop first.
+- [ ] **Step 1** — Library: `Encode.collection` / `Decode.collection` — an
+  element-wise keyed collection of records (membership + per-item LWW value
+  fields), promoting 0006's Option E. Harness/library tests.
+- [ ] **Step 2** — Library: compose **per-item CRDT text** under the collection
+  (id-named roots, the 0006 "next increment"). Tests: same-item edits merge,
+  survive concurrent membership changes/reorder.
+- [ ] **Step 3** — Wire the example codec with `Encode.collection` (text CRDT,
+  done/order LWW) under `withYlmish`. Two-peer convergence tests: concurrent add,
+  edit, reorder, toggle.
+- [ ] **Step 4** — Schema-migration demo: a **field rename with v1/v2
+  coexistence** (tolerant decoder reads both keys; non-destructive encoder). Tests
+  proving a v1-authored doc loads in v2 and mixed-version peers converge.
+- [ ] **Step 5** — Headless two-peer demo (`Demo.fs`): scripted concurrent
+  scenario (adds survive, edits merge, reorder merges, a v1↔v2 beat). `npm run
+  demo` runs clean.
+- [ ] **Step 6** — Docs: README example section + an example walkthrough doc
+  (model, codec mapping, ordering, the migration pattern).
+
+### Decisions (resolved with the human, 2026-06-28)
+
+1. **Collection lives in the *library*** as a reusable `Encode.collection` /
+   `Decode.collection`. Ordering (fractional index) stays *consumer* code.
+2. **Per-item text is CRDT** (character-merge), not LWW.
+3. **Headless** — keep the runnable two-peer scripted demo; no browser UI.
+4. **Migration = a field rename** demonstrating v1/v2 schema **coexistence**
+   (decoder handles both shapes). `Order` is a *feature*, explicitly **not** the
+   migration example.
+5. **Docs are a dedicated step** (Step 6).
+
+### Agent pickup prompt
+
+> You are executing plan 0007. Work the steps in order, one green committed
+> increment each (`npm test`). Keep the Elmish loop in `Model.fs` free of any Yjs
+> reference — that readability is the bar. The collection combinator goes in the
+> *library* (`src/Ylmish`); fractional-index ordering stays consumer code in the
+> example. Per-item text is CRDT. The migration demo is a field rename with live
+> v1/v2 coexistence (tolerant decoder + non-destructive encoder), not `Order`.
+> Update the plan's Progress + Decisions as you go.
 
 ## The problem
 
@@ -138,31 +182,60 @@ representation" a thing you can *run*, not just a claim.
 - **Out (proposed):** a polished drag-and-drop browser UI; a general schema-
   versioning *framework*; solving concurrent-same-item reorder beyond LWW.
 
-## Open questions (resolve before the step breakdown)
+## Open questions
 
-1. **Collection combinator — library or example?** Promote 0006's Option E into the
-   library as a reusable `Encode.collection` (keeps the example readable; makes
-   Ylmish a bit more "batteries-included"), or keep it as example-level consumer
-   code (keeps Ylmish minimal, shows how a consumer assembles it)? *Recommendation:
-   a thin library combinator for the keyed collection, with ordering/fractional
-   index staying in the consumer.*
-2. **Per-item text — CRDT or LWW for v1?** Character-merge per item (the harder
-   composition, the full story) or LWW text first (simpler, and a nice *later*
-   migration to CRDT)? *Recommendation: CRDT per item — it's the differentiator and
-   0004 already proved the id-named-root half.*
-3. **UI — headless two-peer demo (like today) or a minimal browser UI?**
-   *Recommendation: keep it headless/scripted for testability; the readable Elmish
-   loop is the artifact. A minimal DOM UI is an optional stretch.*
-4. **Migration depth — additive `Order` default only, or also a restructure +
-   the coexistence/tolerant-decoder thesis?** *Recommendation: do both — the
-   restructure is what makes the point land.*
-5. **Do we want small `Decode` ergonomics** for the migration pattern (e.g.
-   "optional with default", shape coercion), or just demonstrate with what exists?
+Resolved — see *Decisions* in the State section above.
 
-## Work breakdown
+## Work breakdown — verify after every step
 
-**TBD — pending concurrence on the proposal above.** Once we agree on direction and
-the open questions, expand into ordered steps (one green, committed increment
-each), in the usual style: model+update+view → codec composition (collection +
-nested text + LWW order) → fractional-index ordering → schema-migration demo →
-two-peer demo + tests → docs.
+The checklist lives in *State → Progress*. Detail per step:
+
+### Step 0 — Pure Elmish todo (no Ylmish)
+`Todo = { Id; Text; Done; Order }`, `Model = { Todos; NewItem; Filter }`, the `Msg`
+set above. `update` is pure: `Add` mints a guid id + an `Order` after the last
+item; `Move` sets `Order = generateKeyBetween before after`; toggle/edit/remove are
+ordinary. `view` derives the sorted+filtered list. A small consumer `OrderKey`
+module wraps `fractional-indexing` (JS interop). Unit-test `update` — especially
+`Move`/ordering and `Add` id minting. **Exit:** the loop reads like a textbook todo
+app; tests green; zero Yjs in `Model.fs`.
+
+### Step 1 — Library: element-wise keyed collection
+`Encode.collection` / `Decode.collection` in `src/Ylmish`, generalising 0006's
+Option E from "ids" to "records with an id + value fields": membership is
+element-wise (concurrent add/remove merge), and per-item **value** fields
+(`Done`, `Order`) are per-id LWW that converge. Validate with the 0006 harness
+(differential vs raw Yjs) + property schedules. **Exit:** a list of `{id; done;
+order}` records merges concurrent add/remove/toggle/reorder under the harness;
+library API documented.
+
+### Step 2 — Library: per-item CRDT text under the collection
+Compose id-named `Y.Text` roots per item (0004 `Scheme.byKey`) with the Step 1
+collection, so each item carries a character-merging text field. **Exit:**
+concurrent edits to the *same* item's text merge and survive concurrent membership
+changes/reorder; tests green.
+
+### Step 3 — Wire the example codec under `withYlmish`
+Express the Step 0 model through the codec: `Todos` via `Encode.collection` (text
+CRDT, done/order LWW), `Note` via `Encode.text`. Two-peer `withYlmish` tests:
+concurrent add (both survive), concurrent same-item edit (merge), concurrent
+reorder of different items (merge), concurrent toggle (converge). **Exit:** the app
+is genuinely collaborative end-to-end; tests green.
+
+### Step 4 — Schema migration: a field rename, v1/v2 coexisting
+Pick a scalar field rename (e.g. v1 `done` → v2 `completed`). The **decoder reads
+both** keys (prefer v2, fall back to v1) and the **encoder is non-destructive**.
+Tests: a v1-authored doc loads correctly in v2; a v1 peer and a v2 peer edit the
+same doc concurrently and converge (continuous coexistence). Add a small `Decode`
+ergonomic only if the read-both pattern is otherwise noisy. **Exit:** schema change
+is *runnable*; the coexistence guarantee (and its limit) is tested + documented.
+
+### Step 5 — Headless two-peer demo
+Update `Demo.fs`'s scripted scenario to exercise the above (adds survive, edits
+merge, reorder merges, a v1↔v2 coexistence beat) and print state legibly. **Exit:**
+`npm run demo` runs clean and tells the story.
+
+### Step 6 — Docs
+README example section + an example walkthrough (the model and why it's readable,
+the codec mapping table, ordering via fractional index, and the migration pattern:
+tolerant decoders + non-destructive encoders, continuous coexistence). **Exit:**
+docs match the code; a newcomer can follow the loop and the sync/migration story.
