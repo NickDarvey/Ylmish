@@ -129,6 +129,25 @@ let tests = testList "Codec.Collection" [
             "both peers' edits merged character-wise (CRDT), not last-writer-wins"
     }
 
+    // The minimal migration primitives over CollectionItem.
+
+    test "fieldOr reads the first present name (rename fallback) or a default" {
+        let v1 : CollectionItem = { Id = "1"; Fields = [ "done", "true" ]; Texts = [] }
+        Expect.equal (CollectionItem.fieldOr [ "completed"; "done" ] "false" v1) "true"
+            "falls back to the old name when the new one is absent"
+        let both : CollectionItem = { Id = "1"; Fields = [ "completed", "false"; "done", "true" ]; Texts = [] }
+        Expect.equal (CollectionItem.fieldOr [ "completed"; "done" ] "x" both) "false"
+            "prefers the first (newest) name"
+        let none : CollectionItem = { Id = "1"; Fields = []; Texts = [] }
+        Expect.equal (CollectionItem.fieldOr [ "completed"; "done" ] "def" none) "def"
+            "uses the default when no name is present"
+    }
+
+    test "writeAll dual-writes a value under every name" {
+        Expect.equal (CollectionItem.writeAll [ "completed"; "done" ] "true")
+            [ "completed", "true"; "done", "true" ] "the value is emitted under both keys"
+    }
+
     test "per-item text survives a concurrent membership change" {
         let start = [ itemT "a" [] [ "text", "hello" ] ]
         let p1 = mkPeerWith [ "text" ] start

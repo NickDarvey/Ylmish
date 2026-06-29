@@ -286,6 +286,40 @@ type Encoder<'Input, 'Element> = 'Input -> Encoded<'Element>
 /// contain '/' or '@' (the internal key separators).
 type CollectionItem = { Id : string; Fields : (string * string) list; Texts : (string * string) list }
 
+/// Minimal field helpers over a `CollectionItem` — typed access is still the
+/// consumer's job, but these remove the hand-rolled `tryFind`/`defaultValue`
+/// boilerplate and give a *name* to the two halves of a field rename:
+/// **read-both** (`tryFields` / `fieldOr` try the current name then older names)
+/// and **dual-write** (`writeAll` emits the value under every name so a peer on an
+/// older schema still reads it). A richer, typed migration layer is plan 0008.
+module CollectionItem =
+    /// The value of scalar field `name`, if present.
+    let tryField (name : string) (ci : CollectionItem) : string option =
+        ci.Fields |> List.tryPick (fun (k, v) -> if k = name then Some v else None)
+
+    /// The value of the first present field among `names` — read-through for a
+    /// renamed field: try the current name, then progressively older ones.
+    let tryFields (names : string list) (ci : CollectionItem) : string option =
+        names |> List.tryPick (fun n -> tryField n ci)
+
+    /// First-present scalar value among `names`, or `def`.
+    let fieldOr (names : string list) (def : string) (ci : CollectionItem) : string =
+        tryFields names ci |> Option.defaultValue def
+
+    /// The value of text field `name`, if present.
+    let tryText (name : string) (ci : CollectionItem) : string option =
+        ci.Texts |> List.tryPick (fun (k, v) -> if k = name then Some v else None)
+
+    /// Text field `name`, or `def`.
+    let textOr (name : string) (def : string) (ci : CollectionItem) : string =
+        tryText name ci |> Option.defaultValue def
+
+    /// Emit one logical value under every name in `names` — the dual-write half of
+    /// a rename, so a peer on an older schema still reads it. Concatenate with the
+    /// rest of an item's `Fields`.
+    let writeAll (names : string list) (value : string) : (string * string) list =
+        names |> List.map (fun n -> n, value)
+
 /// The element-wise keyed collection (plan 0006 Option E + 0007 per-item text),
 /// realised over a top-level `Y.Map` (`<id>/<field>` scalar keys + an `@<id>`
 /// presence marker) plus one top-level `Y.Text` root per item text field, named
