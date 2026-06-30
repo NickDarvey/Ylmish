@@ -19,9 +19,11 @@ open Ylmish.Adaptive.Codec
 //     the completion state.
 // Once every peer is on v2 the `done` write (and the fallback) can be dropped.
 
-// The completion flag's names, newest first. Naming the rename once drives both
-// the dual-write (encode) and the read-fallback (decode) below.
-let private completedNames = [ "completed"; "done" ]
+// Ylmish ships no migration helpers — handling schema change is the consumer's
+// job (it may become a library module later). Here we do it by hand: read both the
+// new and old key, and dual-write both, all in plain F#.
+let private fieldOpt (ci : CollectionItem) name =
+    ci.Fields |> List.tryFind (fst >> (=) name) |> Option.map snd
 
 /// Project a todo to its CRDT shape (keyed by the immutable id).
 let private toItem (t : AdaptiveTodo) : aval<CollectionItem> = adaptive {
@@ -33,17 +35,19 @@ let private toItem (t : AdaptiveTodo) : aval<CollectionItem> = adaptive {
     return {
         Id = id
         // Dual-write `completed` (v2) and `done` (v1) so v1 peers still read it.
-        Fields = CollectionItem.writeAll completedNames doneStr @ [ "order", order ]
+        Fields = [ "completed", doneStr; "done", doneStr; "order", order ]
         Texts = [ "text", text ]
     }
 }
 
 let private toTodo (ci : CollectionItem) : Todo =
+    let text = ci.Texts |> List.tryFind (fst >> (=) "text") |> Option.map snd |> Option.defaultValue ""
+    // Read `completed` (v2), falling back to `done` (v1) for older docs/peers.
+    let completed = fieldOpt ci "completed" |> Option.orElse (fieldOpt ci "done") |> Option.defaultValue "false"
     { Id = ci.Id
-      Text = ci |> CollectionItem.textOr "text" ""
-      // Read `completed` (v2), falling back to `done` (v1) for older docs/peers.
-      Done = (ci |> CollectionItem.fieldOr completedNames "false") = "true"
-      Order = ci |> CollectionItem.fieldOr [ "order" ] "" }
+      Text = text
+      Done = (completed = "true")
+      Order = fieldOpt ci "order" |> Option.defaultValue "" }
 
 /// Build the encoder. The `merged` cell is shared with `decode` (the converged
 /// collection is written there by the collection binding and read back here),
