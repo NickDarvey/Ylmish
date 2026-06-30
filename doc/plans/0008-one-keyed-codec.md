@@ -25,10 +25,10 @@ split into their own plans if they destabilise the core.
 
 ### Progress
 
-- [ ] **Step 0** — Spikes/decisions: (a) confirm adaptify turns
-  `HashMap<string,'V>` into `amap<string, Adaptive'V>`; (b) settle how `Decode.map`
-  reads converged items **without a consumer-held cell** — the binding exposes its
-  merged value off `Element.Custom` (the 0005 `Value` contract). Record in *Decisions*.
+- [x] **Step 0** — Spikes done (both confirmed; throwaway code removed). (a)
+  adaptify turns `HashMap<string,'V>` into `amap<string, Adaptive'V>`; (b) a binding
+  can own + expose its merged value and the decoder read it off `Element.Custom`,
+  converging two-doc with no consumer cell. See *Decisions*.
 - [ ] **Step 1** — `Encode.map` / `Decode.map`, **element-wise**, keyed by the
   `amap` key; items encoded/decoded via the object DSL; per-item scalars LWW,
   per-item text CRDT (roots auto-named `<map>/<key>/<field>`). Internal merged
@@ -55,7 +55,21 @@ split into their own plans if they destabilise the core.
 
 ### Decisions & lessons
 
-- *(none yet)*
+- **Step 0(a) — adaptify maps `HashMap` to a keyed `amap` (confirmed).**
+  `HashMap<string, Sub>` generates a `FSharp.Data.Traceable.ChangeableModelMap`
+  exposed as **`amap<string, AdaptiveSub>`**, and `Update` does a keyed reconcile
+  (`_Items_.Update(value.Items)`). So `Encode.map` takes `amap<string, Adaptive'V>`
+  + an item *object* codec; the map key is the identity. Crucially — unlike the
+  positional `IndexList` delta (0006 Step 1) — a map's delta is **keyed by
+  construction**, so there is no positional-identity hazard for maps at all. (Map
+  keys are `string`; non-string keys need a key codec — out of scope.)
+- **Step 0(b) — cell-free decode works (confirmed two-doc).** A binding can own its
+  merged value internally and expose it; the decoder reads it straight off
+  `Element.Custom` (spike used a side interface + downcast; Step 1 will instead add
+  `Value` to `CustomElement`, completing 0005). Two peers writing concurrently
+  converged and both read the merged value off their element — **no consumer-threaded
+  `merged` cell**. Liveness under `withYlmish` rides the existing `afterTransaction`
+  read-back (0006 Step 5).
 
 ### Agent pickup prompt
 
