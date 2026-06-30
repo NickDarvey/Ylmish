@@ -431,6 +431,98 @@ module internal Collection =
                         for yt in observedTexts do yt.unobserve onText
                         cb.Dispose () } }
 
+/// A custom element that surfaces its converged value so a decoder can read it
+/// straight off `Element.Custom` — no consumer-threaded cell (completes plan 0005).
+/// `Value` is a boxed `aval<_>`; the reader unboxes to the type it expects.
+type IValuedElement =
+    abstract Value : aval<obj>
+
+/// The element-wise keyed **map** (plan 0008): like `Collection`, but its items are
+/// ordinary `Element` object-trees (from the item object-codec), keyed by the
+/// model's map key. One top-level `Y.Map` carries membership (`@<k>`) and each
+/// item's scalar fields (`<k>/<field>` = value). Decode surfaces each item as an
+/// `Element.AMap` of `Element.Value` leaves, so the item decoder is an ordinary
+/// `Decode.object`; the merged value is exposed via `IValuedElement` (no cell).
+/// (Per-item CRDT text under the map arrives next; this part is scalars only.)
+module internal MapBinding =
+    [<Literal>]
+    let private Marker = "@"
+    [<Literal>]
+    let private Sep = "/"
+
+    let binding (local : aval<HashMap<string, (string * string) list>>) : CustomElement =
+        let merged = cval (HashMap.empty<string, Element<string>>)
+        { new CustomElement with
+            member _.Kind = Kind.Custom
+            member _.Connect (ctx : BindContext) =
+                let name =
+                    match ctx.Slot with
+                    | Slot.Named n -> n
+                    | Slot.Index i -> string i
+                let ymap : Y.Map<obj> = ctx.Doc.getMap name
+                let active = ctx.Active
+
+                // Read the live map back into per-item `Element` object-trees, sorted
+                // by key for a deterministic, peer-independent shape.
+                let readLive () : HashMap<string, Element<string>> =
+                    let items = System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, Element<string>>> ()
+                    let ensure k =
+                        match items.TryGetValue k with
+                        | true, d -> d
+                        | _ ->
+                            let d = System.Collections.Generic.Dictionary<string, Element<string>> ()
+                            items.[k] <- d
+                            d
+                    ymap.forEach (fun v key _ ->
+                        if key.StartsWith Marker then
+                            ensure (key.Substring Marker.Length) |> ignore
+                        else
+                            let i = key.IndexOf Sep
+                            if i > 0 then
+                                let k = key.Substring (0, i)
+                                let field = key.Substring (i + Sep.Length)
+                                (ensure k).[field] <- Element.Value (string v))
+                    items
+                    |> Seq.map (fun kv ->
+                        let fields = kv.Value |> Seq.map (fun fv -> fv.Key, Some fv.Value) |> HashMap.ofSeq
+                        kv.Key, Element.AMap (AMap.ofHashMap fields))
+                    |> HashMap.ofSeq
+
+                let sync () = transact (fun () -> merged.Value <- readLive ())
+                let onMap (_ : Types.YMap.YMapEvent<obj>) (_ : Y.Transaction) =
+                    if not active.Value then
+                        active.Value <- true
+                        try sync () finally active.Value <- false
+                ymap.observe onMap
+
+                let cb =
+                    local.AddCallback (fun items ->
+                        if not active.Value then
+                            active.Value <- true
+                            try
+                                let target = System.Collections.Generic.Dictionary<string, string> ()
+                                items
+                                |> HashMap.iter (fun k fields ->
+                                    target.[Marker + k] <- k
+                                    for (field, v) in fields do target.[k + Sep + field] <- v)
+                                ctx.Doc.transact (fun _ ->
+                                    let live = ResizeArray<string> ()
+                                    ymap.forEach (fun _ key _ -> live.Add key)
+                                    for key in live do
+                                        if not (target.ContainsKey key) then ymap.delete key
+                                    for KeyValue (key, v) in target do
+                                        match ymap.get key with
+                                        | Some cur when string cur = v -> ()
+                                        | _ -> ymap.set (key, box v) |> ignore)
+                                sync ()
+                            finally active.Value <- false)
+                { new System.IDisposable with
+                    member _.Dispose () =
+                        ymap.unobserve onMap
+                        cb.Dispose () }
+          interface IValuedElement with
+            member _.Value = merged |> AVal.map box }
+
 module Encode =
         
     let object (props : (string * Encoded<_>) list) : Encoded<_> =
@@ -517,12 +609,39 @@ module Encode =
 
     let inline listWith a f = list f a
 
-    let map f a : Encoded<Element<'b>> =
-        a
-        |> AMap.mapA (fun _ v -> f v)
-        |> Element.AMap
-        |> Some
-        |> AVal.constant
+    /// Encode a `bool` scalar as a string-backed value (so it shares an object's
+    /// uniform value type with `string` fields). Pair with `Decode.bool`.
+    let bool (a : aval<bool>) : Encoded<Element<'b>> =
+        value (fun b -> if b then "true" else "false") a
+
+    /// Encode a `HashMap<string, _>` as an **element-wise, id-keyed map** (plan
+    /// 0008): concurrent adds/removes merge and per-item scalar fields are per-id
+    /// last-writer-wins. `item` is an *object* codec for each value (e.g.
+    /// `Encode.object [ ... ]`); the map key is the identity. `Decode.map` reads the
+    /// converged map back off the element — no `merged` cell.
+    let map (item : 'a -> Encoded<Element<string>>) (items : amap<string, 'a>) : Encoded<Element<'b>> =
+        // Force each item's object-codec into a CONCRETE field snapshot
+        // (`(field, value) list`) that changes by value when a field edits — re-wrapping
+        // the same `Element` reference would defeat change-detection. `item v` is an
+        // `AVal.constant` whose fields live in a dynamic inner amap, so bind through it.
+        let snapshot (elOpt : Element<string> option) : aval<(string * string) list> =
+            match elOpt with
+            | Some (Element.AMap m) ->
+                m
+                |> AMap.toAVal
+                |> AVal.map (fun fields ->
+                    fields
+                    |> HashMap.toList
+                    |> List.choose (fun (f, leaf) ->
+                        match leaf with
+                        | Some (Element.Value v) -> Some (f, v)
+                        | _ -> None))
+            | _ -> AVal.constant []
+        let local =
+            items
+            |> AMap.mapA (fun _ v -> item v |> AVal.bind snapshot)
+            |> AMap.toAVal
+        custom (MapBinding.binding local)
 
     let inline mapWith a f = map f a
 
@@ -694,6 +813,36 @@ module Decode =
     /// `CollectionItem list`; map it back to your domain type in the decoder.
     let collection (merged : aval<CollectionItem list>) : Decoder<_,_,CollectionItem list> =
         Element.custom merged
+
+    /// Decode a `bool` written by `Encode.bool` (string-backed "true"/"false").
+    let bool x = Element.value (fun _ (_, v) -> Decoded.ok (string v = "true")) x
+
+    let private decodeItemsMap (item : Decoder<'m, Element<string>, 'i>) (model : 'm) (path : Path) (items : HashMap<string, Element<string>>) : Decoded<HashMap<string, 'i>> =
+        items
+        |> HashMap.fold (fun (state : Decoded<HashMap<string, 'i>>) k el ->
+            adaptive {
+                let! s = state
+                let! d = item model (ObjectKey k :: path, el)
+                match s, d with
+                | Ok m, Ok v -> return Validation.ok (HashMap.add k v m)
+                | Error e, Ok _ -> return Validation.errors e
+                | Ok _, Error e -> return Validation.errors e
+                | Error e1, Error e2 -> return Validation.errors (e1 @ e2)
+            }) (Decoded.ok HashMap.empty)
+
+    /// Decode an element-wise `Encode.map`: read the converged item object-trees off
+    /// the element (no cell) and run the item *object* decoder over each value.
+    let map (item : Decoder<'m, Element<string>, 'i>) : Decoder<'m, Element<string>, HashMap<string, 'i>> =
+        fun model (path, el) ->
+            match el with
+            // Read the converged item trees off the element. An `Encode.map` binding
+            // is always an `IValuedElement`; cast directly (Fable can't runtime-test
+            // an interface, but the cast is safe by construction).
+            | Element.Custom b ->
+                (b :?> IValuedElement).Value
+                |> AVal.bind (fun o -> decodeItemsMap item model path (unbox<HashMap<string, Element<string>>> o))
+            | el ->
+                Decoded.error <| UnexpectedKind {| Path = path; Actual = el.toKind (); Expected = [ Kind.Custom ] |}
 
     let inline tryParse x = Element.value Decoder.tryParse x
 

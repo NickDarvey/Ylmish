@@ -31,11 +31,19 @@ phased so each phase is independently shippable; the last phase may split out.
   adaptify turns `HashMap<string,'V>` into `amap<string, Adaptive'V>`; (b) a binding
   can own + expose its merged value and the decoder read it off `Element.Custom`,
   converging two-doc with no consumer cell. See *Decisions*.
-- [ ] **Step 1** — `Encode.map` / `Decode.map`, **element-wise**, keyed by the
-  `amap` key; items encoded/decoded via the object DSL; per-item scalars LWW,
-  per-item text CRDT (roots auto-named `<map>/<key>/<field>`). Add `Value` to
-  `CustomElement` so the merged value is read off the element — **no consumer cell**
-  (completes 0005). Port the `Codec.Collection` merge tests.
+- [~] **Step 1** — `Encode.map` / `Decode.map`, **element-wise**, keyed by the
+  `amap` key; items encoded/decoded via the object DSL; merged value read off the
+  element — **no consumer cell**.
+  - [x] **1a** — scalars: `Encode.map`/`Decode.map` + `Encode.bool`/`Decode.bool`,
+    cell-free decode via `IValuedElement` (the binding exposes its value; the
+    decoder casts off `Element.Custom` — completes 0005). `Codec.Map.fs` (5 tests):
+    items decode as objects, concurrent adds both survive, field edit round-trips,
+    same-field LWW converges, remove propagates. (Two non-obvious fixes: Fable can't
+    runtime-test an interface so the decoder casts directly; and `local` must be a
+    *concrete* field snapshot, since re-wrapping the same `Element` ref defeats
+    change-detection.)
+  - [ ] **1b** — per-item **text** under the map (CRDT roots `<map>/<key>/<field>`;
+    `Decode.text` accepts a converged-string `Element.Value` fallback).
 - [ ] **Step 2** — **Cut over**: rewrite the todo example to `HashMap` +
   `Encode.map` (items as objects; the consumer keeps its own by-hand field rename).
   Delete `Encode.collection` and `CollectionItem`. Keep the two-peer `withYlmish`
