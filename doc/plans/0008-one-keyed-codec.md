@@ -42,12 +42,12 @@ phased so each phase is independently shippable; the last phase may split out.
   tests green (liveness via the existing `afterTransaction` read-back).
 - [ ] **Step 3** — `Encode.sequence` / `Decode.sequence` for keyless **value**
   lists (a `Y.Array` of values; concurrent add/remove/reorder merge). Tests.
-- [ ] **Step 4** — **Flatten nested object scalars**: nested `Encode.value` becomes
-  a path-keyed root-map entry (auto-named), so nested scalars merge per-key; add
-  `Encode.atomic` for the whole-subtree-LWW opt-in. (Riskiest — touches
-  `materialize`/`dematerialize`; **may split into its own plan**.)
-- [ ] **Step 5** — Docs: README merge-semantics rewritten around the taxonomy
+- [ ] **Step 4** — Docs: README merge-semantics rewritten around the taxonomy
   table; example walkthrough updated; the "model type is the merge choice" story.
+
+*(Flattening nested object scalars + `Encode.atomic` — the riskiest piece, which
+touches the core `materialize`/`dematerialize` path — is split out into plan
+**0009** so it can't destabilise this work.)*
 
 ### Decisions & lessons
 
@@ -84,8 +84,8 @@ The taxonomy — pick the structure that matches the merge you want:
 | `HashMap<K, Record>` | `Encode.map` | element-wise, keyed | **yes** | entities you edit (todos, comments) |
 | `IndexList<Value>` | `Encode.sequence` | CRDT sequence (add/remove/reorder) | no (whole values) | tags, log lines, ordered scalars |
 | `IndexList<_>` | `Encode.list` | whole-container LWW | n/a | small / uncontended |
-| `Record` | `Encode.object` | per-field (flat) | — | nested records |
-| any field | `Encode.atomic` | one LWW unit (opt-in) | — | replace-as-a-whole |
+| `Record` | `Encode.object` | per-field *(flat: plan 0009; today nested = LWW)* | — | nested records |
+| any field | `Encode.atomic` *(plan 0009)* | one LWW unit (opt-in) | — | replace-as-a-whole |
 
 The codec that produces it — an item is just an object, the map needs no `"id"`:
 
@@ -151,16 +151,14 @@ door open.
 
 - **In:** `Encode.map`/`Decode.map` (element-wise, keyed by the model map key);
   items via the object DSL; cell-free decode (binding exposes its value);
-  `Encode.sequence`; `Encode.atomic`; flatten nested scalars; rewrite the example;
-  docs.
-- **Out:** **migration helpers of any kind** (a consumer concern for now; possible
+  `Encode.sequence`; rewrite the example; docs.
+- **Out:** **flattening nested object scalars + `Encode.atomic`** (split to plan
+  **0009**); **migration helpers of any kind** (a consumer concern for now; possible
   future module); non-string map keys (needs a key codec); the per-`Encode.object`
   uniform-value-type wart (separate cleanup).
 
 ## Open questions
 
-- **Phasing.** Step 4 (flatten nested scalars — touches the core `materialize`
-  path) is the riskiest and is separable from the map core; ship it last or split
-  it into its own plan if it destabilises.
-- **`Encode.list` keep or drop?** Once `map`/`sequence`/`atomic` exist, is
-  whole-container-LWW `Encode.list` still worth keeping, or does `atomic` cover it?
+- **`Encode.list` keep or drop?** Once `map`/`sequence` (and 0009's `atomic`)
+  exist, is whole-container-LWW `Encode.list` still worth keeping, or does `atomic`
+  cover it? (Decide once 0009 lands `atomic`.)
