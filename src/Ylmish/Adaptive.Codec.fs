@@ -440,17 +440,41 @@ type IValuedElement =
 /// The element-wise keyed **map** (plan 0008): like `Collection`, but its items are
 /// ordinary `Element` object-trees (from the item object-codec), keyed by the
 /// model's map key. One top-level `Y.Map` carries membership (`@<k>`) and each
-/// item's scalar fields (`<k>/<field>` = value). Decode surfaces each item as an
-/// `Element.AMap` of `Element.Value` leaves, so the item decoder is an ordinary
-/// `Decode.object`; the merged value is exposed via `IValuedElement` (no cell).
-/// (Per-item CRDT text under the map arrives next; this part is scalars only.)
+/// item's fields — scalars at `<k>/v/<field>`, text markers at `<k>/t/<field>` with
+/// content in a `Y.Text` root `<name>/<k>/<field>`. Decode surfaces each item as an
+/// `Element.AMap` (scalars as `Element.Value`, text as its converged-string
+/// `Element.Value`), so the item decoder is an ordinary `Decode.object`; the merged
+/// value is exposed via `IValuedElement` (no cell). `local` carries each field's
+/// type as a `Choice` — `Choice1Of2` scalar value, `Choice2Of2` text content.
 module internal MapBinding =
     [<Literal>]
     let private Marker = "@"
     [<Literal>]
     let private Sep = "/"
+    [<Literal>]
+    let private VTag = "v"
+    [<Literal>]
+    let private TTag = "t"
 
-    let binding (local : aval<HashMap<string, (string * string) list>>) : CustomElement =
+    let private textRoot (name : string) (k : string) (field : string) = name + Sep + k + Sep + field
+
+    /// Mirror a whole string into a `Y.Text` by the minimal common-affix diff, so
+    /// concurrent edits to the *same* item text field merge character-by-character.
+    let private mirrorText (ytext : Y.Text) (newStr : string) =
+        let cur = ytext.toString ()
+        if cur <> newStr then
+            let curLen, newLen = cur.Length, newStr.Length
+            let minLen = min curLen newLen
+            let mutable p = 0
+            while p < minLen && cur.[p] = newStr.[p] do p <- p + 1
+            let mutable s = 0
+            while s < (minLen - p) && cur.[curLen - 1 - s] = newStr.[newLen - 1 - s] do s <- s + 1
+            let delLen = curLen - s - p
+            if delLen > 0 then ytext.delete (p, delLen)
+            let insLen = newLen - s - p
+            if insLen > 0 then ytext.insert (p, newStr.Substring (p, insLen))
+
+    let binding (local : aval<HashMap<string, (string * Choice<string, string>) list>>) : CustomElement =
         let merged = cval (HashMap.empty<string, Element<string>>)
         { new CustomElement with
             member _.Kind = Kind.Custom
@@ -461,9 +485,17 @@ module internal MapBinding =
                     | Slot.Index i -> string i
                 let ymap : Y.Map<obj> = ctx.Doc.getMap name
                 let active = ctx.Active
+                let observed = System.Collections.Generic.HashSet<string> ()
+                let observedTexts = ResizeArray<Y.Text> ()
 
-                // Read the live map back into per-item `Element` object-trees, sorted
-                // by key for a deterministic, peer-independent shape.
+                // A non-marker key `<k>/<tag>/<field>` → (k, tag, field).
+                let parseKey (key : string) =
+                    let parts = key.Split (Sep.[0])
+                    if parts.Length >= 3 then Some (parts.[0], parts.[1], System.String.Join (Sep, parts.[2..]))
+                    else None
+
+                // Read the live Yjs (map scalars + text roots) into per-item
+                // `Element` object-trees, sorted by key for a deterministic shape.
                 let readLive () : HashMap<string, Element<string>> =
                     let items = System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, Element<string>>> ()
                     let ensure k =
@@ -477,18 +509,41 @@ module internal MapBinding =
                         if key.StartsWith Marker then
                             ensure (key.Substring Marker.Length) |> ignore
                         else
-                            let i = key.IndexOf Sep
-                            if i > 0 then
-                                let k = key.Substring (0, i)
-                                let field = key.Substring (i + Sep.Length)
-                                (ensure k).[field] <- Element.Value (string v))
+                            match parseKey key with
+                            | Some (k, tag, field) ->
+                                let d = ensure k
+                                if tag = VTag then d.[field] <- Element.Value (string v)
+                                elif tag = TTag then d.[field] <- Element.Value ((ctx.Doc.getText (textRoot name k field)).toString ())
+                            | None -> ())
                     items
                     |> Seq.map (fun kv ->
                         let fields = kv.Value |> Seq.map (fun fv -> fv.Key, Some fv.Value) |> HashMap.ofSeq
                         kv.Key, Element.AMap (AMap.ofHashMap fields))
                     |> HashMap.ofSeq
 
-                let sync () = transact (fun () -> merged.Value <- readLive ())
+                let textFieldRoots () =
+                    let roots = ResizeArray<string * string> ()
+                    ymap.forEach (fun _ key _ ->
+                        match parseKey key with
+                        | Some (k, tag, field) when tag = TTag -> roots.Add (k, field)
+                        | _ -> ())
+                    roots
+
+                let rec sync () =
+                    // Observe any newly-appeared item text roots so remote text edits
+                    // (which never touch the map) still refresh `merged`.
+                    for (k, field) in textFieldRoots () do
+                        let root = textRoot name k field
+                        if observed.Add root then
+                            let yt = ctx.Doc.getText root
+                            yt.observe onText
+                            observedTexts.Add yt
+                    transact (fun () -> merged.Value <- readLive ())
+                and onText (_ : Types.YText.YTextEvent) (_ : Y.Transaction) =
+                    if not active.Value then
+                        active.Value <- true
+                        try sync () finally active.Value <- false
+
                 let onMap (_ : Types.YMap.YMapEvent<obj>) (_ : Y.Transaction) =
                     if not active.Value then
                         active.Value <- true
@@ -501,10 +556,16 @@ module internal MapBinding =
                             active.Value <- true
                             try
                                 let target = System.Collections.Generic.Dictionary<string, string> ()
+                                let textWrites = ResizeArray<string * string> ()
                                 items
                                 |> HashMap.iter (fun k fields ->
                                     target.[Marker + k] <- k
-                                    for (field, v) in fields do target.[k + Sep + field] <- v)
+                                    for (field, choice) in fields do
+                                        match choice with
+                                        | Choice1Of2 v -> target.[k + Sep + VTag + Sep + field] <- v
+                                        | Choice2Of2 content ->
+                                            target.[k + Sep + TTag + Sep + field] <- ""
+                                            textWrites.Add (textRoot name k field, content))
                                 ctx.Doc.transact (fun _ ->
                                     let live = ResizeArray<string> ()
                                     ymap.forEach (fun _ key _ -> live.Add key)
@@ -513,12 +574,14 @@ module internal MapBinding =
                                     for KeyValue (key, v) in target do
                                         match ymap.get key with
                                         | Some cur when string cur = v -> ()
-                                        | _ -> ymap.set (key, box v) |> ignore)
+                                        | _ -> ymap.set (key, box v) |> ignore
+                                    for (root, content) in textWrites do mirrorText (ctx.Doc.getText root) content)
                                 sync ()
                             finally active.Value <- false)
                 { new System.IDisposable with
                     member _.Dispose () =
                         ymap.unobserve onMap
+                        for yt in observedTexts do yt.unobserve onText
                         cb.Dispose () }
           interface IValuedElement with
             member _.Value = merged |> AVal.map box }
@@ -624,18 +687,23 @@ module Encode =
         // (`(field, value) list`) that changes by value when a field edits — re-wrapping
         // the same `Element` reference would defeat change-detection. `item v` is an
         // `AVal.constant` whose fields live in a dynamic inner amap, so bind through it.
-        let snapshot (elOpt : Element<string> option) : aval<(string * string) list> =
+        let snapshot (elOpt : Element<string> option) : aval<(string * Choice<string, string>) list> =
             match elOpt with
             | Some (Element.AMap m) ->
                 m
                 |> AMap.toAVal
-                |> AVal.map (fun fields ->
+                |> AVal.bind (fun fields ->
                     fields
                     |> HashMap.toList
-                    |> List.choose (fun (f, leaf) ->
+                    |> List.map (fun (f, leaf) ->
                         match leaf with
-                        | Some (Element.Value v) -> Some (f, v)
-                        | _ -> None))
+                        | Some (Element.Value v) -> AVal.constant (Some (f, Choice1Of2 v))
+                        // Force the text clist so an edit inside the item propagates.
+                        | Some (Element.Text chars) ->
+                            chars |> AList.toAVal |> AVal.map (fun cs -> Some (f, Choice2Of2 (System.String.Concat cs)))
+                        | _ -> AVal.constant None)
+                    |> AVal.traverse id
+                    |> AVal.map (List.choose id))
             | _ -> AVal.constant []
         let local =
             items
@@ -763,6 +831,10 @@ module Decode =
                 chars
                 |> AList.toAVal
                 |> AVal.map (fun il -> Validation.ok (System.String.Concat il))
+            // A converged text field surfaced by `Encode.map` arrives as a plain
+            // value (its merged string); read it as text too.
+            | Element.Value v ->
+                Decoded.ok (string v)
             | el ->
                 Decoded.error <| UnexpectedKind {|
                     Path = path
