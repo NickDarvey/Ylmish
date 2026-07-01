@@ -12,7 +12,6 @@ let tests = [
    Y.Map.tests
    Y.Element.tests
    Y.Doc.tests
-   Codec.Collection.tests
    Codec.Map.tests
    Program.tests
    TodoCollaborative.tests

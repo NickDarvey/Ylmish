@@ -44,10 +44,15 @@ phased so each phase is independently shippable; the last phase may split out.
     `<map>/<k>/<field>`; `local` carries each field's type as a `Choice`; the text
     snapshot forces the clist reactively; `Decode.text` accepts a converged-string
     `Element.Value` fallback. Test: concurrent edits to the same item's body merge.
-- [ ] **Step 2** — **Cut over**: rewrite the todo example to `HashMap` +
-  `Encode.map` (items as objects; the consumer keeps its own by-hand field rename).
-  Delete `Encode.collection` and `CollectionItem`. Keep the two-peer `withYlmish`
-  tests green (liveness via the existing `afterTransaction` read-back).
+- [x] **Step 2** — **Cut over** complete. The todo example is now
+  `Todos : HashMap<TodoId, Todo>` (and `Todo` dropped its `Id` field — the map key
+  *is* the identity) encoded with `Encode.map`; items are ordinary objects.
+  `Main.makeProgram` no longer threads a `merged` cell (encode/decode are
+  free-standing). `Encode.collection`, `Decode.collection`, `CollectionItem`, and
+  the `Codec.Collection` tests are **deleted**. The by-hand schema migration moved
+  to the object-field level (dual-write `done`/`completed`, read-both). All
+  two-peer `withYlmish` tests + the migration coexistence tests green; `npm run
+  demo` runs the full story. 164 passing.
 - [ ] **Step 3** — `Encode.sequence` / `Decode.sequence` for keyless **value**
   lists (a `Y.Array` of values; concurrent add/remove/reorder merge). Tests.
 - [ ] **Step 4** — Docs: README merge-semantics rewritten around the taxonomy

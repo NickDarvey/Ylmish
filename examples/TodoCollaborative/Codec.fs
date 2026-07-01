@@ -3,64 +3,47 @@ module TodoCollaborative.Codec
 open FSharp.Data.Adaptive
 open Ylmish.Adaptive.Codec
 
-// The codec is the whole sync story — and it stays out of the Elmish loop. `todos`
-// is an element-wise, id-keyed `Encode.collection`: concurrent adds/removes MERGE
-// (no lost items), each todo's `text` merges character-by-character, and `done` /
-// `order` are per-id last-writer-wins. `NewItem` and `Filter` are local per-peer
-// state and are deliberately not synced.
+// The codec is the whole sync story — and it stays out of the Elmish loop. `Todos`
+// is an element-wise `Encode.map` keyed by the model's map key: concurrent
+// adds/removes MERGE (no lost items), each todo's `text` merges character-by-
+// character, and `done` / `order` are per-id last-writer-wins. An item is just an
+// object. `NewItem` and `Filter` are local per-peer state and are not synced.
 
-// --- Schema evolution: the codec is the migration boundary -------------------
-//
-// Schema v2 renamed the completion flag `done` -> `completed`. A collaborative
-// CRDT document has NO single migration moment: v1 and v2 peers edit it at the
-// same time. So the codec handles both shapes at once:
-//   * the decoder READS BOTH — `completed` (v2), falling back to `done` (v1);
-//   * the encoder DUAL-WRITES both keys, so a still-running v1 peer keeps seeing
-//     the completion state.
-// Once every peer is on v2 the `done` write (and the fallback) can be dropped.
+// --- Schema evolution is the consumer's job (Ylmish ships no migration helpers).
+// v2 renamed the completion flag `done` -> `completed`. A CRDT document has no
+// single migration moment, so the codec reads BOTH keys (prefer `completed`) and
+// dual-writes both (so a v1 peer still sees the state). Drop `done` once all peers
+// are v2. This is ordinary object-codec code — no special support.
 
-// Ylmish ships no migration helpers — handling schema change is the consumer's
-// job (it may become a library module later). Here we do it by hand: read both the
-// new and old key, and dual-write both, all in plain F#.
-let private fieldOpt (ci : CollectionItem) name =
-    ci.Fields |> List.tryFind (fst >> (=) name) |> Option.map snd
+let private encodeTodo (t : AdaptiveTodo) = Encode.object [
+    "completed", Encode.bool t.Done      // v2 name
+    "done",      Encode.bool t.Done      // v1 name (dual-write for coexistence)
+    "order",     t.Order |> Encode.value id
+    "text",      Encode.text t.Text
+]
 
-/// Project a todo to its CRDT shape (keyed by the immutable id).
-let private toItem (t : AdaptiveTodo) : aval<CollectionItem> = adaptive {
-    let! id = t.Id
-    let! text = t.Text
-    let! isDone = t.Done
-    let! order = t.Order
-    let doneStr = if isDone then "true" else "false"
+let private decodeTodo : Decoder<_, _, Todo> = Decode.object {
+    let! completed = Decode.object.optional "completed" Decode.bool   // v2
+    let! legacy    = Decode.object.optional "done" Decode.bool         // v1 fallback
+    let! order = Decode.object.required "order" Decode.value
+    let! text  = Decode.object.required "text" Decode.text
     return {
-        Id = id
-        // Dual-write `completed` (v2) and `done` (v1) so v1 peers still read it.
-        Fields = [ "completed", doneStr; "done", doneStr; "order", order ]
-        Texts = [ "text", text ]
+        Done = completed |> Option.orElse legacy |> Option.defaultValue false
+        Order = order
+        Text = text
     }
 }
 
-let private toTodo (ci : CollectionItem) : Todo =
-    let text = ci.Texts |> List.tryFind (fst >> (=) "text") |> Option.map snd |> Option.defaultValue ""
-    // Read `completed` (v2), falling back to `done` (v1) for older docs/peers.
-    let completed = fieldOpt ci "completed" |> Option.orElse (fieldOpt ci "done") |> Option.defaultValue "false"
-    { Id = ci.Id
-      Text = text
-      Done = (completed = "true")
-      Order = fieldOpt ci "order" |> Option.defaultValue "" }
-
-/// Build the encoder. The `merged` cell is shared with `decode` (the converged
-/// collection is written there by the collection binding and read back here),
-/// exactly like `Encode.custom` / `Decode.custom`.
-let encode (merged : cval<CollectionItem list>) (amodel : AdaptiveTodoModel) = Encode.object [
-    "todos", Encode.collection [ "text" ] toItem merged amodel.Todos
+let encode (amodel : AdaptiveTodoModel) = Encode.object [
+    "todos", Encode.map encodeTodo amodel.Todos
 ]
 
-let decode (merged : cval<CollectionItem list>) : Decoder<TodoModel, _, TodoModel> = Decode.object {
+let decode : Decoder<TodoModel, _, TodoModel> = Decode.object {
+    // NewItem and Filter are local per-peer state, not synced; keep them via `ask`.
     let! current = Decode.object.ask ()
-    let! items = Decode.object.required "todos" (Decode.collection merged)
+    let! todos = Decode.object.required "todos" (Decode.map decodeTodo)
     return {
-        Todos = items |> List.map toTodo |> IndexList.ofList
+        Todos = todos
         NewItem = current.NewItem
         Filter = current.Filter
     }

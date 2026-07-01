@@ -276,161 +276,6 @@ type Decoder<'Model, 'Element, 'Result> = 'Model -> Path * 'Element -> Decoded<'
 type Encoded<'Element> = 'Element option aval
 type Encoder<'Input, 'Element> = 'Input -> Encoded<'Element>
 
-/// One item of an element-wise `Encode.collection`: a stable id, named scalar
-/// `Fields` (per-id last-writer-wins), and named `Texts` (per-id character-level
-/// CRDT, like `Encode.text`). Membership (the set of ids) merges across peers —
-/// concurrent add/remove both apply — scalar edits to different items/fields merge
-/// (same field converges by LWW), and text edits to the *same* field merge
-/// character-by-character. The collection is an unordered keyed set: display order
-/// is a *field* (e.g. a fractional index), not the item's position. Ids must not
-/// contain '/' or '@' (the internal key separators).
-type CollectionItem = { Id : string; Fields : (string * string) list; Texts : (string * string) list }
-
-/// The element-wise keyed collection (plan 0006 Option E + 0007 per-item text),
-/// realised over a top-level `Y.Map` (`<id>/<field>` scalar keys + an `@<id>`
-/// presence marker) plus one top-level `Y.Text` root per item text field, named
-/// `<name>/<id>/<field>`. Top-level get-or-create converges (A1), so concurrent
-/// creation is safe; reconciling against *live* Yjs by key/affix-diff is what makes
-/// add/remove/edit element-wise rather than whole-container LWW.
-module internal Collection =
-    [<Literal>]
-    let private Sep = "/"
-    [<Literal>]
-    let private Marker = "@"
-
-    let private textRoot (name : string) (id : string) (field : string) =
-        name + Sep + id + Sep + field
-
-    /// All scalar keys this snapshot should own, → their string values.
-    let private targetKeys (items : CollectionItem list) : Map<string, string> =
-        items
-        |> List.collect (fun it ->
-            (Marker + it.Id, it.Id) :: (it.Fields |> List.map (fun (f, v) -> it.Id + Sep + f, v)))
-        |> Map.ofList
-
-    /// Reconcile the live map to `items` by key: delete keys no longer wanted, set
-    /// added/changed ones. Only touched keys produce ops, so it is O(delta).
-    let private reconcileMap (ymap : Y.Map<obj>) (items : CollectionItem list) =
-        let target = targetKeys items
-        let live = ResizeArray<string> ()
-        ymap.forEach (fun _ k _ -> live.Add k)
-        for k in live do
-            if not (target.ContainsKey k) then ymap.delete k
-        for KeyValue (k, v) in target do
-            match ymap.get k with
-            | Some cur when string cur = v -> ()
-            | _ -> ymap.set (k, box v) |> ignore
-
-    /// Mirror a whole string into a `Y.Text` by the minimal common-affix diff
-    /// (keep shared prefix/suffix, replace only the changed middle) — the same
-    /// reconciliation `Encode.text` does, applied straight to the live `Y.Text`, so
-    /// concurrent edits to the *same* field merge character-by-character.
-    let private mirrorText (ytext : Y.Text) (newStr : string) =
-        let cur = ytext.toString ()
-        if cur <> newStr then
-            let curLen, newLen = cur.Length, newStr.Length
-            let minLen = min curLen newLen
-            let mutable p = 0
-            while p < minLen && cur.[p] = newStr.[p] do p <- p + 1
-            let mutable s = 0
-            while s < (minLen - p) && cur.[curLen - 1 - s] = newStr.[newLen - 1 - s] do s <- s + 1
-            let delLen = curLen - s - p
-            if delLen > 0 then ytext.delete (p, delLen)
-            let insLen = newLen - s - p
-            if insLen > 0 then ytext.insert (p, newStr.Substring (p, insLen))
-
-    /// A `CustomElement` bridging the model's item list to the keyed `Y.Map` (+ per
-    /// item `Y.Text` roots for `textFields`). `local` is this peer's snapshot
-    /// (mirrored up); `merged` is the converged snapshot written back for
-    /// `Decode.collection`.
-    let binding (textFields : string list) (local : aval<CollectionItem list>) (merged : cval<CollectionItem list>) : CustomElement =
-        { new CustomElement with
-            member _.Kind = Kind.Custom
-            member _.Connect (ctx : BindContext) =
-                let name =
-                    match ctx.Slot with
-                    | Slot.Named n -> n
-                    | Slot.Index i -> string i
-                let ymap : Y.Map<obj> = ctx.Doc.getMap name
-                let active = ctx.Active
-                // Text roots we already observe (grows monotonically as ids appear;
-                // a removed-then-readded item keeps its text — correct CRDT behaviour).
-                let observed = System.Collections.Generic.HashSet<string> ()
-                let observedTexts = ResizeArray<Y.Text> ()
-
-                // Current member ids (presence markers) in the live map.
-                let memberIds () =
-                    let ids = ResizeArray<string> ()
-                    ymap.forEach (fun _ k _ -> if k.StartsWith Marker then ids.Add (k.Substring Marker.Length))
-                    ids
-
-                // Read the live Yjs (map scalars + text roots) back into items,
-                // sorted by id for a deterministic, peer-independent shape.
-                let readLive () : CollectionItem list =
-                    let fields = System.Collections.Generic.Dictionary<string, ResizeArray<string * string>> ()
-                    ymap.forEach (fun v k _ ->
-                        if not (k.StartsWith Marker) then
-                            let i = k.IndexOf Sep
-                            if i > 0 then
-                                let id = k.Substring (0, i)
-                                let field = k.Substring (i + Sep.Length)
-                                match fields.TryGetValue id with
-                                | true, lst -> lst.Add (field, string v)
-                                | _ ->
-                                    let lst = ResizeArray<_> ()
-                                    lst.Add (field, string v)
-                                    fields.[id] <- lst)
-                    memberIds ()
-                    |> Seq.sort
-                    |> Seq.map (fun id ->
-                        let fs = match fields.TryGetValue id with | true, l -> List.ofSeq l | _ -> []
-                        let txts = textFields |> List.map (fun tf -> tf, (ctx.Doc.getText (textRoot name id tf)).toString ())
-                        { Id = id; Fields = fs; Texts = txts })
-                    |> List.ofSeq
-
-                let rec sync () =
-                    // Observe any newly-appeared item text roots so remote edits to
-                    // them (which never touch the map) still refresh `merged`.
-                    for id in memberIds () do
-                        for tf in textFields do
-                            let rn = textRoot name id tf
-                            if observed.Add rn then
-                                let yt = ctx.Doc.getText rn
-                                yt.observe onText
-                                observedTexts.Add yt
-                    transact (fun () -> merged.Value <- readLive ())
-                // Decode (Y -> merged): re-read on any map or text change.
-                and onText (_ : Types.YText.YTextEvent) (_ : Y.Transaction) =
-                    if not active.Value then
-                        active.Value <- true
-                        try sync () finally active.Value <- false
-
-                let onMap (_ : Types.YMap.YMapEvent<obj>) (_ : Y.Transaction) =
-                    if not active.Value then
-                        active.Value <- true
-                        try sync () finally active.Value <- false
-                ymap.observe onMap
-
-                // Encode (local -> Y): reconcile scalars by key and mirror texts by
-                // affix-diff into their id-named roots, all in one transaction.
-                let cb =
-                    local.AddCallback (fun items ->
-                        if not active.Value then
-                            active.Value <- true
-                            try
-                                ctx.Doc.transact (fun _ ->
-                                    reconcileMap ymap items
-                                    for it in items do
-                                        for (tf, v) in it.Texts do
-                                            mirrorText (ctx.Doc.getText (textRoot name it.Id tf)) v)
-                                sync ()
-                            finally active.Value <- false)
-                { new System.IDisposable with
-                    member _.Dispose () =
-                        ymap.unobserve onMap
-                        for yt in observedTexts do yt.unobserve onText
-                        cb.Dispose () } }
-
 /// A custom element that surfaces its converged value so a decoder can read it
 /// straight off `Element.Custom` — no consumer-threaded cell (completes plan 0005).
 /// `Value` is a boxed `aval<_>`; the reader unboxes to the type it expects.
@@ -651,18 +496,6 @@ module Encode =
     let custom (binding : CustomElement) : Encoded<Element<'b>> =
         AVal.constant (Some (Element.Custom binding))
 
-    /// Encode a list as an **element-wise, id-keyed collection** (plan 0006 Option
-    /// E + 0007 per-item text): concurrent adds/removes merge (no lost items), each
-    /// item's scalar `Fields` are per-id last-writer-wins, and each named text field
-    /// in `textFields` merges character-by-character (like `Encode.text`). `item`
-    /// projects each element to a `CollectionItem`. Thread the same `merged` cell
-    /// into `Decode.collection` to read the converged value back — symmetric with
-    /// `Encode.custom` / `Decode.custom`. The collection is unordered (keyed by id);
-    /// impose display order with a field (e.g. a fractional index), not position.
-    let collection (textFields : string list) (item : 'a -> aval<CollectionItem>) (merged : cval<CollectionItem list>) (items : 'a alist) : Encoded<Element<'b>> =
-        let local = items |> AList.mapA item |> AList.toAVal |> AVal.map IndexList.toList
-        custom (Collection.binding textFields local merged)
-
     let list (f : 'a -> Encoded<Element<'b>>) (a : 'a alist) : Encoded<Element<'b>> =
         a
         |> AList.mapA f
@@ -879,12 +712,6 @@ module Decode =
     /// Decode a consumer-defined collaborative field by reading the merged-value
     /// cell threaded through `Encode.custom` (see `Element.custom`).
     let custom (value : aval<'a>) : Decoder<_,_,'a> = Element.custom value
-
-    /// Decode an element-wise collection by reading the merged snapshot threaded
-    /// through `Encode.collection` (see `Encode.collection`). Returns the converged
-    /// `CollectionItem list`; map it back to your domain type in the decoder.
-    let collection (merged : aval<CollectionItem list>) : Decoder<_,_,CollectionItem list> =
-        Element.custom merged
 
     /// Decode a `bool` written by `Encode.bool` (string-backed "true"/"false").
     let bool x = Element.value (fun _ (_, v) -> Decoded.ok (string v = "true")) x

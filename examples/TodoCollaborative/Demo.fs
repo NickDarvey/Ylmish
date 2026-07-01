@@ -108,7 +108,7 @@ let runPeer (name : string) =
     // Run the Ylmish-wired program, capturing dispatch and logging each model.
     let setState (model : TodoModel) (d : Program.Message<TodoModel, Msg> -> unit) =
         dispatch <- d
-        let render (t : Todo) = sprintf "%s%s" (if t.Done then "[x] " else "[ ] ") t.Text
+        let render (_, t : Todo) = sprintf "%s%s" (if t.Done then "[x] " else "[ ] ") t.Text
         printfn "[peer %s] %A" name (TodoModel.visible model |> List.map render)
 
     Main.makeProgram doc
