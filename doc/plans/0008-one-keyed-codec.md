@@ -53,8 +53,12 @@ phased so each phase is independently shippable; the last phase may split out.
   to the object-field level (dual-write `done`/`completed`, read-both). All
   two-peer `withYlmish` tests + the migration coexistence tests green; `npm run
   demo` runs the full story. 164 passing.
-- [ ] **Step 3** — `Encode.sequence` / `Decode.sequence` for keyless **value**
-  lists (a `Y.Array` of values; concurrent add/remove/reorder merge). Tests.
+- [x] **Step 3** — `Encode.sequence` / `Decode.sequence`: a keyless CRDT sequence
+  of `string` values over a top-level `Y.Array`, reconciled by minimal common-affix
+  diff so concurrent inserts/removes at different positions merge; the converged
+  `string list` is read off the element (no cell). `Codec.Sequence.fs` (3 tests):
+  round-trips in order, concurrent appends both survive, remove propagates.
+  167 passing.
 - [ ] **Step 4** — Docs: README merge-semantics rewritten around the taxonomy
   table; example walkthrough updated; the "model type is the merge choice" story.
 

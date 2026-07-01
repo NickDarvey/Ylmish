@@ -13,6 +13,7 @@ let tests = [
    Y.Element.tests
    Y.Doc.tests
    Codec.Map.tests
+   Codec.Sequence.tests
    Program.tests
    TodoCollaborative.tests
    Adaptive.Spike.tests

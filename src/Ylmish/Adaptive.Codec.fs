@@ -431,6 +431,62 @@ module internal MapBinding =
           interface IValuedElement with
             member _.Value = merged |> AVal.map box }
 
+/// A keyless **CRDT sequence** (plan 0008) over a top-level `Y.Array` of values:
+/// concurrent inserts/removes merge (both adds survive; order is CRDT-resolved) —
+/// but there is no per-item identity, so you cannot address/update an element in
+/// place; the value *is* the content. Reconciled by the minimal common-affix diff
+/// (like `Encode.text`, one level up), so edits at different positions compose. The
+/// merged `string list` is exposed via `IValuedElement` (no cell).
+module internal SequenceBinding =
+    /// Replace only the changed middle (keep the shared prefix/suffix), so
+    /// concurrent inserts/removes at different positions merge.
+    let private reconcile (arr : Y.Array<obj>) (target : string list) =
+        let cur = arr.toArray () |> Seq.map string |> Seq.toArray
+        let tgt = List.toArray target
+        let curLen, tgtLen = cur.Length, tgt.Length
+        let minLen = min curLen tgtLen
+        let mutable p = 0
+        while p < minLen && cur.[p] = tgt.[p] do p <- p + 1
+        let mutable s = 0
+        while s < (minLen - p) && cur.[curLen - 1 - s] = tgt.[tgtLen - 1 - s] do s <- s + 1
+        let delLen = curLen - s - p
+        if delLen > 0 then arr.delete (float p, float delLen)
+        let insLen = tgtLen - s - p
+        if insLen > 0 then arr.insert (float p, tgt.[p .. p + insLen - 1] |> Array.map box)
+
+    let binding (local : aval<string list>) : CustomElement =
+        let merged = cval ([] : string list)
+        { new CustomElement with
+            member _.Kind = Kind.Custom
+            member _.Connect (ctx : BindContext) =
+                let name =
+                    match ctx.Slot with
+                    | Slot.Named n -> n
+                    | Slot.Index i -> string i
+                let arr : Y.Array<obj> = ctx.Doc.getArray name
+                let active = ctx.Active
+                let read () = arr.toArray () |> Seq.map string |> Seq.toList
+                let sync () = transact (fun () -> merged.Value <- read ())
+                let observe (_ : Y.Array.Event<obj>) (_ : Y.Transaction) =
+                    if not active.Value then
+                        active.Value <- true
+                        try sync () finally active.Value <- false
+                arr.observe observe
+                let cb =
+                    local.AddCallback (fun items ->
+                        if not active.Value then
+                            active.Value <- true
+                            try
+                                ctx.Doc.transact (fun _ -> reconcile arr items)
+                                sync ()
+                            finally active.Value <- false)
+                { new System.IDisposable with
+                    member _.Dispose () =
+                        arr.unobserve observe
+                        cb.Dispose () }
+          interface IValuedElement with
+            member _.Value = merged |> AVal.map box }
+
 module Encode =
         
     let object (props : (string * Encoded<_>) list) : Encoded<_> =
@@ -545,6 +601,14 @@ module Encode =
         custom (MapBinding.binding local)
 
     let inline mapWith a f = map f a
+
+    /// Encode a list of string values as a keyless **CRDT sequence** (plan 0008):
+    /// concurrent inserts/removes merge; there is no per-item identity, so it is for
+    /// values you add/remove/reorder as a whole (tags, log lines), not records you
+    /// edit in place. Read back with `Decode.sequence`.
+    let sequence (items : alist<string>) : Encoded<Element<'b>> =
+        let local = items |> AList.toAVal |> AVal.map IndexList.toList
+        custom (SequenceBinding.binding local)
 
 module Decoded =
     let inline ofValidation (c : Validation<'a, Error>) : Decoded<'a> = AVal.constant c
@@ -742,6 +806,14 @@ module Decode =
                 |> AVal.bind (fun o -> decodeItemsMap item model path (unbox<HashMap<string, Element<string>>> o))
             | el ->
                 Decoded.error <| UnexpectedKind {| Path = path; Actual = el.toKind (); Expected = [ Kind.Custom ] |}
+
+    /// Decode a keyless `Encode.sequence`: read the converged `string list` off the
+    /// element (no cell).
+    let sequence : Decoder<_,_,string list> = fun _ (path, el) ->
+        match el with
+        | Element.Custom b -> (b :?> IValuedElement).Value |> AVal.map (fun o -> Validation.ok (unbox<string list> o))
+        | el ->
+            Decoded.error <| UnexpectedKind {| Path = path; Actual = el.toKind (); Expected = [ Kind.Custom ] |}
 
     let inline tryParse x = Element.value Decoder.tryParse x
 
