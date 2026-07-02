@@ -420,11 +420,13 @@ let tests = testList "Program" [
         |}
 
         //Promise.awaitAnimationFrame ()
-        
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
+
+        // A nested record's scalar flattens to a dotted root-map key (plan 0009),
+        // so it merges per-field instead of living in a wholesale nested Y.Map.
+        let root : Y.Map<string> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
-        
+        Expect.equal (Some value.Prop0) (root.get "propE.prop0") "Y.Doc value"
+
     }
 
     test "withYlmish persists updated object" {
@@ -464,11 +466,11 @@ let tests = testList "Program" [
         |}
 
         Example.dispatch dispatcher <| Example.SetPropE value
-        
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
+
+        let root : Y.Map<string> = doc.getMap ()
         Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
-        
+        Expect.equal (Some value.Prop0) (root.get "propE.prop0") "Y.Doc value"
+
     }
 
     test "withYlmish falls back to init model when Y.Doc has incompatible state" {
@@ -514,8 +516,10 @@ let tests = testList "Program" [
         Expect.equal "init-value" (dispatcher.Model.PropA) "Model PropA should be from init"
         Expect.equal "init-prop0" (dispatcher.Model.PropE.Prop0) "Model PropE.Prop0 should be from init"
         // Y.Doc should be re-materialized with the init model's encoded data
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
-        Expect.equal (Some "init-prop0") (root.get("propE").Value.get("prop0")) "Y.Doc should be re-materialized"
+        // (the incompatible "propE" string is dropped; the scalar flattens to a
+        // dotted root key).
+        let root : Y.Map<string> = doc.getMap ()
+        Expect.equal (Some "init-prop0") (root.get "propE.prop0") "Y.Doc should be re-materialized"
     }
 
     test "withYlmish observes Y.Doc changes and updates model" {

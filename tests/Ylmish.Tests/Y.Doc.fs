@@ -204,7 +204,7 @@ let tests = testList "Y.Doc" [
             Expect.equal arrData.[2] "value3" "third item"
         }
 
-        test "materializes nested object" {
+        test "materializes nested object (scalar flattened to a dotted root key)" {
             let doc = Y.Doc.Create ()
             let amodel = Example.AdaptiveModel.Create {
                 PropA = "unused"
@@ -218,11 +218,12 @@ let tests = testList "Y.Doc" [
             let encoded = Example.Codec.encode amodel
             Y.Doc.materialize doc encoded
 
-            let root : Y.Map<Y.Map<string>> = doc.getMap()
-            let propE = root.get "propE"
-            Expect.isSome propE "propE should exist"
-            let nestedMap = propE.Value
-            Expect.equal (nestedMap.get "prop0") (Some "nested-value") "nested prop0"
+            // Plan 0009: a nested record's scalar is flattened to a dotted root-map
+            // key (`propE.prop0`) — a per-field register that merges — not a
+            // wholesale nested Y.Map.
+            let root : Y.Map<string> = doc.getMap()
+            Expect.equal (root.get "propE.prop0") (Some "nested-value") "nested prop0 at flattened key"
+            Expect.isFalse (root.has "propE") "no wholesale nested Y.Map under 'propE'"
         }
 
         // Plan 0004, Step 4 — the documented guarantee of the hybrid for *non-text
@@ -663,6 +664,133 @@ let tests = testList "Y.Doc" [
                 Expect.equal (IndexList.toList result.PropD) items "List item order must be preserved"
             | Error errors ->
                 failwith $"Decoding failed: %A{errors}"
+        }
+    ]
+
+    // Plan 0009 — nested-record scalars are flattened to dotted root-map keys so
+    // they merge per-field, instead of a nested Y.Map replaced wholesale. These
+    // pin the merge win, the `atomic` opt-out, composition with text, multi-field
+    // round-trips, and the separator-escaping rule.
+    testList "flat nested scalars (0009)" [
+        test "concurrent edits to different fields of a nested record both survive" {
+            let mkEnc (name : cval<string>) (bio : cval<string>) : Encoded<Element<string>> =
+                Encode.object [
+                    "author", Encode.object [
+                        "name", Encode.value id name
+                        "bio",  Encode.value id bio
+                    ]
+                ]
+            let n1, b1 = cval "n", cval "b"
+            let n2, b2 = cval "n", cval "b"
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            // Common baseline synced to both peers.
+            Y.Doc.materialize d1 (mkEnc n1 b1)
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            // Concurrent edits to DIFFERENT fields of the same record.
+            transact (fun () -> n1.Value <- "Alice")
+            Y.Doc.materialize d1 (mkEnc n1 b1)
+            transact (fun () -> b2.Value <- "hi there")
+            Y.Doc.materialize d2 (mkEnc n2 b2)
+            // Exchange both ways.
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+            let read (d : Y.Doc) : Y.Map<string> = d.getMap ()
+            Expect.equal ((read d1).get "author.name") (Some "Alice") "d1: peer1's name edit"
+            Expect.equal ((read d1).get "author.bio") (Some "hi there") "d1: peer2's bio edit"
+            Expect.equal ((read d2).get "author.name") (Some "Alice") "d2 converges on name"
+            Expect.equal ((read d2).get "author.bio") (Some "hi there") "d2 converges on bio"
+        }
+
+        test "Encode.atomic keeps a nested record whole-record LWW (the opt-out)" {
+            let mkEnc (name : cval<string>) (bio : cval<string>) : Encoded<Element<string>> =
+                Encode.object [
+                    "author", Encode.atomic (Encode.object [
+                        "name", Encode.value id name
+                        "bio",  Encode.value id bio
+                    ])
+                ]
+            let n1, b1 = cval "n", cval "b"
+            let n2, b2 = cval "n", cval "b"
+            let d1 = Y.Doc.Create ()
+            let d2 = Y.Doc.Create ()
+            Y.Doc.materialize d1 (mkEnc n1 b1)
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            transact (fun () -> n1.Value <- "Alice")
+            Y.Doc.materialize d1 (mkEnc n1 b1)
+            transact (fun () -> b2.Value <- "hi there")
+            Y.Doc.materialize d2 (mkEnc n2 b2)
+            Y.applyUpdate (d2, Y.encodeStateAsUpdate d1)
+            Y.applyUpdate (d1, Y.encodeStateAsUpdate d2)
+            // The whole "author" is a single wholesale Y.Map register.
+            let author (d : Y.Doc) : Y.Map<string> =
+                (d.getMap () : Y.Map<Y.Map<string>>).get("author").Value
+            let name1, bio1 = (author d1).get "name", (author d1).get "bio"
+            let a2 = author d2
+            Expect.equal name1 (a2.get "name") "the atomic record converges across peers"
+            Expect.equal bio1 (a2.get "bio") "the atomic record converges across peers"
+            Expect.isFalse (name1 = Some "Alice" && bio1 = Some "hi there")
+                "whole-record LWW — one peer's entire record wins, so the two edits do NOT both land"
+        }
+
+        test "a nested record composes a flattened scalar with a CRDT text field" {
+            // { doc: { title: <scalar>, body: <text> } } — title flattens to a
+            // dotted root key; body stays its own connect-managed text root.
+            let title = cval "T"
+            let body = cval ""
+            let enc : Encoded<Element<string>> =
+                Encode.object [ "doc", Encode.object [
+                    "title", Encode.value id title
+                    "body",  Encode.text body ] ]
+            let d = Y.Doc.Create ()
+            Y.Doc.materialize d enc
+            use _ = Y.Doc.connect d enc
+            transact (fun () -> body.Value <- "hello")
+            let root : Y.Map<string> = d.getMap ()
+            Expect.equal (root.get "doc.title") (Some "T") "scalar flattened to a dotted root key"
+            Expect.isFalse (root.has "doc.body") "text is not a structural root-map entry"
+            Expect.equal ((d.getText "doc.body").toString ()) "hello"
+                "text lives in its own dotted root, alongside the flattened scalar"
+        }
+
+        test "a multi-field nested record round-trips through flatten/reassemble" {
+            let enc : Encoded<Element<string>> =
+                Encode.object [ "author", Encode.object [
+                    "name", Encode.value id (cval "Ada")
+                    "bio",  Encode.value id (cval "hacker") ] ]
+            let decode : Decoder<unit, Element<string>, string * string> =
+                Decode.object {
+                    let! pair = Decode.object.required "author" (Decode.object {
+                        let! n = Decode.object.required "name" Decode.value
+                        let! b = Decode.object.required "bio" Decode.value
+                        return n, b
+                    })
+                    return pair
+                }
+            let d = Y.Doc.Create ()
+            Y.Doc.materialize d enc
+            let root : Y.Map<string> = d.getMap ()
+            Expect.equal (root.get "author.name") (Some "Ada") "name is an independent dotted key"
+            Expect.equal (root.get "author.bio") (Some "hacker") "bio is an independent dotted key"
+            match Decode.run () decode (AVal.constant (Some (Y.Doc.dematerialize d))) |> AVal.force with
+            | Ok (n, b) ->
+                Expect.equal n "Ada" "reassembled + decoded name"
+                Expect.equal b "hacker" "reassembled + decoded bio"
+            | Error e -> failwith $"decode failed: %A{e}"
+        }
+
+        test "a field name containing the separator is escaped, not read as nesting" {
+            let enc : Encoded<Element<string>> =
+                Encode.object [ "a.b", Encode.value id (cval "v") ]
+            let d = Y.Doc.Create ()
+            Y.Doc.materialize d enc
+            match Y.Doc.dematerialize d with
+            | Element.AMap m ->
+                match AMap.force m |> HashMap.tryFind "a.b" with
+                | Some (Some (Element.Value s)) ->
+                    Expect.equal s "v" "the dotted field name survives as a single key, not a -> b"
+                | other -> failwith $"expected 'a.b' as one Value, got %A{other}"
+            | _ -> failwith "root should be AMap"
         }
     ]
 

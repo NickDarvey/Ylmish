@@ -577,6 +577,11 @@ module Doc =
                 | None -> ymap.set(key, None) |> ignore
             )
             Y.Element.Map ymap
+        | Codec.Element.Atomic e ->
+            // An atomic subtree is one wholesale Y value (plan 0009): project its
+            // inner tree straight through, so it becomes a single nested container
+            // that is replaced as a whole (last-writer-wins).
+            elementToY e
         | Codec.Element.Text _ ->
             // A bare Text element (directly under an array/root rather than an
             // object field) is connect-managed; materialize never emits one.
@@ -642,7 +647,49 @@ module Doc =
         | _ -> failwith $"valueToElement: unsupported value type: %A{value}"
         #endif
 
-    /// Materialize an Encoded Element tree into a Y.Doc's root map
+    /// Flatten/reassemble dotted root-map keys (plan 0009). A nested record's scalar
+    /// leaves are stored as **path-keyed entries in the single root `Y.Map`** (e.g.
+    /// `"author.name"`) so concurrent edits to different fields merge per-key, instead
+    /// of a nested `Y.Map` replaced wholesale. Field names are escaped so a name
+    /// containing the separator can't be mistaken for a nesting boundary — the same
+    /// dotted convention `Scheme.flat` already uses to name text/custom roots.
+    module private Flatten =
+        [<Literal>]
+        let private Sep = '.'
+
+        /// Escape a single path segment: `\` -> `\\`, `.` -> `\.`.
+        let private escapeSeg (s : string) =
+            s.Replace("\\", "\\\\").Replace(".", "\\.")
+
+        /// Extend a dotted prefix with one more (escaped) segment.
+        let join (prefix : string) (key : string) =
+            let e = escapeSeg key
+            if prefix = "" then e else prefix + string Sep + e
+
+        /// Split a dotted key back into its original segments, honouring escapes.
+        let split (dotted : string) : string list =
+            let segs = ResizeArray<string> ()
+            let sb = System.Text.StringBuilder ()
+            let mutable i = 0
+            while i < dotted.Length do
+                let c = dotted.[i]
+                if c = '\\' && i + 1 < dotted.Length then
+                    sb.Append dotted.[i + 1] |> ignore
+                    i <- i + 2
+                elif c = Sep then
+                    segs.Add (sb.ToString ())
+                    sb.Clear () |> ignore
+                    i <- i + 1
+                else
+                    sb.Append c |> ignore
+                    i <- i + 1
+            segs.Add (sb.ToString ())
+            List.ofSeq segs
+
+    /// Materialize an Encoded Element tree into a Y.Doc's root map. Scalar leaves of
+    /// nested records are flattened to dotted root-map keys (plan 0009) so they merge
+    /// per-field; text/custom leaves stay connect-managed roots; lists and `atomic`
+    /// subtrees stay single wholesale-LWW entries.
     let materialize (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : unit =
         let rootMap = doc.getMap()
 
@@ -654,30 +701,50 @@ module Doc =
             match element with
             | Codec.Element.AMap amap ->
                 doc.transact(fun _ ->
-                    // Clear existing keys that aren't in the new map
-                    let newKeys = AMap.force amap |> HashMap.toSeq |> Seq.map fst |> Set.ofSeq
+                    // Flatten value leaves of nested records into dotted root keys,
+                    // collecting the (dotted-key -> Y value) entries to write. Text
+                    // and Custom leaves are connect-managed roots, not root-map
+                    // entries, so they are skipped here.
+                    let entries = System.Collections.Generic.Dictionary<string, Codec.Element<string>> ()
+                    let rec emit (prefix : string) (m : amap<string, Codec.Element<string> option>) =
+                        AMap.force m
+                        |> HashMap.iter (fun key value ->
+                            let dotted = Flatten.join prefix key
+                            match value with
+                            | Some (Codec.Element.Text _) -> ()
+                            | Some (Codec.Element.Custom _) -> ()
+                            // Descend into a nested record, flattening its scalars.
+                            | Some (Codec.Element.AMap child) -> emit dotted child
+                            // Value / AList / Atomic: one wholesale entry at this key.
+                            | Some e -> entries.[dotted] <- e
+                            | None -> ())
+                    emit "" amap
+
+                    // Reconcile: drop any live key no longer produced, then write the
+                    // current entries. Each entry is an independent root-map register,
+                    // so concurrent writes to different keys merge.
+                    let newKeys = entries.Keys |> Set.ofSeq
                     let mutable keysToDelete = []
                     rootMap.forEach (fun _ key _ ->
                         if not (Set.contains key newKeys) then
                             keysToDelete <- key :: keysToDelete
                     ) |> ignore
-
                     keysToDelete |> List.iter (fun key -> rootMap.delete key)
 
-                    // Set all keys from the map
-                    AMap.force amap
-                    |> HashMap.iter (fun key value ->
-                        match value with
-                        // Text and Custom leaves are connect-managed roots, not
-                        // entries in the structural root map; skip them.
-                        | Some (Codec.Element.Text _) -> ()
-                        | Some (Codec.Element.Custom _) -> ()
-                        | Some e ->
-                            let yelement = elementToY e
-                            rootMap.set(key, yelement) |> ignore
-                        | None ->
-                            rootMap.delete key
-                    )
+                    for KeyValue (key, el) in entries do
+                        match el with
+                        // A scalar: skip a no-op re-stamp so a *local* update that
+                        // touches other fields doesn't needlessly rewrite this one and
+                        // collide with a peer's concurrent edit to it. This minimality
+                        // is what lets flattened per-field scalars actually merge —
+                        // only genuinely-changed scalars are (re)written (plan 0009).
+                        | Codec.Element.Value s ->
+                            match rootMap.get key with
+                            | Some cur when string (box cur) = s -> ()
+                            | _ -> rootMap.set(key, elementToY el) |> ignore
+                        // Lists / atomic subtrees are single wholesale entries —
+                        // replaced as a whole (documented last-writer-wins).
+                        | _ -> rootMap.set(key, elementToY el) |> ignore
                 )
             | _ -> failwith "Root element must be an AMap (object)"
 
@@ -754,6 +821,10 @@ module Doc =
             | Codec.Element.Value _ ->
                 // Non-text: handled by the structural/LWW path, not connect.
                 ()
+            | Codec.Element.Atomic _ ->
+                // An atomic subtree is one wholesale structural value (plan 0009),
+                // not a set of connect-managed leaves — leave it to materialize.
+                ()
             | Codec.Element.Custom binding ->
                 // A consumer-defined element, through the same contract as text:
                 // flattened to a scheme-named top-level root (A3-safe Parent = Root,
@@ -769,18 +840,34 @@ module Doc =
     let connect (doc : Y.Doc) (encoded : Codec.Encoded<Codec.Element<string>>) : IDisposable =
         connectWith Codec.Scheme.flat doc encoded
 
-    /// Dematerialize a Y.Doc's root map into an Element<string> tree
+    /// Dematerialize a Y.Doc's root map into an Element<string> tree. The inverse of
+    /// `materialize`: dotted root keys are **reassembled** into the nested record
+    /// tree they were flattened from (plan 0009), so a decoder walks the same shape
+    /// it encoded. A genuine nested `Y.Map` value (an `atomic` subtree, or state
+    /// written by an older peer) is read as a single leaf by `valueToElement`, so
+    /// both representations converge on the same nested `Element.AMap`.
     let dematerialize (doc : Y.Doc) : Codec.Element<string> =
         let rootMap = doc.getMap()
-        let mutable items = HashMap.empty<string, Codec.Element<string> option>
 
+        // Collect each root entry as (original path segments, leaf element).
+        let entries = ResizeArray<string list * Codec.Element<string> option> ()
         rootMap.forEach (fun value key _ ->
-            // Check if value is null/undefined
-            if isNull (box value) then
-                items <- HashMap.add key None items
-            else
-                // Convert the value directly to Codec.Element
-                items <- HashMap.add key (Some (valueToElement value)) items
+            let leaf = if isNull (box value) then None else Some (valueToElement value)
+            entries.Add (Flatten.split key, leaf)
         ) |> ignore
 
-        Codec.Element.AMap (AMap.ofHashMap items)
+        // Group by leading segment, recursing on the tails, to rebuild the nesting.
+        let rec build (rows : (string list * Codec.Element<string> option) list) : amap<string, Codec.Element<string> option> =
+            rows
+            |> List.groupBy (fun (segs, _) -> List.head segs)
+            |> List.map (fun (seg, group) ->
+                let tails = group |> List.map (fun (segs, leaf) -> List.tail segs, leaf)
+                match tails |> List.tryFind (fun (t, _) -> List.isEmpty t) with
+                // A direct leaf at this segment (no deeper path).
+                | Some (_, leaf) -> seg, leaf
+                // Only deeper paths: a nested record reassembled from its children.
+                | None -> seg, Some (Codec.Element.AMap (build tails)))
+            |> HashMap.ofList
+            |> AMap.ofHashMap
+
+        Codec.Element.AMap (build (List.ofSeq entries))

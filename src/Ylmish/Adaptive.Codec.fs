@@ -148,6 +148,12 @@ type Element<'Value> =
     | AList of alist<Element<'Value> option>
     | AMap of amap<string, Element<'Value> option>
     | Custom of CustomElement                        // extension seam (see CustomElement)
+    /// Opt-in whole-subtree last-writer-wins (plan 0009): the wrapped subtree is
+    /// materialized as a *single* Y value and replaced wholesale each update, the
+    /// opposite of the flat-by-default per-field merge nested objects otherwise get.
+    /// It round-trips (dematerializes) as an ordinary nested object, so decoding is
+    /// unchanged — the marker only steers `materialize`.
+    | Atomic of Element<'Value>
     with
     member this.toKind () =
         match this with
@@ -156,6 +162,7 @@ type Element<'Value> =
         | AList _ -> Kind.List
         | AMap _ -> Kind.Map
         | Custom b -> b.Kind
+        | Atomic e -> e.toKind ()
 
 type PathSegment =
     | ObjectKey   of string
@@ -610,6 +617,16 @@ module Encode =
         let local = items |> AList.toAVal |> AVal.map IndexList.toList
         custom (SequenceBinding.binding local)
 
+    /// Encode a subtree as a **single last-writer-wins unit** (plan 0009): the
+    /// nested object is stored as one Y value and replaced wholesale each update,
+    /// so concurrent edits to *different* fields of it clobber rather than merge.
+    /// This is the deliberate opt-out from flat-by-default per-field merge — use it
+    /// when a record should move atomically (it always replaces as a whole). Wrap an
+    /// object encoder: `Encode.atomic (Encode.object [ ... ])`. Read with
+    /// `Decode.atomic` (the subtree round-trips as an ordinary nested object).
+    let atomic (inner : Encoded<Element<'b>>) : Encoded<Element<'b>> =
+        inner |> AVal.map (Option.map Element.Atomic)
+
 module Decoded =
     let inline ofValidation (c : Validation<'a, Error>) : Decoded<'a> = AVal.constant c
     let inline ok (c : 'a) : Decoded<'a> = ofValidation <| Validation.ok c
@@ -814,6 +831,13 @@ module Decode =
         | Element.Custom b -> (b :?> IValuedElement).Value |> AVal.map (fun o -> Validation.ok (unbox<string list> o))
         | el ->
             Decoded.error <| UnexpectedKind {| Path = path; Actual = el.toKind (); Expected = [ Kind.Custom ] |}
+
+    /// Decode a subtree written by `Encode.atomic`. An atomic subtree round-trips as
+    /// an ordinary nested object (`materialize` stores it wholesale; `dematerialize`
+    /// reads it back as a plain nested `Element.AMap`), so the inner decoder runs
+    /// unchanged — this wrapper only documents the symmetry with `Encode.atomic` at
+    /// the call site.
+    let atomic (inner : Decoder<'m, Element<'a>, 'r>) : Decoder<'m, Element<'a>, 'r> = inner
 
     let inline tryParse x = Element.value Decoder.tryParse x
 
