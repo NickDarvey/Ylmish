@@ -29,8 +29,8 @@ todo's text** and both edits landing, completion toggles converging, a
 ## The readable loop (`Model.fs`)
 
 ```fsharp
-type Todo  = { Id : TodoId; Text : string; Done : bool; Order : string }
-type Model = { Todos : Todo list; NewItem : string; Filter : Filter }
+type Todo  = { Text : string; Done : bool; Order : string }        // key holds the id
+type Model = { Todos : HashMap<TodoId, Todo>; NewItem : string; Filter : Filter }
 
 type Msg =
     | SetNewItem of string
@@ -57,7 +57,9 @@ move, so concurrent moves duplicate.)
 
 ## The sync story lives in the codec (`Codec.fs`)
 
-`todos` is an element-wise **`Encode.collection`** keyed by the immutable `Id`:
+`Todos` is a `HashMap<TodoId, Todo>`, so it's an element-wise **`Encode.map`** keyed
+by the map key — the identity lives in the container's type, not a field. Each
+todo is encoded with an ordinary **`Encode.object`**:
 
 | Field | Merge |
 |---|---|
@@ -65,8 +67,9 @@ move, so concurrent moves duplicate.)
 | `text` | character-level CRDT (per-item `Y.Text`) |
 | `done`, `order` | per-id last-writer-wins |
 
-`NewItem` and `Filter` are local per-peer UI state and are deliberately **not**
-synced. None of this leaks into `Model.fs`.
+An item is just an object — no `"id"` argument, no `merged` cell. `NewItem` and
+`Filter` are local per-peer UI state and are deliberately **not** synced. None of
+this leaks into `Model.fs`.
 
 ## The codec is also the schema-migration boundary
 
@@ -79,7 +82,8 @@ v2 renamed the completion flag `done` → `completed`; the codec:
 
 Once every peer is on v2, drop the `done` write and the fallback. `Migration.fs`
 shows a v1-authored todo loading correctly under this v2 codec. This is the value:
-schema change is expressed in *one place*, declaratively, and old/new peers coexist.
+schema change is expressed in *one place* (the codec) as ordinary consumer code —
+Ylmish ships no migration helpers — and old/new peers coexist on the live document.
 
 ## What to watch in the demo
 

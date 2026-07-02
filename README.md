@@ -94,13 +94,18 @@ When two peers change the same field concurrently, what should happen? That is a
 field in your Elmish model stays plain immutable F# — a `string` is a `string`,
 not a Yjs handle.
 
-| Combinator | Yjs backing | Merge semantics | Use for |
+The **model's type is the merge choice** — pick the field type that matches the
+merge you want, and the codec follows:
+
+| Model field | Combinator | Yjs backing | Merge semantics |
 |---|---|---|---|
-| `Encode.value` / `Decode.value` | `Y.Map` entry | last-writer-wins | toggles, enums, numbers, ids |
-| `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT | prose, collaborative bodies |
-| `Encode.list` / `map` / `object` | `Y.Array` / `Y.Map` | structural (whole-container LWW) | small fixed collections |
-| `Encode.collection` / `Decode.collection` | top-level `Y.Map` + per-item `Y.Text` (own roots) | **element-wise**: add/remove merge, fields per-id LWW, text CRDT | collaborative lists keyed by id |
-| `Encode.custom` / `Decode.custom` | your choice (own root) | **you define it** | counters, sets, anything below |
+| scalar | `Encode.value` / `Decode.value` (`Encode.bool` for `bool`) | `Y.Map` entry | last-writer-wins |
+| `string` (prose) | `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT |
+| record | `Encode.object` / `Decode.object` | `Y.Map` keys | per-field |
+| `HashMap<K, Record>` | `Encode.map` / `Decode.map` | `Y.Map` + per-item `Y.Text` (own roots) | **element-wise, keyed**: add/remove merge, fields per-id LWW, text CRDT |
+| `IndexList<Value>` | `Encode.sequence` / `Decode.sequence` | `Y.Array` (own root) | **CRDT sequence**: add/remove/reorder merge (no per-item edit) |
+| `IndexList<_>` | `Encode.list` / `Decode.list` | `Y.Array` | whole-container LWW (small / uncontended) |
+| anything | `Encode.custom` / `Decode.custom` | your choice (own root) | **you define it** |
 
 `Encode.text : aval<string> -> _` keeps the model field a plain `string`. The
 Adaptive layer recovers the character inserts/deletes by **diffing successive
@@ -153,42 +158,60 @@ own. See
 (printed by `npm run demo`) for two peers holding a list in different orders whose
 edits still merge onto the right item.
 
-*Small fixed containers are last-writer-wins; use `Encode.collection` for
-collaborative lists.* The plain `Encode.list` / `map` path re-projects the whole
-container each update, so it is **whole-container LWW** — fine for a small, rarely-
-contended collection, but concurrent structural edits to the *same* container lose
-one side. For a list that several peers edit at once, reach for **`Encode.collection`**.
-
-*Element-wise collections — `Encode.collection`.* This is the merging-collection
-combinator: concurrent **adds/removes merge** (no lost items), each item's scalar
-**fields are per-id LWW**, and named **text fields merge character-by-character**.
-You project each model item to a `CollectionItem` (its stable id + named string
-fields + named text fields); the same `merged` cell read by `Decode.collection`
-gives the converged list back. Identity is an explicit per-item id your model
-carries — the collection is an *unordered keyed set*, so impose display order with
-a **field** (a fractional-index key), not the item's position:
+*Editable collections — model them as a `HashMap` (`Encode.map`).* A collection
+several peers edit at once is a `HashMap<key, Record>`: the map key is the item's
+identity, and the value is an ordinary record. `Encode.map` runs each value through
+an **object codec** (the same `Encode.object` / `Decode.object` you'd write for any
+record) and keys an element-wise `Y.Map` (+ per-item `Y.Text` roots) off the map
+key. So concurrent **adds/removes merge** (no lost items), scalar fields are
+**per-id LWW**, and text fields **merge character-by-character** — an item is just
+an object, with no `"id"` argument and no cell to thread:
 
 ```fsharp
-// in your encoder — `done`/`order` are per-id LWW, `text` is a per-item CRDT
-"todos", Encode.collection [ "text" ] toItem mergedCell amodel.Todos
-// in your decoder
-let! items = Decode.object.required "todos" (Decode.collection mergedCell)
+[<ModelType>] type Todo  = { Text : string; Done : bool; Order : string }   // key holds the id
+[<ModelType>] type Model = { Todos : HashMap<TodoId, Todo>; ... }
+
+let encodeTodo (t : AdaptiveTodo) = Encode.object [
+    "done",  Encode.bool t.Done            // per-id LWW
+    "order", t.Order |> Encode.value id    // per-id LWW
+    "text",  Encode.text t.Text            // per-item character CRDT
+]
+let decodeTodo = Decode.object {
+    let! isDone = Decode.object.required "done" Decode.bool
+    let! order  = Decode.object.required "order" Decode.value
+    let! text   = Decode.object.required "text" Decode.text
+    return { Done = isDone; Order = order; Text = text }
+}
+
+"todos", Encode.map encodeTodo amodel.Todos                                  // encode
+let! todos = Decode.object.required "todos" (Decode.map decodeTodo)          // decode → HashMap
 ```
 
-Under the hood it is one top-level `Y.Map` (`<id>/<field>` keys + an `@<id>`
-presence marker) plus a top-level `Y.Text` per item text field, reconciled against
-live Yjs by key/affix-diff; top-level roots make concurrent creation safe (A1), and
-`withYlmish` keeps them live in the model via a whole-document remote-transaction
-read-back. The model field stays a plain immutable list. The approach was derived
-rigorously in plan [0006](doc/plans/0006-element-wise-container-crdt.md)
-(differential correctness harness vs raw Yjs, property-based concurrent schedules).
-Known limit: there is no native *move*, so ordering that must merge belongs on a
-fractional-order **field** per item (one LWW write per reorder), not on array
-position — which is exactly how the todo example prioritises its list. See
+A `HashMap` is **unordered** (identity + membership only), so a display order is a
+**field** you sort by — typically a fractional index
+([`fractional-indexing`](https://github.com/rocicorp/fractional-indexing):
+`generateKeyBetween` gives a sort key between any two neighbours, so a reorder is
+one LWW field write). Ylmish doesn't bundle it; bring your own. This layout also
+sidesteps the fact that a CRDT array has no native *move*.
+
+*Keyless value lists — `Encode.sequence`.* When the elements are plain **values**
+you add/remove/reorder as a whole (tags, log lines) — not records you edit in
+place — model an `IndexList<Value>` and use `Encode.sequence`: a CRDT sequence over
+a `Y.Array` where concurrent inserts/removes merge, no key required (the value *is*
+the content).
+
+Under the hood both keep their state on **top-level roots** (concurrent creation
+converges — A1), reconcile against live Yjs, and expose their converged value so
+the decoder reads it straight off the element — no threaded cell; `withYlmish` keeps
+them live via a whole-document remote-transaction read-back. The approach was
+derived rigorously in plan [0006](doc/plans/0006-element-wise-container-crdt.md)
+(a differential correctness harness vs raw Yjs, property-based concurrent
+schedules) and unified onto the object codec in
+[0008](doc/plans/0008-one-keyed-codec.md). See
 [`examples/TodoCollaborative`](examples/TodoCollaborative) for the worked app.
 
-**Writing a custom element.** The four built-ins don't have to be the end of the
-list. When a field needs a merge strategy of its own — a counter that *sums*
+**Writing a custom element.** The built-in combinators don't have to be the end of
+the list. When a field needs a merge strategy of its own — a counter that *sums*
 concurrent increments, a grow-only set, a mergeable register — you can define it
 in your own code, without editing Ylmish's `Element` union or forking the
 library, through the `Custom` seam. You implement one contract:

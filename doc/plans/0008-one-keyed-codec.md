@@ -22,8 +22,12 @@ here). Completes 0005 (the binding exposes its merged value — see Step 1).
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: IN PROGRESS.** Step 0 done. Large —
-phased so each phase is independently shippable; the last phase may split out.
+**Last updated:** 2026-06-28 · **Status: COMPLETE.** All steps done (167 tests
+passing; `npm run demo` runs the full story). Collection items are ordinary objects
+through `Encode.object`/`Decode.object`; `Encode.map` is keyed by the model's map
+key (no `"id"`, no cell); `Encode.sequence` covers keyless value lists; docs rewritten
+around the taxonomy. The one keyed world is in place. Nested-object-scalar flattening
++ `Encode.atomic` are the follow-on plan [0009](0009-flat-nested-scalars.md).
 
 ### Progress
 
@@ -59,8 +63,11 @@ phased so each phase is independently shippable; the last phase may split out.
   `string list` is read off the element (no cell). `Codec.Sequence.fs` (3 tests):
   round-trips in order, concurrent appends both survive, remove propagates.
   167 passing.
-- [ ] **Step 4** — Docs: README merge-semantics rewritten around the taxonomy
-  table; example walkthrough updated; the "model type is the merge choice" story.
+- [x] **Step 4** — Docs: README merge-semantics rewritten around the taxonomy
+  table ("the model's type is the merge choice"; `map`/`sequence`/`object`/`list`
+  rows, `Encode.collection` removed); the `Encode.map` example inline; example
+  walkthrough updated for `HashMap` + `Encode.map` (and migration noted as
+  consumer-implemented, no helpers).
 
 *(Flattening nested object scalars + `Encode.atomic` — the riskiest piece, which
 touches the core `materialize`/`dematerialize` path — is split out into plan
