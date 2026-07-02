@@ -31,44 +31,66 @@ as today; only what they *compile to* changes. Plus an explicit opt-out:
 
 ## State
 
-**Last updated:** 2026-06-28 · **Status: NOT STARTED (proposal + steps).**
-Depends on 0008 (`Encode.map`) landing first.
+**Last updated:** 2026-07-02 · **Status: COMPLETE.** All steps done (172 tests
+passing). Nested-record scalars flatten to dotted root-map keys (`author.name`) and
+merge per-field; `materialize` skips no-op re-stamps so concurrent edits to
+different fields both survive; `dematerialize` reassembles the nested tree so
+decoders are unchanged; field names are escaped around the separator.
+`Encode.atomic` / `Decode.atomic` (a new `Element.Atomic` case) is the wholesale-LWW
+opt-out and round-trips as an ordinary nested object. Consumer code
+(`Encode.object` / `Decode.object`) is unchanged — only what it compiles to changed.
 
 ### Progress
 
-- [ ] **Step 0** — Spike/decide the flattened representation: dotted keys in the
-  root `Y.Map` (`"author.name"`) vs individual roots; and how `dematerialize`
-  **reassembles** the nested `Element` tree from flat keys so `Decode.object` is
-  unchanged. Pick a separator + escaping rule for field names containing it.
-- [ ] **Step 1** — Flatten nested *value* leaves in `materialize`/`dematerialize`
-  (objects of scalars → dotted root-map entries → reassembled tree on read). Keep
-  the whole suite green; update the structural tests that assert nested `Y.Map`s.
-- [ ] **Step 2** — `Encode.atomic` / `Decode.atomic`: a subtree as one LWW value
-  (JSON-ish), for explicit whole-record replacement.
-- [ ] **Step 3** — Composition: a nested object holding *both* scalars and
-  text/custom/`map` still works (scalars flatten to dotted keys; text/custom/map
-  keep their own roots — the `Scheme` already names them by the same path).
-- [ ] **Step 4** — Migrate the example/tests to show a nested scalar now merges
-  per-key; docs (README + walkthrough); revisit the "keep `Encode.list`?" question
-  now that `atomic` exists.
+- [x] **Step 0/1** — Flattened representation + reassembly. **Dotted keys in the
+  root `Y.Map`** (`"author.name"`) — reuses the same convention `Scheme.flat` gives
+  text/custom roots. `materialize` walks the object tree, descending nested `AMap`s
+  and emitting each scalar leaf as a dotted root entry; `dematerialize` groups the
+  dotted keys back into the nested `AMap` tree. Separator `.` with a backslash
+  **escape** (`\.`, `\\`) so a field name containing `.` isn't read as nesting.
+  **Minimality:** a scalar whose stored value already matches is *not* re-stamped —
+  this is what lets a local edit to one field avoid colliding with a peer's
+  concurrent edit to another, so they truly merge. Structural tests that asserted
+  nested `Y.Map`s were updated deliberately.
+- [x] **Step 2** — `Encode.atomic` / `Decode.atomic` via a new `Element.Atomic`
+  case: `materialize` emits the wrapped subtree as one wholesale `Y.Map`/value
+  (last-writer-wins), and it dematerializes back to a plain nested `AMap`, so
+  `Decode.atomic` is the inner decoder unchanged (no JSON needed).
+- [x] **Step 3** — Composition proven: a nested object holding a flattened scalar
+  **and** a CRDT text field works — the scalar flattens to `doc.title`, the text
+  stays its own connect-managed root `doc.body`. Lists/customs nested in an object
+  keep their own single entry/root as before.
+- [x] **Step 4** — Tests demonstrate per-field merge (concurrent edits to different
+  fields both survive) and the `atomic` contrast (whole-record LWW); multi-field
+  round-trip and separator-escaping pinned; README merge-semantics table + a nested
+  records section updated. `Encode.list` question resolved below.
 
 ### Agent pickup prompt
 
-> You are executing plan 0009 (do 0008's `map` first). The bar: consumer code
-> (`Encode.object`/`Decode.object`) is **unchanged** — only the backend changes so
-> nested scalars merge per-key. `Encode.atomic` is the opt-in for whole-subtree
-> LWW. This touches `materialize`/`dematerialize`; keep `npm test` green every step
-> and update structural tests deliberately, not reflexively.
+> Plan 0009 is COMPLETE. Nothing to pick up.
 
-## Design sketch
+## Design (as built)
 
-- **materialize:** walk the `Element` tree; a nested `AMap` of value leaves emits
-  dotted root-map entries (`author.name`, `author.bio` if a value) rather than a
-  nested `Y.Map`. The walk already exists for text/custom; extend it to values.
-- **dematerialize:** read the root map; **reassemble** dotted keys back into the
-  nested `AMap` tree, so `Decode.object` walks it unchanged.
-- **`atomic`:** one key holds a serialized snapshot of the subtree; decode parses
-  it. The escape hatch that preserves "replace as a whole".
+- **materialize:** walks the root `AMap`; descends nested `AMap`s (records),
+  emitting each scalar leaf as a dotted root-map entry (`author.name`). Text/custom
+  leaves are skipped (connect-managed roots); lists and `Atomic` subtrees are one
+  wholesale entry. A scalar is written only if its stored value differs (the
+  merge-enabling minimality).
+- **dematerialize:** reads the root map, splits each key on the (escaped) separator,
+  and reassembles the nested `AMap` tree — so a decoder walks the shape it encoded. A
+  genuine nested `Y.Map` (an `atomic` subtree, or an older peer's state) is read as a
+  single leaf, so both representations converge on the same nested `Element.AMap`.
+- **`atomic`:** `Element.Atomic e` marks a subtree for wholesale materialization;
+  because it round-trips as a plain nested object, decode needs no counterpart work.
+
+### Resolved: keep `Encode.list`
+
+`Encode.atomic` now generalizes "store this subtree as one wholesale LWW value" to
+*any* subtree, and for an `IndexList` it coincides with `Encode.list` (both project a
+whole `Y.Array` and replace it wholesale). **Keep `Encode.list`**: it is the
+ergonomic, typed combinator for an ordered `alist` (paired with `Decode.list`'s
+positional traversal), whereas `atomic` is the general escape hatch aimed at records.
+They are complementary, not redundant.
 
 ## Scope / non-goals
 

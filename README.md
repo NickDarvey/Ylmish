@@ -101,7 +101,8 @@ merge you want, and the codec follows:
 |---|---|---|---|
 | scalar | `Encode.value` / `Decode.value` (`Encode.bool` for `bool`) | `Y.Map` entry | last-writer-wins |
 | `string` (prose) | `Encode.text` / `Decode.text` | `Y.Text` (own root) | character-level CRDT |
-| record | `Encode.object` / `Decode.object` | `Y.Map` keys | per-field |
+| record | `Encode.object` / `Decode.object` | flattened `Y.Map` keys (e.g. `author.name`) | **per-field**: nested scalars merge per-key, each field LWW |
+| any subtree | `Encode.atomic` / `Decode.atomic` | one `Y.Map` entry | whole-subtree LWW (replace as a whole — the opt-out) |
 | `HashMap<K, Record>` | `Encode.map` / `Decode.map` | `Y.Map` + per-item `Y.Text` (own roots) | **element-wise, keyed**: add/remove merge, fields per-id LWW, text CRDT |
 | `IndexList<Value>` | `Encode.sequence` / `Decode.sequence` | `Y.Array` (own root) | **CRDT sequence**: add/remove/reorder merge (no per-item edit) |
 | `IndexList<_>` | `Encode.list` / `Decode.list` | `Y.Array` | whole-container LWW (small / uncontended) |
@@ -199,6 +200,30 @@ you add/remove/reorder as a whole (tags, log lines) — not records you edit in
 place — model an `IndexList<Value>` and use `Encode.sequence`: a CRDT sequence over
 a `Y.Array` where concurrent inserts/removes merge, no key required (the value *is*
 the content).
+
+*Nested records are flat by default (and `Encode.atomic` opts out).* A record
+nested inside another (`Encode.object` within `Encode.object`) is **flattened**: its
+scalar leaves become dotted entries in the single root `Y.Map` (`author.name`,
+`author.bio`), each an independent register. So two peers editing *different* fields
+of the same nested record both keep their edit — the same per-field merge a
+top-level scalar gets — with **no change to your codec**: you write ordinary
+`Encode.object` / `Decode.object` and only what it compiles to changes. When you
+*want* a subtree to move as a unit (replace-the-whole-record), wrap it in
+`Encode.atomic` — it is stored as one wholesale last-writer-wins value and read back
+with `Decode.atomic` (it round-trips as an ordinary nested object, so the inner
+decoder is unchanged). This was derived in plan
+[0009](doc/plans/0009-flat-nested-scalars.md).
+
+```fsharp
+"author", Encode.object [                 // nested → author.name, author.bio (merge per-field)
+    "name", a.Name |> Encode.value id
+    "bio",  a.Bio  |> Encode.value id
+]
+"coords", Encode.atomic (Encode.object [  // one wholesale unit (x and y move together)
+    "x", c.X |> Encode.value id
+    "y", c.Y |> Encode.value id
+])
+```
 
 Under the hood both keep their state on **top-level roots** (concurrent creation
 converges — A1), reconcile against live Yjs, and expose their converged value so

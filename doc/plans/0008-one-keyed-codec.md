@@ -183,6 +183,8 @@ door open.
 
 ## Open questions
 
-- **`Encode.list` keep or drop?** Once `map`/`sequence` (and 0009's `atomic`)
-  exist, is whole-container-LWW `Encode.list` still worth keeping, or does `atomic`
-  cover it? (Decide once 0009 lands `atomic`.)
+- **`Encode.list` keep or drop?** ~~Once `map`/`sequence` (and 0009's `atomic`)
+  exist, is whole-container-LWW `Encode.list` still worth keeping?~~ **Resolved in
+  [0009](0009-flat-nested-scalars.md): keep it** — the ergonomic typed combinator for
+  an ordered `alist`; `atomic` is the general subtree escape hatch, and they coincide
+  only for lists.
