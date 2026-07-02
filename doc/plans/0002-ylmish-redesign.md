@@ -25,15 +25,10 @@ Decisions taken with Nick (2026-07-02):
 | Which layers are public? | **Elmish-first.** `Program.withYlmish` + the codec are the supported surface. The adaptive↔Y attach primitives stay internal so they can change freely. |
 | Who seeds a fresh document? | **Decode-empty = init.** The library never writes structure eagerly. An empty/partial doc decodes through the consumer's decoder (which has access to the current model); containers are created lazily by the first client that *edits* them, atomically. No seeding race by construction. |
 | Packaging | **One `Ylmish` package** (plus `Fable.Yjs`); opinionated extras are separate namespaces you must explicitly `open`. |
-
-Provisional decisions — recommended defaults, awaiting Nick's confirmation (see [Open questions](#open-questions)):
-
-| Question | Provisional |
-| --- | --- |
-| Per-field merge menu | Core codec offers **LWW registers + mergeable Text** (+ lists/maps). Richer strategies (counters, timestamped LWW, custom reduces) deferred until a consumer needs them. |
-| List semantics | **`Encode.list` → Y.Array with documented limits** (concurrent reorder duplicates; delete beats concurrent edit-inside). A keyed encoding can come later. |
-| Migrations scope | **Dual-key read/write combinators** (read old-or-new, prefer new, write both). No version bookkeeping in the doc. |
-| Demo form | **Two panes, one page**: two independent Elmish apps + Y.Docs on one static page with a connect/disconnect toggle. |
+| Per-field merge menu | **LWW registers, mergeable Text, and mergeable lists (Y.Array insert/delete merge)** — the three merge behaviours Yjs gives us natively. Richer strategies (counters, timestamped LWW, custom reduces) deferred until a consumer needs them. The demo must exercise list merging, not just text. |
+| List semantics | **`Encode.list` → Y.Array with documented limits** (concurrent reorder duplicates; delete beats concurrent edit-inside). Additionally ship **`Encode.map` as the keyed primitive** (items in a Y.Map by consumer-supplied stable key) so consumers who have keys can build ordering themselves — e.g. fractional indexing as an order field. Ylmish provides the primitive, not the opinionated ordering machinery. |
+| Migrations | **Defer entirely.** No Migrations module yet. The codec must keep migrations *expressible* (decoders compose, encoders combine, the runtime preserves unknown keys) and the docs show the dual-key recipe, but nothing ships until a real consumer validates the need. |
+| Demo form | **CLI, as today.** A Node script whose output demonstrates the system under interesting concurrency: offline divergence, concurrent text edits interleaving, concurrent list inserts merging, LWW clobber shown honestly, reconvergence after sync. |
 
 ## Validated assumptions about Yjs
 
@@ -56,13 +51,13 @@ Runnable scripts: [`0002-assumptions/`](./0002-assumptions/) (`node experiments.
 | U11 | Replace a nested Y.Text with a fresh one while a peer edits the old one. | Replacement wins; the peer's edits are lost. | Precisely why materialize-per-update can never merge. Bind, never replace. |
 | U13 | Concurrent "move" (delete+insert) of the same list item. | The item is **duplicated**. | Known Yjs v13 limitation; documented list semantics (keyed encoding as a possible later module). |
 | U14 | One `doc.transact` spanning many nested types. | One `observeDeep` batch containing all events. | Remote changes apply as a single Elmish `Set` per transaction — atomic model updates. |
-| U15 | A client applies updates containing keys it doesn't understand. | Applied cleanly; unknown keys preserved and readable. | Forward compatibility is free *if we stop deleting unknown keys*. Foundation for the Migrations module. |
+| U15 | A client applies updates containing keys it doesn't understand. | Applied cleanly; unknown keys preserved and readable. | Forward compatibility is free *if we stop deleting unknown keys*. Foundation for schema migrations (the dual-key recipe). |
 
 ## Design
 
 ### Principles
 
-1. **Layered, opt-in, no all-or-nothing.** Core stays small; opinions (Migrations, future merge strategies) live in separate namespaces the consumer must `open`.
+1. **Layered, opt-in, no all-or-nothing.** Core stays small; opinions (future merge strategies, migration helpers) live in separate namespaces the consumer must `open`.
 2. **The codec is where merge behaviour is chosen.** A field's encoding *is* its merge policy: `Encode.text` means "concurrent edits interleave", `Encode.value` means "LWW register", `Encode.list` means "insert/delete merge". Nothing implicit.
 3. **Bind, never replace.** After init, the runtime only ever applies deltas to existing shared types. It never re-creates a container, never re-parents an instance (U5, U11).
 4. **Leave what you don't own.** The runtime never deletes keys it didn't encode (U15). Other clients and other schema versions co-exist by default.
@@ -75,7 +70,6 @@ public   ┌──────────────────────�
          │ Ylmish.Program.withYlmish        Elmish integration   │
          │ Ylmish.Codec (Encode/Decode)     schema + merge policy│
          │ Ylmish.Text                      mergeable text value │
-         │ Ylmish.Migrations (opt-in)       dual-key read/write  │
          ├───────────────────────────────────────────────────────┤
 internal │ Ylmish.Internal.Binding          encoded tree ↔ Y.Doc │
          │ Ylmish.Internal.Y                attach/delta plumbing│
@@ -185,11 +179,18 @@ Everything else — `Encode.object/list/map/option`, the `Decode.object` builder
 ```
 Encoded  ::= object [(key, Encoded)]        → Y.Map     (per-key LWW of subtrees)
            | list  encodeItem alist         → Y.Array   (insert/delete merge)
-           | map   encodeValue amap         → Y.Map     (per-key LWW)
+           | map   encodeValue amap         → Y.Map     (per-key merge; the keyed-collection primitive)
            | text  adaptiveText             → Y.Text    (splice merge)
            | value toPrimitive aval         → primitive (LWW register)
            | option …                       → presence/absence of any of the above
 ```
+
+`Encode.map` is deliberately first-class, not an afterthought: when a consumer's
+items have a stable key, a keyed Y.Map is the merge-friendly shape — concurrent
+edits to *different* items never conflict, and ordering can be modelled by the
+consumer as an explicit order field on each item (e.g. fractional indexing).
+Ylmish provides the primitive; the ordering policy stays in consumer land (a
+docs recipe shows the fractional-index pattern).
 
 ### The runtime (internal): binding instead of materializing
 
@@ -200,27 +201,15 @@ Encoded  ::= object [(key, Encoded)]        → Y.Map     (per-key LWW of subtre
 
 The existing `Text/Array/Map.attach` delta plumbing in `Y.fs` is the substance of this layer; it gets an origin-based guard instead of boolean flags, direction-split as the old TODO already called for, and moves under `Ylmish.Internal`.
 
-### `Ylmish.Migrations` (opt-in module)
+### Migrations: expressible, deferred
 
-Thin, compositional, built entirely from public codec combinators — which keeps it honest as a layer:
+**No Migrations module ships in this plan.** What *is* in scope is keeping migrations expressible with nothing but the public codec surface, so the module (if a real consumer ever justifies it) is ~20 lines of sugar rather than a runtime privilege:
 
-```fsharp
-module Ylmish.Migrations
+- Decoders compose, so "read old-or-new, prefer new" is an `oneOf`-shaped combinator over ordinary decoders.
+- Encoders produce key sets that can be merged, so "write both shapes during rollout" is a fold over ordinary encoders.
+- The load-bearing part is a **runtime rule**, and it is in scope: the binding layer never deletes keys it didn't encode (U15), so a v1 client and a v2 client can share a doc without destroying each other's representation.
 
-// read: try decoders in order, first success wins
-val Decode.oneOf : Decoder<'m,'e,'r> list -> Decoder<'m,'e,'r>
-// write: run several encoders and merge their key sets (later wins on collision)
-val Encode.combine : Encoded list -> Encoded
-```
-
-Usage — rolling upgrade where v2 renames `"todos"` to `"items"` with a different item shape:
-
-```fsharp
-let decode = Decode.oneOf [ V2.decode; V1.decode |> Decoder.map Model.ofV1 ]
-let encode m = Encode.combine [ V2.encode m; V1.encode m ]   // write both, old clients keep working
-```
-
-The consumer decides when to drop the `V1` leg. No version keys, no doc rewriting, no magic. This works *only* because of the "leave what you don't own" runtime rule — a v1 client never deletes `"items"`, a v2 client never deletes `"todos"` (U15).
+The dual-key rolling-upgrade recipe (v2 renames `"todos"` to `"items"`; write both, read either, drop the old leg when v1 clients are gone) becomes a documentation recipe, exercised by a compatibility test in Step 7 — not an API.
 
 ## Plan of work
 
@@ -254,7 +243,7 @@ Pure value type, no Yjs dependency.
 
 ### Step 5 — Binding layer, encode direction
 
-Internal `Binding.attach doc encoded : IDisposable`, replacing `materialize`. Sub-steps, each red-green: (a) registers + objects, (b) lists, (c) text, (d) nested composition.
+Internal `Binding.attach doc encoded : IDisposable`, replacing `materialize`. Sub-steps, each red-green: (a) registers + objects, (b) keyed maps, (c) lists, (d) text, (e) nested composition.
 
 *Tests first (behavioural contract, two-doc where relevant):*
 - first local edit creates the container lazily, in one transaction (U2a discipline);
@@ -277,43 +266,40 @@ One `observeDeep` → route by event path → decode → dispatch.
 
 Rewire `Program.withYlmish` onto the binding layer; decode-empty-=-init on startup; delete the dead commented code in `Program.fs`.
 
-*Tests:* un-skip Step 2's north-star tests — they pass; the existing `Program.fs` test suite (fixing the known wrong assertions, e.g. `PropC`/`PropD`) passes; `TodoCollaborative` tests extended with the concurrent-edit case from issue #83's acceptance criteria.
+*Tests:* un-skip Step 2's north-star tests — they pass; the existing `Program.fs` test suite (fixing the known wrong assertions, e.g. `PropC`/`PropD`) passes; `TodoCollaborative` tests extended with the concurrent-edit case from issue #83's acceptance criteria; a **compatibility test** proving the dual-key migration recipe with plain combinators — a v1-schema program and a v2-schema program share a doc, edit concurrently, and neither destroys the other's representation.
 
 *Acceptance:* issue #83 closed by tests, not by claim.
 
-### Step 8 — `Ylmish.Migrations`
+### Step 8 — The demo
 
-*Tests first:* `Decode.oneOf` ordering and error accumulation; `Encode.combine` key-merge; the rolling-upgrade scenario — a v1-schema program and a v2-schema program share a doc, edit concurrently, and neither destroys the other's representation; a v2-only client reads a v1-only doc.
+`examples/TodoCollaborative` stays a **CLI (Node) program**, rebuilt as a scripted narrative of the system under interesting concurrency. Two `withYlmish` programs on independent `Y.Doc`s, sync performed explicitly between acts, output printed per act:
 
-*Acceptance:* module is pure sugar over public combinators (no runtime privileges) — proving the layering claim.
+1. Two peers start; neither seeds; both show init state (decode-empty = init, visibly).
+2. Offline: both edit the same note concurrently → sync → the interleaved merged text, side by side with what each peer typed.
+3. Offline: both insert todos concurrently → sync → both items survive in a deterministic order (list merge — required by the merge-menu decision).
+4. Both flip the same LWW register concurrently → sync → one deterministic winner, shown honestly as a clobber.
+5. One peer deletes an item while the other edits inside it → sync → delete wins.
+6. An app-only field changes throughout and never appears in either doc.
 
-### Step 9 — The demo
+*Acceptance:* the demo exercises only the public API; `npm run demo` output reads as documentation, and the transcript is embedded in the README so a reader can falsify the library's claims in under a minute.
 
-`examples/TodoCollaborative` becomes a real browser app: one static page, two Elmish panes with independent `Y.Doc`s, a visible **connect/disconnect toggle** (severed = offline divergence; reconnect = watch CRDT convergence), a shared todo list with a collaboratively-edited note field, and an app-only field (e.g. filter) demonstrating what *doesn't* sync. Built with Vite, deployed to GitHub Pages by CI.
+### Step 9 — Docs rewrite
 
-*Acceptance:* the demo exercises only the public API; a reader can falsify the README's claims in the browser in under a minute.
-
-### Step 10 — Docs rewrite
-
-- **README:** keep the philosophy sections (they're good), replace the TODO list with: a 60-second quickstart mirroring the demo; a **merge semantics table** (field encoding → what happens on concurrent edits, including the honest limits: LWW tiebreak is deterministic-not-temporal, reorder duplication, delete-beats-edit-inside); the layer map with the public/internal line drawn explicitly; a link to the live demo.
-- **doc/guides/**: `codec.md` (schema decoupling, `Decode.ask`, app-only state), `migrations.md` (dual-key pattern, when to drop the old leg), `text.md` (Text semantics, `edit` ambiguity, wiring editors).
+- **README:** keep the philosophy sections (they're good), replace the TODO list with: a 60-second quickstart mirroring the demo; a **merge semantics table** (field encoding → what happens on concurrent edits, including the honest limits: LWW tiebreak is deterministic-not-temporal, reorder duplication, delete-beats-edit-inside); the layer map with the public/internal line drawn explicitly; the demo transcript.
+- **doc/guides/**: `codec.md` (schema decoupling, `Decode.ask`, app-only state), `text.md` (Text semantics, `edit` ambiguity, wiring editors), `recipes.md` (dual-key rolling migration with plain combinators; fractional-index ordering over `Encode.map`).
 - **AGENTS.md**: update layout/testing sections; mark plans 0001 (superseded where applicable) and 0002 statuses.
 
 *Acceptance:* every code sample in the docs is compiled (samples live in the demo or a doc-tests project, not in fenced blocks that rot).
 
 ## Open questions
 
-The provisional decisions above, plus a few new ones surfaced by the design — all interface/behaviour, none blocking Steps 1–4:
+Interface/behaviour details surfaced by the design — none blocking Steps 1–4:
 
-1. **Merge menu** (Step 4 scope): core = LWW + Text only? Or also a general escape hatch (append-only event log + consumer-supplied reduce at decode — subsumes counters/max-wins), and/or opt-in modules for timestamped LWW and counters?
-2. **List semantics** (Step 5c): live with positional Y.Array limits (documented), or also ship a keyed encoding (items in Y.Map by stable ID + order field) for collaboratively-reordered lists?
-3. **Migrations scope** (Step 8): dual-key read/write as sketched, or versioned migration chains?
-4. **Demo form** (Step 9): two-pane static page as planned, real y-webrtc multiplayer, or the page with an optional webrtc flag?
-5. **`OnError` shape:** is "log and keep current model" the right decode-failure policy, or should consumers get the raw errors + the offending doc state to decide (e.g. surface "this doc was written by a newer client" UX)?
-6. **`Text` equality:** equality by content only (intent excluded) — acceptable? It makes `=`/memoization intuitive but means "has pending edits" is not observable via equality.
-7. **`Text.edit` ambiguity:** for repeated characters the single-splice diff can pick a different position than the user's actual edit (convergence unaffected; interleaving fidelity slightly coarser). Fine for the plain-`<input>` path given precise `insert`/`remove` exist?
-8. **Presence/awareness** (cursors, who's-online): explicitly out of scope for this plan, or wanted as a future optional module worth leaving API room for (e.g. the demo showing remote cursors in the note field)?
-9. **Undo:** `Y.UndoManager` integrates naturally with origin tokens (undo only your own origin's ops). Out of scope here, but should the binding layer's origin design reserve room for it (I propose: yes, it costs nothing)?
+1. **`OnError` shape:** is "log and keep current model" the right decode-failure policy, or should consumers get the raw errors + the offending doc state to decide (e.g. surface "this doc was written by a newer client" UX)?
+2. **`Text` equality:** equality by content only (intent excluded) — acceptable? It makes `=`/memoization intuitive but means "has pending edits" is not observable via equality.
+3. **`Text.edit` ambiguity:** for repeated characters the single-splice diff can pick a different position than the user's actual edit (convergence unaffected; interleaving fidelity slightly coarser). Fine for the plain-`<input>` path given precise `insert`/`remove` exist?
+4. **Presence/awareness** (cursors, who's-online): explicitly out of scope for this plan, or wanted as a future optional module worth leaving API room for?
+5. **Undo:** `Y.UndoManager` integrates naturally with origin tokens (undo only your own origin's ops). Out of scope here, but should the binding layer's origin design reserve room for it (I propose: yes, it costs nothing)?
 
 ## Out of scope
 
