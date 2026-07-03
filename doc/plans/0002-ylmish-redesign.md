@@ -38,7 +38,7 @@ That branch executed its own plans 0002–0009 to close #83 by accretion (flatte
 | # | Lesson (their evidence) | Consequence in this plan |
 | --- | --- | --- |
 | L1 | **Adaptify list deltas are positional, not keyed** (their 0006 Step 1, pinned in `Adaptive.Spike.fs`). The idiomatic rebuild `{ m with Items = recompute() }` yields O(n) positional value-rewrites, and `ChangeableModelList` **rebinds nested adaptive objects by position** — a nested `Y.Text` hung off item *i* gets hijacked by whatever lands at position *i*. | `Encode.list` is restricted to value sequences **by its type**: it accepts only `Value.Encoder<'a>` from the primitive sub-language, so text/custom/object items are unrepresentable rather than runtime-rejected. Step 1 re-pins this characterization in our suite. The plan's O(delta) claims are scoped: lists are diff-reconciled by value, maps are keyed by construction (`HashMap` → keyed `amap` reconcile, their 0008 Step 0a). |
-| L2 | **Differential testing against a raw-Yjs oracle** (their 0006 harness): replay per-replica schedules under a delivery policy, compare the full bridge against hand-written Yjs, plus property-based random schedules. It caught the whole-container-LWW bug red-handed and *discriminated* (green on sequential). | Adopted as this plan's verification backbone (Steps 2 and 9). No self-authored spec to be wrong about. |
+| L2 | **Differential testing against a raw-Yjs oracle** (their 0006 harness): replay per-replica schedules under a delivery policy, compare the full bridge against hand-written Yjs, plus property-based random schedules. It caught the whole-container-LWW bug red-handed and *discriminated* (green on sequential). | Adopted as this plan's verification backbone (Steps 2a and 9). No self-authored spec to be wrong about. |
 | L3 | **Common-affix diff produces minimal text deltas** (their A5: one char change = 2 ops, not clear+reinsert; Myers unnecessary). | Validates `Text.edit`'s implementation strategy and the "plain `<input>` stays cheap" claim. |
 | L4 | **Read-back fragmentation was a consequence of their layout.** Flattening leaves to separate roots meant root-map `observeDeep` never saw remote text/custom edits → per-clist observers → merged read-back trees → `afterTransaction` hooks, with real crashes en route (re-entrant `Y.Text` edit during a remote apply; `"cannot mark object without transaction"`). | Bind-in-place keeps **one** `observeDeep` (nested events reach the root, U7) and origin tokens suppress echo (U6) — structurally avoiding that bug class. Their two crashes become named regression tests in Step 6. Their lesson that connect realizes the adaptive graph (all mutations must be inside `transact`) is folded into Step 5's contract. |
 | L5 | **Root kind drift throws** (their A2): re-getting a root under a different type is an error, and schema drift needs a clear message. | The binding layer detects kind mismatch (encoded kind vs existing Y type) and surfaces a structured decode/bind error rather than a Yjs internal throw. Step 5 test. |
@@ -293,43 +293,109 @@ The dual-key rolling-upgrade recipe becomes a documentation recipe, exercised by
 
 ## Plan of work
 
-Each step is one PR-sized unit: it starts by writing failing (or characterization) tests, ends with `npm test` green, and leaves the library releasable.
+Each step is one PR-sized unit: it starts by writing failing (or characterization) tests, ends with `npm test` green, and leaves the library releasable. Sub-steps within a step are individually committable green increments.
+
+### Working the plan
+
+For the engineer executing this (competent F#, new to this codebase):
+
+- **Setup.** `npm install && npm test` must be green before Step 1 (see `AGENTS.md`; tests run via Fable→Mocha — `dotnet test` will not work). Record the passing count: it is your baseline number, and every check-in reports the new one.
+- **Reference quarry.** Branch `claude/github-issues-visibility-8k12g3` executed a *different* architecture for this same issue, but much of its **test code transfers**: `tests/Ylmish.Tests/Y.Assumptions.fs` and `Adaptive.Spike.fs` (Step 1), `Harness.fs`/`Harness.Options.fs`/`Harness.Stress.fs` (Steps 2a, 9), and its `Codec.*.fs` tests as scenario inspiration. Crib freely and adapt; do **not** import its `Scheme`/flattening design, its boolean reentrancy guards, or its `materialize` hybrid — those are exactly what this plan replaces.
+- **Interim-compatibility rule (Steps 4–6).** The old `materialize`/`dematerialize` path stays alive until Step 7 — `withYlmish` runs on it until then and the suite must stay green at every step boundary. When Step 4 adds `Element` cases, the old path handles them with a descriptive `failwith` ("Text/Atomic/Custom fields require the binding runtime; see plan 0002 Step 7") — never silently skipping. Deleting the old path is Step 7's job, not yours early.
+- **Cadence.** One commit per green increment. Never commit red. If a step's premise turns out wrong mid-flight, stop and check in — this plan encodes decisions that are Nick's to change, and improvising around a broken premise is how the reference branch accreted three naming conventions.
+- **Check-in ritual (after every step, before the next):** tick the step in *Progress* below and bump the test count; add a short *Decisions & lessons* note under the step recording anything surprising or anything you had to interpret (interpretation is a design decision in disguise — surface it); show the diff, the names of the new tests, and the runnable output where a step has one (harness calibration, demo acts).
+
+### Progress
+
+- [ ] Step 0 — Baseline (S)
+- [ ] Step 1 — Pin the assumptions (M)
+- [ ] Step 2a — Differential harness (M)
+- [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
+- [ ] Step 3 — `Ylmish.Text` (M)
+- [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
+- [ ] Step 5 — Binding, encode direction (L; sub-steps 5a–5g)
+- [ ] Step 6 — Binding, decode direction (M)
+- [ ] Step 7 — `withYlmish` v2; old path dies (M)
+- [ ] Step 8 — `CustomElement` end-to-end (M)
+- [ ] Step 9 — Property stress (S)
+- [ ] Step 10 — Demo (M)
+- [ ] Step 11 — Docs (M)
+
+### Step 0 — Baseline
+
+No code changes. Get the toolchain running per `AGENTS.md`, run `npm test`, record the passing/skipped counts in *Progress*, and skim `src/Ylmish/Y.fs`, `Adaptive.Codec.fs`, `Program.fs` plus this plan's *Validated assumptions* table.
+
+*Check-in:* baseline test count; anything already broken on your machine; questions about the plan itself before work starts.
 
 ### Step 1 — Pin the assumptions (Yjs **and** Adaptive)
 
-Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs` (U2a/U2b, U3, U4, U5b, U6, U9, U11, U13, U14, U15 at minimum), and re-pin the Adaptify delta characterization (A1/L1: rebuild-regime positional rewrites; positional rebinding of nested adaptive objects; `HashMap` keyed reconcile) in `Adaptive.Assumptions.fs`.
+Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs` (U2a/U2b, U3, U4, U5b, U6, U9, U11, U13, U14, U15 at minimum), and re-pin the Adaptify delta characterization (A1/L1: rebuild-regime positional rewrites; positional rebinding of nested adaptive objects; `HashMap` keyed reconcile) in `Adaptive.Assumptions.fs`. The reference branch has working versions of both files to adapt.
 
 *Acceptance:* suite green; every design-consequence claim in this plan is enforced by CI, so a Yjs or Adaptify upgrade that changes semantics fails loudly.
 
-### Step 2 — Differential harness + north-star acceptance (red)
+*Check-in:* test count; a one-line map from each assumption id (U*/A1) to its test name; any assumption that did **not** reproduce (that's a stop-the-line finding — it invalidates part of the design).
 
-Build the verification backbone modeled on the executed branch's harness (L2): a `Bridge` abstraction (whole immutable models in, converged model out — the `withYlmish` contract), a schedule-replay driver with delivery policies (Immediate/Concurrent), and a `differential` runner comparing the SUT against a raw-Yjs oracle. Calibrate it: green on the oracle, red on the current materialize path (the known #83 bug), green on the current path for sequential edits (it discriminates).
+### Step 2a — Differential harness
 
-Then write the north-star tests against the *target* public API, `ptestCase`-skipped: concurrent `Text` edits converge interleaved across two `withYlmish` programs; unknown keys survive a full session; keyed-map concurrent adds both survive.
+Build the verification backbone modeled on the reference branch's `Harness.fs` (L2): a `Bridge` abstraction (whole immutable models in, converged model out — the `withYlmish` contract), a schedule-replay driver with delivery policies (Immediate/Concurrent), and a `differential` runner comparing the system-under-test against a raw-Yjs oracle (the same schedule hand-applied to plain Y types). Keep it minimal: two replicas, one model shape, deterministic replay.
 
-*Acceptance:* harness trustworthy by construction; north stars compile against the intended API signatures, skipped. Un-skipped in Step 7.
+Calibrate it — this is the step's real deliverable: **green on the oracle** (ground truth holds), **red on the current materialize path** (it catches the known #83 bug and names the lost data), **green on the current path for sequential edits** (it discriminates rather than failing everything).
+
+*Acceptance:* the three calibration results above, as committed tests (the materialize-red one marked as expected-fail/pending so the suite stays green).
+
+*Check-in:* test count; the calibration triad's output; the harness's public surface (it will be reused in Steps 5, 7, 9).
+
+### Step 2b — Target API skeleton + north stars (red) — **design-review checkpoint**
+
+Transcribe this plan's API sketches into compiling F# signatures with stub bodies: `Ylmish.Text` (module + type), `Ylmish.Codec` (`Value` sub-language, `Encode.*`/`Decode.*` including `map`/`text`/`atomic`/`custom`), `CustomElement`/`BindContext`, and the `withYlmish` options record. Stubs `failwith "plan 0002: not implemented until Step N"`.
+
+Then write the north-star tests against that surface, `ptestCase`-skipped: concurrent `Text` edits converge interleaved across two `withYlmish` programs; unknown keys survive a full session; keyed-map concurrent adds both survive.
+
+*Acceptance:* everything compiles; north stars are skipped; **no implementation**.
+
+*Check-in:* this is the one to slow down on — the diff *is* the public API. Nick reviews the signatures here, before any implementation exists to defend. Surface every place the sketches in this document were ambiguous and what you chose.
 
 ### Step 3 — `Ylmish.Text`
 
-Pure value type, no Yjs dependency.
+Pure value type, no Yjs dependency. Replace the Step 2b stubs with the real implementation.
 
 *Tests first:* content equality/hash laws; `insert`/`remove`/`replace` semantics incl. bounds; property — replaying any intent sequence over the old content equals the new content; property — `Text.edit` produces a single minimal splice (affix diff, L3) whose application equals the new string; Adaptify round-trip (`cval<Text>` works in a `[<ModelType>]`).
 
 *Acceptance:* `Text` usable in a model today, even before sync exists.
 
+*Check-in:* test count; the property-test generators (they get reused); confirmation the Adaptify round-trip works (this is the step most likely to surface a generator limitation — if `cval<Text>` doesn't survive `[<ModelType>]`, stop and check in, because it forces a design change).
+
 ### Step 4 — Codec v2: typed primitives, `text`, `atomic`, `custom`, keyed `map`
 
-*Tests first:* encode/decode round-trip properties for the `Value` sub-language (bool/int/float/string, `contramap`/`map` for domain types), `option`, nested objects, `map` (→ `HashMap`), `list` (`Value` items), `text`, `atomic` (round-trips as the inner codec), `custom` (element carries the binding; `Decode.custom` reads `Value`); error paths (`UnexpectedKind`) with path reporting; `Decode.ask`. The L1 restriction is enforced by types, so it isn't a runtime test — a should-not-compile snippet in the docs/tests records that `Encode.list` cannot accept text/custom/object items. Re-enable or rewrite the two disabled roundtrip tests (#10/#12).
+Sub-steps, each a green commit. Remember the **interim-compatibility rule**: the old materialize path stubs the new `Element` cases with a descriptive `failwith`; existing tests must stay green after every sub-step.
 
-*Acceptance:* codec fully specified with zero Yjs runtime involvement (the `CustomElement` *type* references Fable.Yjs — that's the decided dependency posture).
+- **4a — `Value` sub-language.** Purely additive: `Value.Encoder`/`Value.Decoder`, the four primitives, `contramap`/`map`. Round-trip properties, including a domain type over `contramap`.
+- **4b — `Element` v2.** Reshape the union: typed primitive payloads (U10), `Text`, `Atomic`, `Custom` cases. This is the sub-step that ripples — fix every exhaustive match, applying the interim rule in the old path. No new behaviour yet.
+- **4c — registers, objects, lists over `Value`.** `Encode.value/bool/int/float/string`, `Encode.list`/`Decode.list` taking `Value.*`; the should-not-compile snippet recording that `Encode.list` cannot accept text/custom/object items (the L1 restriction is type-level, so it isn't a runtime test).
+- **4d — `map`, `text`, `atomic`.** `Encode.map`/`Decode.map` (→ `HashMap`), `Encode.text`/`Decode.text` over `Ylmish.Text`, `Encode.atomic`/`Decode.atomic` (round-trips as the inner codec).
+- **4e — `custom` + housekeeping.** `Encode.custom`/`Decode.custom` (element carries the binding; decode reads `Value`); error paths (`UnexpectedKind`) with path reporting; `Decode.ask`; re-enable or rewrite the two disabled roundtrip tests (#10/#12).
+
+*Acceptance:* codec fully specified with zero Yjs runtime involvement (the `CustomElement` *type* references Fable.Yjs — that's the decided dependency posture); old suite still green via the interim rule.
+
+*Check-in:* test count per sub-step; which exhaustive matches 4b touched and how; status of #10/#12 (fixed, rewritten, or still blocked — say which and why).
 
 ### Step 5 — Binding layer, encode direction
 
-Internal `Binding.attach doc encoded : IDisposable`, replacing `materialize`. Sub-steps, each red-green: (a) registers + objects — proving nested records merge per-field with no flattening machinery (L8); (b) keyed maps — element-wise reconcile, nested text under items, and the identity headline from their harness: **a keyed item's nested text survives concurrent membership changes and stays with its item** (L1/L7); (c) value lists — diff-reconciled minimal splices; (d) text; (e) atomic; (f) custom dispatch through `BindContext`; (g) composition.
+Internal `Binding.attach doc encoded : IDisposable` — the eventual replacement for `materialize`, built **alongside** it (`withYlmish` keeps running on the old path until Step 7; nothing is deleted here). Sub-steps, each red-green:
 
-*Tests first (behavioural contract, two-doc via the Step 2 harness where relevant):* lazy container creation in one transaction; adopt-never-replace (the U11 anti-test); untouched unknown keys; kind-drift structured error (L5); all writes transacted under the origin token (L4); O(delta) op counts via `doc.on("update")` for the keyed/list/text paths.
+- **5a** — registers + objects: proving nested records merge per-field with no flattening machinery (L8);
+- **5b** — keyed maps: element-wise reconcile, nested text under items, and the identity headline from the reference harness — **a keyed item's nested text survives concurrent membership changes and stays with its item** (L1/L7);
+- **5c** — value lists: diff-reconciled minimal splices;
+- **5d** — text;
+- **5e** — atomic;
+- **5f** — custom dispatch through `BindContext`;
+- **5g** — composition (a model using every kind at once).
 
-*Acceptance:* `materialize` deleted; the harness's differential runner passes on every sub-step's slice where the old path failed.
+*Tests first (behavioural contract, two-doc via the Step 2a harness where relevant):* lazy container creation in one transaction; adopt-never-replace (the U11 anti-test); untouched unknown keys; kind-drift structured error (L5); all writes transacted under the origin token (L4); O(delta) op counts via `doc.on("update")` for the keyed/list/text paths.
+
+*Acceptance:* the harness's differential runner passes on every sub-step's slice **where the old materialize path failed its calibration** — same schedules, new result; old path untouched and old suite green.
+
+*Check-in:* test count per sub-step; the differential runner's before/after on the #83 calibration schedule; any place the binding had to deviate from the design section (say what and why).
 
 ### Step 6 — Binding layer, decode direction
 
@@ -339,27 +405,35 @@ One `observeDeep` → decode → dispatch, custom elements riding the same obser
 
 *Acceptance:* full bidirectional binding at the adaptive layer, still without Elmish.
 
+*Check-in:* test count; a trace of one remote transaction → one `Set` (the U14 batching evidence); confirmation both imported crash regressions are covered by name.
+
 ### Step 7 — `withYlmish` v2, end-to-end
 
-Rewire `Program.withYlmish` onto the binding layer; decode-empty-=-init on startup; delete the dead commented code in `Program.fs`.
+Rewire `Program.withYlmish` onto the binding layer; decode-empty-=-init on startup. **This is where the old world dies:** delete `materialize`/`dematerialize`, the interim `failwith` stubs from Step 4b, and the dead commented code in `Program.fs`.
 
-*Tests:* un-skip Step 2's north stars — they pass, including through the differential harness's `withYlmish` bridge; the existing `Program.fs` suite (fixing the known wrong assertions) passes; `TodoCollaborative` gains the concurrent-edit cases; the **compatibility test** proving the dual-key migration recipe with plain combinators — a v1-schema program and a v2-schema program share a doc, edit concurrently, and neither destroys the other's representation.
+*Tests:* un-skip Step 2b's north stars — they pass, including through the differential harness's `withYlmish` bridge; the existing `Program.fs` suite (fixing the known wrong assertions, e.g. `PropC`/`PropD`) passes rewritten against the binding path; `TodoCollaborative` gains the concurrent-edit cases; the **compatibility test** proving the dual-key migration recipe with plain combinators — a v1-schema program and a v2-schema program share a doc, edit concurrently, and neither destroys the other's representation.
 
-*Acceptance:* issue #83 closed by tests, not by claim.
+*Acceptance:* issue #83 closed by tests, not by claim; zero references to `materialize` remain.
+
+*Check-in:* test count; the north stars' names now green; what the old-path deletion removed (line count is a feature here); any `Program.fs` test whose assertion you had to change and the reasoning.
 
 ### Step 8 — `CustomElement` escape hatch, proven end-to-end
 
-Public `Encode.custom`/`Decode.custom` + `BindContext` (Step 4 declared the types; this step proves them under `withYlmish`).
+Prove the hatch under `withYlmish` (the types exist since 2b/4e; the dispatch since 5f; the readback since 6 — this step is consumer-side proof, not new runtime machinery).
 
 *Tests first:* a consumer-authored grow-only counter **sums** concurrent increments across two `withYlmish` peers, converging in both Elmish models; the editor scenario — `GetText` hands out the live `Y.Text`, external edits to it flow into the model's decoded field; a custom binding cannot double-integrate its Y type (U5 guarded by `BindContext`).
 
 *Acceptance:* the hatch is sufficient to build a counter *without touching Ylmish internals or Adaptive* — the escape-hatch and encapsulation claims proven together.
 
+*Check-in:* test count; the counter's full source (its size and its `open` list are the measure of the hatch's ergonomics — bring both).
+
 ### Step 9 — Property-based stress
 
-Random two-replica add/remove/edit schedules over the keyed-map + text + register model, under Immediate and Concurrent delivery, replayed deterministically through the Step 2 harness: converged (P1), matches the raw-Yjs oracle (M1), no-loss where the oracle guarantees it (L2).
+Random two-replica add/remove/edit schedules over the keyed-map + text + register model, under Immediate and Concurrent delivery, replayed deterministically through the Step 2a harness. Invariants, per schedule: the replicas **converge** to equal models, the converged state **matches the raw-Yjs oracle**, and nothing the oracle preserves was lost (L2).
 
 *Acceptance:* ~100 schedules per policy, deterministic seeds, green in CI.
+
+*Check-in:* test count; runtime cost of the stress suite (if it dominates CI, propose a split: small always-on set + larger nightly/manual set — that's a check-in decision, not yours alone).
 
 ### Step 10 — The demo
 
@@ -377,13 +451,17 @@ Random two-replica add/remove/edit schedules over the keyed-map + text + registe
 
 *Acceptance:* the demo exercises only the public API; `npm run demo` output reads as documentation, and the transcript is embedded in the README.
 
+*Check-in:* the transcript itself — read it as a stranger; each act should be intelligible without having read this plan.
+
 ### Step 11 — Docs rewrite
 
 - **README:** keep the philosophy sections; replace the TODO list with: a 60-second quickstart mirroring the demo; the **taxonomy table** ("the model's type is the merge choice") doubling as the merge-semantics table, with the honest limits (LWW tiebreak deterministic-not-temporal; the offline first-create rule — *anything creatable offline needs a unique key*; delete-beats-edit; structural-move duplication); the layer map with the public/internal line and the dependency posture (Yjs/Elmish public, Adaptive shrinking); the demo transcript.
 - **doc/guides/**: `codec.md` (schema decoupling, `Decode.ask`, app-only state), `text.md` (Text semantics, `edit` ambiguity), `custom-elements.md` (writing a binding; the counter; wiring an editor to `GetText`), `recipes.md` (dual-key rolling migration; fractional-index ordering over `Encode.map`; modelling offline-creatable entities with app-minted keys).
 - **AGENTS.md**: update layout/testing sections (the harness becomes a documented testing tool); mark plans 0001 and 0002 statuses.
 
-*Acceptance:* every code sample in the docs is compiled (samples live in the demo or a doc-tests project).
+*Acceptance:* every code sample in the docs is compiled — concretely: each sample is a verbatim excerpt of code that lives in `examples/` or `tests/` (marked with a comment naming the doc that quotes it), so CI compiles them by construction; no free-floating fenced code that can rot.
+
+*Check-in:* final test count vs the Step 0 baseline; the README read top-to-bottom; the list of plan Open questions that remain open (they carry forward, not silently expire).
 
 ## Open questions
 
