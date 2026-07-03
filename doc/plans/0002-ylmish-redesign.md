@@ -27,7 +27,7 @@ Decisions taken with Nick:
 | The nested first-create race (U2a) | **Accepted as a documented limitation, solved by application design.** If two offline peers each *first-create* the same nested container and later sync, one subtree wins wholesale. The app-level rule: anything that can be *created* offline needs a consumer-supplied unique key (`Encode.map` keyed by it), so independent offline creations occupy distinct keys and never race. Editing an *existing* field offline is the normal CRDT case and merges. The library documents this rule; it does not contort the document layout to dissolve the race. |
 | Packaging | **One `Ylmish` package** (plus `Fable.Yjs`); opinionated extras are separate namespaces you must explicitly `open`. |
 | Per-field merge menu | **LWW registers, mergeable Text, mergeable lists (Y.Array), keyed element-wise maps** — plus **`Encode.atomic`** (deliberate wholesale-LWW subtree) and **`Encode.custom`** (the `CustomElement` escape hatch for consumer-defined merge strategies and direct Y-type access). Opinionated strategies built *on* the hatch (counters, timestamped LWW) stay out of core. The demo must exercise list and keyed-map merging, not just text. |
-| List semantics | **`Encode.list` is for value sequences** (insert/delete merge, diff-reconciled). **Records with identity go in `Encode.map`** over `HashMap<key, _>` — this is now a hard rule, not a preference, because Adaptify's list deltas are positional (see L1) and would corrupt nested collaborative state under insert/reorder. Ordering of keyed items is the consumer's concern (fractional-index recipe in docs). |
+| List semantics | **`Encode.list` is for value sequences** (insert/delete merge, diff-reconciled). **Records with identity go in `Encode.map`** over `HashMap<key, _>` — this is now a hard rule, not a preference, because Adaptify's list deltas are positional (see L1) and would corrupt nested collaborative state under insert/reorder. The rule is **enforced by construction, not at runtime**: `Encode.list` accepts only the explicit `Value` primitive sub-language (an opaque `Value.Encoder<'a>`), so a text/custom/object item does not typecheck. Ordering of keyed items is the consumer's concern (fractional-index recipe in docs). |
 | Migrations | **Defer entirely.** No Migrations module. The codec keeps migrations *expressible* (decoders compose, encoders combine, the runtime preserves unknown keys) and the docs show the dual-key recipe. (The executed branch independently built migration helpers and then cut them — treat that as confirmation.) |
 | Demo form | **CLI.** A Node script whose output demonstrates the system under interesting concurrency: offline divergence, text interleaving, list merges, keyed-map merges, an honest LWW clobber, reconvergence. |
 
@@ -37,7 +37,7 @@ That branch executed its own plans 0002–0009 to close #83 by accretion (flatte
 
 | # | Lesson (their evidence) | Consequence in this plan |
 | --- | --- | --- |
-| L1 | **Adaptify list deltas are positional, not keyed** (their 0006 Step 1, pinned in `Adaptive.Spike.fs`). The idiomatic rebuild `{ m with Items = recompute() }` yields O(n) positional value-rewrites, and `ChangeableModelList` **rebinds nested adaptive objects by position** — a nested `Y.Text` hung off item *i* gets hijacked by whatever lands at position *i*. | `Encode.list` is restricted to value sequences; items may not contain text/custom leaves (runtime error pointing at `Encode.map`). Step 1 re-pins this characterization in our suite. The plan's O(delta) claims are scoped: lists are diff-reconciled by value, maps are keyed by construction (`HashMap` → keyed `amap` reconcile, their 0008 Step 0a). |
+| L1 | **Adaptify list deltas are positional, not keyed** (their 0006 Step 1, pinned in `Adaptive.Spike.fs`). The idiomatic rebuild `{ m with Items = recompute() }` yields O(n) positional value-rewrites, and `ChangeableModelList` **rebinds nested adaptive objects by position** — a nested `Y.Text` hung off item *i* gets hijacked by whatever lands at position *i*. | `Encode.list` is restricted to value sequences **by its type**: it accepts only `Value.Encoder<'a>` from the primitive sub-language, so text/custom/object items are unrepresentable rather than runtime-rejected. Step 1 re-pins this characterization in our suite. The plan's O(delta) claims are scoped: lists are diff-reconciled by value, maps are keyed by construction (`HashMap` → keyed `amap` reconcile, their 0008 Step 0a). |
 | L2 | **Differential testing against a raw-Yjs oracle** (their 0006 harness): replay per-replica schedules under a delivery policy, compare the full bridge against hand-written Yjs, plus property-based random schedules. It caught the whole-container-LWW bug red-handed and *discriminated* (green on sequential). | Adopted as this plan's verification backbone (Steps 2 and 9). No self-authored spec to be wrong about. |
 | L3 | **Common-affix diff produces minimal text deltas** (their A5: one char change = 2 ops, not clear+reinsert; Myers unnecessary). | Validates `Text.edit`'s implementation strategy and the "plain `<input>` stays cheap" claim. |
 | L4 | **Read-back fragmentation was a consequence of their layout.** Flattening leaves to separate roots meant root-map `observeDeep` never saw remote text/custom edits → per-clist observers → merged read-back trees → `afterTransaction` hooks, with real crashes en route (re-entrant `Y.Text` edit during a remote apply; `"cannot mark object without transaction"`). | Bind-in-place keeps **one** `observeDeep` (nested events reach the root, U7) and origin tokens suppress echo (U6) — structurally avoiding that bug class. Their two crashes become named regression tests in Step 6. Their lesson that connect realizes the adaptive graph (all mutations must be inside `transact`) is folded into Step 5's contract. |
@@ -78,7 +78,7 @@ Runnable scripts: [`0002-assumptions/`](./0002-assumptions/) (`node experiments.
 ### Principles
 
 1. **Layered, opt-in, no all-or-nothing.** Core stays small; opinions (ordering policies, richer merge strategies, migration helpers) live in consumer land or future opt-in namespaces, built on public seams.
-2. **The codec is where merge behaviour is chosen — the model's type is the merge choice** (L7). `Text` merges as text, `HashMap` merges element-wise by key, `IndexList` merges as a value sequence, a plain value is an LWW register, `atomic` is deliberate wholesale replacement, `custom` is yours. Nothing implicit.
+2. **The codec is where merge behaviour is chosen — the model's type is the merge choice** (L7). `Text` merges as text, `HashMap` merges element-wise by key, `IndexList` merges as a value sequence, a plain value is an LWW register, `atomic` is deliberate wholesale replacement, `custom` is yours. Nothing implicit — and **illegal encodings are unrepresentable, not runtime-checked**: positions with restricted vocabularies (list items, registers) take their own narrower encoder types.
 3. **Bind, never replace.** After init, the runtime only ever applies deltas to existing shared types. It never re-creates a container, never re-parents an instance (U5, U11).
 4. **Leave what you don't own.** The runtime never deletes keys it didn't encode (U15). Other clients and other schema versions co-exist by default.
 5. **Honest semantics, documented.** LWW tiebreak is deterministic-not-temporal (U4); the offline first-create race is an app-design concern with a stated rule (U2a); delete beats edit-inside (U9); structural moves can duplicate (U13). These go in the README, not a footnote.
@@ -205,19 +205,42 @@ The codec (moving to `Ylmish.Codec`) gains typed primitives (U10), a `Text` elem
 | `bool`/`int`/`float`/`string`/… | `Encode.bool`/… (`Encode.value` general) | map entry | LWW register (deterministic tiebreak) |
 | record | `Encode.object` | bound `Y.Map` | per-key merge of whatever each field chose (L8) |
 | `HashMap<string, 'T>` | `Encode.map` | `Y.Map` of bound entries | element-wise by key: different items never conflict; per-item fields merge per their own encodings; **the shape for anything creatable offline** |
-| `IndexList<'v>` (values only) | `Encode.list` | `Y.Array` | insert/delete merge, diff-reconciled by value; no text/custom inside items (L1 — runtime error pointing at `Encode.map`) |
+| `IndexList<'v>` (values only) | `Encode.list` | `Y.Array` | insert/delete merge, diff-reconciled by value; items are `Value` primitives *by construction* (L1) — entities belong in `Encode.map` |
 | any subtree | `Encode.atomic` | single wholesale value | deliberate whole-subtree LWW (L8) |
 | anything | `Encode.custom` | consumer-bound Y type | consumer-defined — see the escape hatch |
 
 ```
 Encoded  ::= object [(key, Encoded)]        → Y.Map     (per-key merge)
            | map    encodeItem amap         → Y.Map     (element-wise, keyed — the identity primitive)
-           | list   encodeValue alist       → Y.Array   (value sequence, diff-reconciled)
+           | list   Value.Encoder alist     → Y.Array   (value sequence, diff-reconciled)
            | text   adaptiveText            → Y.Text    (splice merge)
-           | value  toPrimitive aval        → primitive (LWW register)
+           | value  Value.Encoder aval      → primitive (LWW register)
            | atomic Encoded                 → one value (wholesale LWW)
            | custom CustomElement           → consumer-bound Y type
            | option …                       → presence/absence of any of the above
+```
+
+**The `Value` sub-language — incorrect by construction.** Positions that can only hold JSON primitives (list items, registers) do not take an arbitrary `Encoded`; they take an opaque `Value.Encoder<'a>`, constructible *only* from an explicitly enumerated set of primitives. There is no injection from `Encoded` into `Value.Encoder`, so "a list of texts" or "a list of objects" is not a runtime error — it is a type error at the call site, and the fix (`Encode.map`) is visible in the signature you reach for instead.
+
+```fsharp
+module Ylmish.Codec.Value
+
+type Encoder<'a>        // opaque: 'a → JSON primitive
+type Decoder<'a>        // opaque: JSON primitive → 'a, with path-tracked errors
+
+val string : Encoder<string>          val int    : Encoder<int>
+val float  : Encoder<float>           val bool   : Encoder<bool>
+// domain types ride a primitive by mapping, staying inside the sub-language:
+val contramap : ('b -> 'a) -> Encoder<'a> -> Encoder<'b>   // e.g. TodoId → string
+val map       : ('a -> 'b) -> Decoder<'a> -> Decoder<'b>
+```
+
+The register combinators are then sugar over the same sub-language (`Encode.bool = Encode.value Value.bool`), and the codec has exactly one notion of "primitive" shared by registers and list items:
+
+```fsharp
+val Encode.value : Value.Encoder<'a> -> aval<'a>  -> Encoded
+val Encode.list  : Value.Encoder<'a> -> alist<'a> -> Encoded
+val Decode.list  : Value.Decoder<'a> -> Decoder<_, _, IndexList<'a>>
 ```
 
 Ordering of keyed items is the consumer's policy: an immutable key names the item, a mutable order field (e.g. fractional index) sorts it — never the reverse (L7). `recipes.md` shows the pattern.
@@ -296,7 +319,7 @@ Pure value type, no Yjs dependency.
 
 ### Step 4 — Codec v2: typed primitives, `text`, `atomic`, `custom`, keyed `map`
 
-*Tests first:* encode/decode round-trip properties for bool/int/float/string/null, `option`, nested objects, `map` (→ `HashMap`), `list` (values), `text`, `atomic` (round-trips as the inner codec), `custom` (element carries the binding; `Decode.custom` reads `Value`); error paths (`UnexpectedKind`, text/custom inside `Encode.list` items rejected per L1) with path reporting; `Decode.ask`. Re-enable or rewrite the two disabled roundtrip tests (#10/#12).
+*Tests first:* encode/decode round-trip properties for the `Value` sub-language (bool/int/float/string, `contramap`/`map` for domain types), `option`, nested objects, `map` (→ `HashMap`), `list` (`Value` items), `text`, `atomic` (round-trips as the inner codec), `custom` (element carries the binding; `Decode.custom` reads `Value`); error paths (`UnexpectedKind`) with path reporting; `Decode.ask`. The L1 restriction is enforced by types, so it isn't a runtime test — a should-not-compile snippet in the docs/tests records that `Encode.list` cannot accept text/custom/object items. Re-enable or rewrite the two disabled roundtrip tests (#10/#12).
 
 *Acceptance:* codec fully specified with zero Yjs runtime involvement (the `CustomElement` *type* references Fable.Yjs — that's the decided dependency posture).
 
