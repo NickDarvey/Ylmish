@@ -15,6 +15,7 @@
     <Compile Include="Y.Map.fs" />
     <Compile Include="Y.Element.fs" />
     <Compile Include="Y.Doc.fs" />
+    <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Ylmish.Tests.fs" />
