@@ -9,6 +9,7 @@
     <Compile Include="common\Example.g.fs" />
     <Compile Include="common\Elmish.fs" />
     <Compile Include="Adaptive.Codec.fs" />
+    <Compile Include="Adaptive.Assumptions.fs" />
     <Compile Include="Y.Delta.fs" />
     <Compile Include="Y.Text.fs" />
     <Compile Include="Y.Array.fs" />
