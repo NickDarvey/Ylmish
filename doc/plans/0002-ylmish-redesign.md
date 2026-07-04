@@ -228,19 +228,31 @@ module Ylmish.Codec.Value
 type Encoder<'a>        // opaque: 'a → JSON primitive
 type Decoder<'a>        // opaque: JSON primitive → 'a, with path-tracked errors
 
-val string : Encoder<string>          val int    : Encoder<int>
-val float  : Encoder<float>           val bool   : Encoder<bool>
-// domain types ride a primitive by mapping, staying inside the sub-language:
-val contramap : ('b -> 'a) -> Encoder<'a> -> Encoder<'b>   // e.g. TodoId → string
-val map       : ('a -> 'b) -> Decoder<'a> -> Decoder<'b>
+module Encode =         // Value.Encode.string, Value.Encode.int, …
+    val string : Encoder<string>      val int  : Encoder<int>
+    val float  : Encoder<float>       val bool : Encoder<bool>
+    // domain types ride a primitive by mapping, staying inside the sub-language:
+    val contramap : ('b -> 'a) -> Encoder<'a> -> Encoder<'b>   // e.g. TodoId → string
+
+module Decode =         // Value.Decode.string, …
+    val string : Decoder<string>      val int  : Decoder<int>
+    val float  : Decoder<float>       val bool : Decoder<bool>
+    val map : ('a -> 'b) -> Decoder<'a> -> Decoder<'b>
 ```
 
-The register combinators are then sugar over the same sub-language (`Encode.bool = Encode.value Value.bool`), and the codec has exactly one notion of "primitive" shared by registers and list items:
+(Encoders and decoders live in `Value.Encode`/`Value.Decode` submodules so both sides can use the plain primitive names — confirmed with Nick at the 2b review.)
+
+The register combinators are then sugar over the same sub-language (`Encode.bool = Encode.value Value.Encode.bool`), the codec has exactly one notion of "primitive" shared by registers and list items, and **optionality composes by name** over any single-`aval` encoding — `None` is key-absence, never null:
 
 ```fsharp
-val Encode.value : Value.Encoder<'a> -> aval<'a>  -> Encoded
-val Encode.list  : Value.Encoder<'a> -> alist<'a> -> Encoded
-val Decode.list  : Value.Decoder<'a> -> Decoder<_, _, IndexList<'a>>
+val Encode.value  : Value.Encoder<'a> -> aval<'a>  -> Encoded
+val Encode.list   : Value.Encoder<'a> -> alist<'a> -> Encoded
+val Encode.option : (aval<'a> -> Encoded) -> aval<'a option> -> Encoded
+// e.g. Encode.option Encode.text m.Note — an optional collaborative text.
+// None→Some creates the backing type lazily (a local edit); Some→None deletes
+// the key (delete beats concurrent inner edits, U9). Collections have no aval
+// view; an empty map/list is their "none".
+val Decode.list   : Value.Decoder<'a> -> Decoder<'model, IndexList<'a>>
 ```
 
 Ordering of keyed items is the consumer's policy: an immutable key names the item, a mutable order field (e.g. fractional index) sorts it — never the reverse (L7). `recipes.md` shows the pattern.
@@ -309,8 +321,8 @@ For the engineer executing this (competent F#, new to this codebase):
 
 - [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
 - [x] Step 1 — Pin the assumptions (M) — 125 passing (+16 Y.Assumptions, +10 Adaptive.Assumptions)
-- [ ] Step 2a — Differential harness (M)
-- [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
+- [x] Step 2a — Differential harness (M) — 130 passing (+5 calibration)
+- [x] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**) — 130 passing, 3 pending (the north stars, skipped until Step 7) — **awaiting Nick's signature review**
 - [ ] Step 3 — `Ylmish.Text` (M)
 - [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
 - [ ] Step 5 — Binding, encode direction (L; sub-steps 5a–5g)
@@ -358,6 +370,13 @@ Calibrate it — this is the step's real deliverable: **green on the oracle** (g
 
 *Check-in:* test count; the calibration triad's output; the harness's public surface (it will be reused in Steps 5, 7, 9).
 
+*Decisions & lessons (executed 2026-07-04):*
+
+- 130 passing (+5). `tests/Ylmish.Tests/Harness.fs`, adapted from the reference branch's `Harness.fs` per the quarry note — the design transfers wholesale (Bridge / schedule driver / differential vs raw-Yjs oracle / minimality meter).
+- Public surface for reuse: `Bridge`/`BridgeFactory` (whole models in, converged model out), `run : BridgeFactory -> Delivery -> ReplicaOp list -> RunResult` with `Immediate`/`Concurrent` delivery, `differential` (SUT vs oracle, reports `Lost` ids), `incrementalBytes`/`measureApplies` (O(delta)-vs-O(state) meter, calibrated now, first *used* in Step 5).
+- **Interpretation surfaced:** the plan said the materialize-red calibration lands "as expected-fail/pending". A pending test asserts nothing, so instead it lands as a *passing* test that asserts the mismatch and the lost id (`MatchesOracle = false`, `Lost` non-empty) — a stronger pin with the same green suite. When Step 5 fixes the bug this test fails by design and gets flipped into the fix's regression test; its message says so.
+- The driver models `withYlmish`'s remote-update → read-back → `Set` loop on every delivery (refresh the receiving replica's model from its bridge before its next local op). Without this the old path would fail even sequentially and the harness would be hostile rather than discriminating.
+
 ### Step 2b — Target API skeleton + north stars (red) — **design-review checkpoint**
 
 Transcribe this plan's API sketches into compiling F# signatures with stub bodies: `Ylmish.Text` (module + type), `Ylmish.Codec` (`Value` sub-language, `Encode.*`/`Decode.*` including `map`/`text`/`atomic`/`custom`), `CustomElement`/`BindContext`, and the `withYlmish` options record. Stubs `failwith "plan 0002: not implemented until Step N"`.
@@ -367,6 +386,18 @@ Then write the north-star tests against that surface, `ptestCase`-skipped: concu
 *Acceptance:* everything compiles; north stars are skipped; **no implementation**.
 
 *Check-in:* this is the one to slow down on — the diff *is* the public API. Nick reviews the signatures here, before any implementation exists to defend. Surface every place the sketches in this document were ambiguous and what you chose.
+
+*Decisions & lessons (executed 2026-07-04):* 130 passing + 3 pending (the north stars). New files: `src/Ylmish/Text.fs`, `src/Ylmish/Codec.fs`, `Ylmish.Program.V2` (appended to `Program.fs`), `tests/Ylmish.Tests/NorthStar.fs`. Interpretations made where the plan's sketches were ambiguous — **each is a review point, none is defended**:
+
+1. **`Value.Encode.*` / `Value.Decode.*` submodules**, not the sketch's flat `Value.string` — one module can't hold an encoder and a decoder both named `string`. **Resolved with Nick (2b review): the submodule shape is confirmed**; the design-section sketch was updated to match.
+2. **`Ylmish.Program.V2`** nests the new options record + `withYlmish` so the running v1 stays untouched; Step 7 deletes v1 and promotes these names. Scaffolding, not the final shape.
+3. **No `aval` anywhere in the v2 surface**: `Decoder<'model,'a>` is opaque and `Decode.run : 'model -> Decoder<'model,'r> -> Y.Doc -> Result<'r, Error list>` is synchronous — v1's `Decoded<'a> = Validation aval` is gone; liveness (when to re-decode) is the runtime's concern (Step 6). This is the dependency-posture decision applied literally.
+4. **`OnError` is a record** `{ Handle : Error list -> unit }`, not a single-case union — a case named like its type shadows the companion module (`OnError.log` resolved to the case constructor, found empirically).
+5. **`Encode.option` — resolved with Nick (2b review): the inner encoder takes the adaptive view.** `Encode.option : (aval<'a> -> Encoded) -> aval<'a option> -> Encoded`, so optionality composes by name with every single-`aval` combinator (`Encode.option Encode.text m.Note`) and the decode side is already presence-based (`Decode.object.optional "note" Decode.text : Decoder<_, Text option>` — the symmetry falls out). Semantics documented on the combinator: None = key absent (never null); None→Some creates lazily at the transition; Some→None deletes, delete-beats-inner-edits (U9); concurrent initialization of the same optional field is the accepted first-create limitation. **New named risk for Step 5:** the runtime needs a "Some-window" adaptive projection (an inner `aval<'a>` live only while the option is Some) — no FSharp.Data.Adaptive built-in does this; budget for building and testing it. The north stars now exercise a `Note : Text option` field as consumer code.
+6. **Composition combinators are inert stubs; only runtime entry points throw.** Found empirically: a consumer's module-level `let decode = Decode.object { … }` evaluates the builder at module load, so throwing stubs crashed the suite before any test ran. The final implementation inherits this constraint: composing a codec must be total and cheap; effects live in `run`/attach.
+7. **The `Ylmish.Codec` namespace shadows v1's `Codec.` references in `Y.fs`** (the interim-compatibility rule bit at 2b, earlier than Step 4 predicted) — fixed with a `module V1 = Ylmish.Adaptive.Codec` alias in the materialize path, which Step 7 deletes anyway.
+8. **North stars use a hand-written adaptive companion**, not Adaptify — 2b must not take on codegen risk; Step 3 owns proving `[<ModelType>]` with a `Text` field.
+9. `Error` is a fresh minimal union (`UnexpectedKind`/`UnexpectedValue`/`MissingProperty` over a `Path` that gains a `MapKey` segment) — independent of v1's, since v1 dies at Step 7.
 
 ### Step 3 — `Ylmish.Text`
 
@@ -404,7 +435,7 @@ Internal `Binding.attach doc encoded : IDisposable` — the eventual replacement
 - **5f** — custom dispatch through `BindContext`;
 - **5g** — composition (a model using every kind at once).
 
-*Tests first (behavioural contract, two-doc via the Step 2a harness where relevant):* lazy container creation in one transaction; adopt-never-replace (the U11 anti-test); untouched unknown keys; kind-drift structured error (L5); all writes transacted under the origin token (L4); O(delta) op counts via `doc.on("update")` for the keyed/list/text paths.
+*Tests first (behavioural contract, two-doc via the Step 2a harness where relevant):* lazy container creation in one transaction; adopt-never-replace (the U11 anti-test); untouched unknown keys; kind-drift structured error (L5); all writes transacted under the origin token (L4); O(delta) op counts via `doc.on("update")` for the keyed/list/text paths; **option transitions** — None→Some creates the backing type lazily, Some→None deletes the key, and the inner encoding stays live across the Some window (this requires the "Some-window" adaptive projection named at the 2b check-in — a new internal primitive, test it in isolation first).
 
 *Acceptance:* the harness's differential runner passes on every sub-step's slice **where the old materialize path failed its calibration** — same schedules, new result; old path untouched and old suite green.
 

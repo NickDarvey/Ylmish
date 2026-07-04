@@ -157,6 +157,43 @@ let withYlmish (options : YlmishOptions<'model, 'amodel>) (program: Program<'arg
     program
     |> Program.map init update view setState subs termination
 
+// Plan 0002, Step 2b — target API skeleton for withYlmish v2. Nested under V2
+// so the running v1 above stays untouched until Step 7, which deletes v1 and
+// promotes these names (the nesting is scaffolding, not the final shape).
+[<RequireQualifiedAccess>]
+module V2 =
+
+    open Ylmish.Codec
+
+    /// Decode-failure policy: a malformed or newer-versioned doc must never
+    /// crash the loop — the current model stays in place and the errors go
+    /// here (plan 0002, open question 1).
+    type OnError = { Handle : Error list -> unit }
+
+    [<RequireQualifiedAccess>]
+    module OnError =
+        /// Log and keep the current model — the default policy.
+        let log : OnError = { Handle = fun _errors -> () }
+
+    type Options<'model, 'amodel> = {
+        Doc : Y.Doc
+        /// Adaptify-generated — the one place Adaptive remains on the surface.
+        Create : 'model -> 'amodel
+        Update : 'amodel -> 'model -> unit
+        Encode : 'amodel -> Encoded
+        Decode : Decoder<'model, 'model>
+        OnError : OnError
+    }
+
+    /// Bind an Elmish program to a Y.Doc through the v2 codec: containers are
+    /// created lazily on first local edit (decode-empty = init), local changes
+    /// flow as origin-tagged deltas, one remote transaction = one `Set`.
+    let withYlmish
+        (options : Options<'model, 'amodel>)
+        (program : Program<'arg, 'model, 'msg, 'view>)
+        : Program<'arg, 'model, Message<'model, 'msg>, 'view> =
+        failwith "plan 0002: withYlmish v2 is implemented in Step 7"
+
 // module Yjs.Adaptive.Elmish
 
 // module Codec = 

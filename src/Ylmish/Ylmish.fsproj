@@ -23,6 +23,8 @@
 	</ItemGroup>
 	<ItemGroup>
 		<Compile Include="Disposables.fs" />
+		<Compile Include="Text.fs" />
+		<Compile Include="Codec.fs" />
 		<Compile Include="Adaptive.Codec.fs" />
 		<Compile Include="Y.fs" />
 		<Compile Include="Program.fs" />
