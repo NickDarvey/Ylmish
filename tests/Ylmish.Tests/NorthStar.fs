@@ -25,12 +25,13 @@ open Expecto
 
 type Model = {
     Body : Text                      // collaborative: concurrent edits merge
+    Note : Text option               // optional collaborative text: None = key absent
     Todos : HashMap<string, string>  // keyed by app-minted id ⇒ element-wise merge
     Filter : string                  // app-only: never encoded, never synced
 }
 
 module Model =
-    let init = { Body = Text.empty; Todos = HashMap.empty; Filter = "" }
+    let init = { Body = Text.empty; Note = None; Todos = HashMap.empty; Filter = "" }
 
 type Msg =
     | EditBody of (Text -> Text)
@@ -47,11 +48,14 @@ let update (msg : Msg) (m : Model) =
 
 type AdaptiveModel (m : Model) =
     let body = cval m.Body
+    let note = cval m.Note
     let todos = cmap (HashMap.toSeq m.Todos)
     member _.Body = body :> aval<Text>
+    member _.Note = note :> aval<Text option>
     member _.Todos = todos :> amap<string, string>
     member _.Update (m : Model) =
         body.Value <- m.Body
+        note.Value <- m.Note
         todos.Value <- m.Todos
     static member Create (m : Model) = AdaptiveModel m
 
@@ -61,6 +65,7 @@ module Codec =
     let encode (am : AdaptiveModel) : Encoded =
         Encode.object [
             "body", Encode.text am.Body
+            "note", Encode.option Encode.text am.Note
             "todos", Encode.map (fun (title : string) -> Encode.string (AVal.constant title)) am.Todos
         ]
 
@@ -68,10 +73,12 @@ module Codec =
         Decode.object {
             let! model = Decode.ask
             let! body = Decode.object.optional "body" Decode.text
+            let! note = Decode.object.optional "note" Decode.text
             let! todos = Decode.object.optional "todos" (Decode.map Decode.string)
             return
                 { model with
                     Body = defaultArg body Text.empty
+                    Note = note
                     Todos = defaultArg todos HashMap.empty }
         }
 

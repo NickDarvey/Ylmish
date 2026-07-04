@@ -143,10 +143,14 @@ module Encode =
     /// belong in `map` (L1).
     let list (encodeItem : Value.Encoder<'a>) (items : alist<'a>) : Encoded = EncodedStub
 
-    /// Presence/absence of any encoded position. None = the key is absent —
-    /// never null (a stored null is unreadable through the Fable binding's
-    /// `get`, see the Step 1 lesson).
-    let option (encodeSome : 'a -> Encoded) (a : aval<'a option>) : Encoded = EncodedStub
+    /// Presence/absence of any single-aval encoding, composing by name:
+    /// `Encode.option Encode.text m.Note`, `Encode.option Encode.string m.Nick`.
+    /// None = the key is ABSENT — never null (a stored null is unreadable
+    /// through the Fable binding's `get`, see the Step 1 lesson). None→Some
+    /// creates the backing type lazily at the transition (a local edit);
+    /// Some→None deletes the key, and delete beats concurrent edits inside
+    /// (U9). Collections have no aval view — an empty map/list is their "none".
+    let option (encodeSome : aval<'a> -> Encoded) (a : aval<'a option>) : Encoded = EncodedStub
 
     /// Deliberate wholesale-LWW replacement of an entire subtree (L8).
     let atomic (encoded : Encoded) : Encoded = EncodedStub
