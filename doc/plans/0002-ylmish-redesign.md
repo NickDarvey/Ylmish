@@ -310,7 +310,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
 - [x] Step 1 — Pin the assumptions (M) — 125 passing (+16 Y.Assumptions, +10 Adaptive.Assumptions)
 - [x] Step 2a — Differential harness (M) — 130 passing (+5 calibration)
-- [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
+- [x] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**) — 130 passing, 3 pending (the north stars, skipped until Step 7) — **awaiting Nick's signature review**
 - [ ] Step 3 — `Ylmish.Text` (M)
 - [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
 - [ ] Step 5 — Binding, encode direction (L; sub-steps 5a–5g)
@@ -374,6 +374,18 @@ Then write the north-star tests against that surface, `ptestCase`-skipped: concu
 *Acceptance:* everything compiles; north stars are skipped; **no implementation**.
 
 *Check-in:* this is the one to slow down on — the diff *is* the public API. Nick reviews the signatures here, before any implementation exists to defend. Surface every place the sketches in this document were ambiguous and what you chose.
+
+*Decisions & lessons (executed 2026-07-04):* 130 passing + 3 pending (the north stars). New files: `src/Ylmish/Text.fs`, `src/Ylmish/Codec.fs`, `Ylmish.Program.V2` (appended to `Program.fs`), `tests/Ylmish.Tests/NorthStar.fs`. Interpretations made where the plan's sketches were ambiguous — **each is a review point, none is defended**:
+
+1. **`Value.Encode.*` / `Value.Decode.*` submodules**, not the sketch's flat `Value.string` — one module can't hold an encoder and a decoder both named `string`. Cost: `Encode.list Value.Encode.string …` reads long; alternatives (flat encoders + `Value.Of.string` decoders, or paired `Value.string : Encoder * Decoder`) trade symmetry for brevity.
+2. **`Ylmish.Program.V2`** nests the new options record + `withYlmish` so the running v1 stays untouched; Step 7 deletes v1 and promotes these names. Scaffolding, not the final shape.
+3. **No `aval` anywhere in the v2 surface**: `Decoder<'model,'a>` is opaque and `Decode.run : 'model -> Decoder<'model,'r> -> Y.Doc -> Result<'r, Error list>` is synchronous — v1's `Decoded<'a> = Validation aval` is gone; liveness (when to re-decode) is the runtime's concern (Step 6). This is the dependency-posture decision applied literally.
+4. **`OnError` is a record** `{ Handle : Error list -> unit }`, not a single-case union — a case named like its type shadows the companion module (`OnError.log` resolved to the case constructor, found empirically).
+5. **`Encode.option : ('a -> Encoded) -> aval<'a option> -> Encoded` is the roughest edge.** The inner encoder receives a plain `'a`, not an adaptive view — fine for registers, wrong for `Text option` (the inner text couldn't stay live). Options over collaborative types may need a different shape (or a rule: `option` wraps Value-sub-language registers only, enforced like L1). Flagged for the review.
+6. **Composition combinators are inert stubs; only runtime entry points throw.** Found empirically: a consumer's module-level `let decode = Decode.object { … }` evaluates the builder at module load, so throwing stubs crashed the suite before any test ran. The final implementation inherits this constraint: composing a codec must be total and cheap; effects live in `run`/attach.
+7. **The `Ylmish.Codec` namespace shadows v1's `Codec.` references in `Y.fs`** (the interim-compatibility rule bit at 2b, earlier than Step 4 predicted) — fixed with a `module V1 = Ylmish.Adaptive.Codec` alias in the materialize path, which Step 7 deletes anyway.
+8. **North stars use a hand-written adaptive companion**, not Adaptify — 2b must not take on codegen risk; Step 3 owns proving `[<ModelType>]` with a `Text` field.
+9. `Error` is a fresh minimal union (`UnexpectedKind`/`UnexpectedValue`/`MissingProperty` over a `Path` that gains a `MapKey` segment) — independent of v1's, since v1 dies at Step 7.
 
 ### Step 3 — `Ylmish.Text`
 

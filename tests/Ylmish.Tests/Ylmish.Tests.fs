@@ -13,6 +13,7 @@ let tests = [
    Y.Doc.tests
    Y.Assumptions.tests
    Harness.tests
+   NorthStar.tests
    Program.tests
    TodoCollaborative.tests
 ]

@@ -18,6 +18,7 @@
     <Compile Include="Y.Doc.fs" />
     <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Harness.fs" />
+    <Compile Include="NorthStar.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Ylmish.Tests.fs" />
