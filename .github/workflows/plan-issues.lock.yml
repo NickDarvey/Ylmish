@@ -25,12 +25,9 @@
 # gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"9043e15f1e80b1f5204ff7e9311c4ef491c71e53e15154afeba7df3d56aa044c","compiler_version":"v0.66.1","strict":true,"agent_id":"claude"}
 
 name: "Break Down Plan Objectives into GitHub Issues"
+# Disabled: automatic push-to-master trigger replaced with manual-only dispatch.
 "on":
-  push:
-    branches:
-    - master
-    paths:
-    - doc/plans/**
+  workflow_dispatch:
 
 permissions: {}
 

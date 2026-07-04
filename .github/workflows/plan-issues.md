@@ -1,12 +1,11 @@
 ---
 description: Break down plan objectives into agent-sized GitHub issues
 engine: claude
+# Starting work from GitHub issues is disabled. The automatic push-to-master
+# trigger has been replaced with manual-only dispatch so this workflow no longer
+# breaks plans into issues or assigns agents on its own.
 on:
-  push:
-    branches:
-      - master
-    paths:
-      - 'doc/plans/**'
+  workflow_dispatch:
 permissions:
   contents: read
   issues: read

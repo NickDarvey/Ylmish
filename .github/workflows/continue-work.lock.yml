@@ -25,10 +25,9 @@
 # gh-aw-metadata: {"schema_version":"v3","frontmatter_hash":"9dc45b0994e555721b71d6364d14b400d9cd925be0d70a44c035499479fe22a3","compiler_version":"v0.66.1","strict":true,"agent_id":"claude"}
 
 name: "Continue Work: Assign Claude to Next Task"
+# Disabled: automatic issue-closed trigger replaced with manual-only dispatch.
 "on":
-  issues:
-    types:
-    - closed
+  workflow_dispatch:
 
 permissions: {}
 
