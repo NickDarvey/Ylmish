@@ -4,6 +4,7 @@ open Ylmish
 
 let tests = [
    Tests.Text.tests
+   Tests.Codec.tests
    Adaptive.Codec.tests
    Adaptive.Assumptions.tests
    Y.Delta.tests

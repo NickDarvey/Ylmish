@@ -324,7 +324,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 2a — Differential harness (M) — 130 passing (+5 calibration)
 - [x] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**) — 130 passing, 3 pending (the north stars, skipped until Step 7) — **awaiting Nick's signature review**
 - [x] Step 3 — `Ylmish.Text` (M) — 142 passing (+12), 3 pending — **note the Adaptify finding: `Text` is a sealed class, not a record**
-- [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
+- [x] Step 4 — Codec v2 (L; sub-steps 4a–4e) — 158 passing (+16), 3 pending
 - [ ] Step 5 — Binding, encode direction (L; sub-steps 5a–5g)
 - [ ] Step 6 — Binding, decode direction (M)
 - [ ] Step 7 — `withYlmish` v2; old path dies (M)
@@ -413,7 +413,7 @@ Pure value type, no Yjs dependency. Replace the Step 2b stubs with the real impl
 
 - 142 passing (+12), 3 pending. `src/Ylmish/Text.fs` implemented; `tests/Ylmish.Tests/Text.fs` with reusable generators (`TextOp` with deliberately out-of-range positions; a plain-string reference implementation the content semantics are checked against, differential-style).
 - **The predicted generator limitation appeared, and forced the predicted design change.** `[<ModelType>]` with a field whose type is a *cross-assembly record with hidden representation* makes Adaptify emit the member as `aval<obj>` while the backing cell is correctly `cval<Ylmish.Text>` — the generated code does not even compile. Diagnosis: Adaptify introspects record fields to build wrappers and falls back to `obj` when it cannot see them across the assembly boundary (same-assembly `MapModel`/`Submodel` were fine; building the referenced project first changed nothing; the 1.3.7 CLI behaves the same). **Fix: `Text` is a `[<Sealed>]` class** with internal state, custom content-only equality/comparison/hash, and unchanged module API — Adaptify passes an opaque class through as a plain changeable value with its type intact (`aval<Ylmish.Text>` confirmed in the regenerated code). **Rule for the rest of the plan: any public Ylmish value type destined for consumer `[<ModelType>]` models must be a class (or public-representation record), never a hidden-representation record.**
-- While diagnosing: the Adaptify CLI tool (1.3.7, `dotnet-tools.json`) and the `Adaptify.Core` package (1.3.4, `Directory.Packages.props`) were mismatched — aligned both to 1.3.7, NuGet lock files regenerated.
+- While diagnosing: the Adaptify CLI tool (1.3.7, `dotnet-tools.json`) and the `Adaptify.Core` package (1.3.4, `Directory.Packages.props`) were mismatched — "aligned" both to 1.3.7. **Corrected in Step 4: that skew is deliberate.** `Adaptify.Core` 1.3.7's own library code does not compile under Fable 5 ("cannot get type info of generic parameter T" in its `Helpers.fs`); the package must stay 1.3.4 while the codegen tool runs 1.3.7. Reverted, and now documented here so nobody "fixes" it again. Second lesson from the same incident: Step 3's green run rode a **stale Fable cache** (the package swap didn't recompile `fable_modules`) — when dependencies change, `rm -rf build` before trusting `npm test`.
 - Contract decisions pinned by tests: **edit positions clamp** (an out-of-range edit in an Elmish `update` must not crash the loop); **content-neutral edits are elided** (e.g. replacing "a" with "a") — a deliberate consequence of content-only equality, since adaptive propagation is content-driven and such an intent could never reach the doc anyway; `Text.edit`'s affix diff pinned minimal per L3 ("hello"→"hełlo" = remove 1, insert "ł") and property-checked affix-minimal (the splice neither starts nor ends with a kept character).
 - Internals (`Text.pending`/`drain`/`applySplice`) are exercised via `InternalsVisibleTo("Ylmish.Tests")` (`src/Ylmish/AssemblyInfo.fs`) rather than widening the public surface.
 
@@ -430,6 +430,18 @@ Sub-steps, each a green commit. Remember the **interim-compatibility rule**: the
 *Acceptance:* codec fully specified with zero Yjs runtime involvement (the `CustomElement` *type* references Fable.Yjs — that's the decided dependency posture); old suite still green via the interim rule.
 
 *Check-in:* test count per sub-step; which exhaustive matches 4b touched and how; status of #10/#12 (fixed, rewritten, or still blocked — say which and why).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- 158 passing (+16), 3 pending. `src/Ylmish/Codec.fs` fully implemented; `tests/Ylmish.Tests/Codec.fs` covers 4a–4e.
+- **4b's feared exhaustive-match ripple never happened.** Because 2b put v2 in its own `Ylmish.Codec` namespace, v1's `Element` union is never reshaped — v1 stays byte-identical until Step 7 deletes it. The interim-compatibility rule's only real casualty remains the `V1` alias in `Y.fs` from 2b.
+- Internal architecture: `Encoded` keeps hold of the **adaptive views** (`aval`/`alist`/`amap`) so Step 5 can observe deltas, not snapshots. `Element` is the pure point-in-time tree decoding consumes; tests pipeline `Element.ofEncoded → Decode.runElement` (via `InternalsVisibleTo`), and the public `Decode.run` (against a live doc) stays unimplemented until Step 6, as designed. `Primitive` is `PString | PNumber of float | PBool` — numbers are JS numbers; `Value.Decode.int` checks integrality on the way out.
+- `Encode.option`'s interim representation is a presence flag + an inner projection that must only be forced while Some (guarded in `Element.ofEncoded`); Step 5's Some-window primitive replaces it, as flagged at 2b.
+- Decode error semantics pinned: the object CE is monadic (short-circuits); **traversals accumulate** (every bad list/map item reports, each with its `ArrayIndex`/`MapKey`); paths are innermost-first, pinned by a deep-composition test (`[ArrayIndex 0; ObjectKey "tags"; MapKey "id-1"; ObjectKey "todos"]`).
+- `Decode.custom`'s unbox is **trust-based under Fable** (JS casts are unchecked) — a Value/decoder type drift surfaces downstream, not at decode; documented on the combinator rather than pretending a try/catch would catch it.
+- The should-not-compile record for L1 lives as a comment block at the top of `tests/Ylmish.Tests/Codec.fs`.
+- #10/#12: nothing to do — the two formerly-disabled v1 roundtrip tests were already re-enabled on master during the parallel Step 0/1 baseline work, and the v2 round-trip properties supersede them anyway (v1 dies at Step 7).
+- **Adaptify.Core 1.3.7 reverted to 1.3.4** — see the Step 3 correction above: the package/tool version skew is deliberate (1.3.7's library code doesn't compile under Fable 5), and dependency changes require `rm -rf build` before trusting a green run.
 
 ### Step 5 — Binding layer, encode direction
 
