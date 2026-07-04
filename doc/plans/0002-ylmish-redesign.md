@@ -307,7 +307,7 @@ For the engineer executing this (competent F#, new to this codebase):
 
 ### Progress
 
-- [ ] Step 0 — Baseline (S)
+- [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
 - [ ] Step 1 — Pin the assumptions (M)
 - [ ] Step 2a — Differential harness (M)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
@@ -326,6 +326,8 @@ For the engineer executing this (competent F#, new to this codebase):
 No code changes. Get the toolchain running per `AGENTS.md`, run `npm test`, record the passing/skipped counts in *Progress*, and skim `src/Ylmish/Y.fs`, `Adaptive.Codec.fs`, `Program.fs` plus this plan's *Validated assumptions* table.
 
 *Check-in:* baseline test count; anything already broken on your machine; questions about the plan itself before work starts.
+
+**Decisions & lessons:** Toolchain wasn't preinstalled in this environment — `dotnet` was missing, so `npm install` failed at the `dotnet restore`/`dotnet tool restore` step. Installed .NET SDK 10.0.300 (per `global.json`) via the official `dotnet-install.sh` script, then `npm install` and `npm test` ran clean. Baseline: **99 passing, 0 failing, 0 skipped**. One pre-existing runtime warning surfaced during the `Program` suite (`withYlmish: failed to decode existing Y.Doc state, falling back to initial model ... $.propE is of kind Value but expected one of [Map]`) — it's logged output from the intentional "falls back to init model when Y.Doc has incompatible state" test, not a failure. No other issues found; no questions on the plan itself at this stage.
 
 ### Step 1 — Pin the assumptions (Yjs **and** Adaptive)
 
