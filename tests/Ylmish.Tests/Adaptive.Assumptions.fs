@@ -32,8 +32,7 @@ open Fable.Mocha
 open Expecto
 #endif
 
-type private DeltaCount = { Sets : int; Removes : int } with
-    member c.Total = c.Sets + c.Removes
+type private DeltaCount = { Sets : int; Removes : int }
 
 let private countOps (ops : ('k * ElementOperation<'v>) list) : DeltaCount =
     let sets = ops |> List.filter (fun (_, op) -> match op with Set _ -> true | _ -> false) |> List.length
@@ -127,9 +126,8 @@ let tests = testList "Adaptive.Assumptions" [
             // off item i survive a rebuild? No — position i's adaptive object is
             // reused for whatever lands there.
             let mkC (items : string list) : Model =
-                { PropA = ""; PropB = None
-                  PropC = items |> List.map (fun p -> { Prop0 = p }) |> IndexList.ofList
-                  PropD = IndexList.empty; PropE = { Prop0 = "" }; PropF = None }
+                { mk IndexList.empty with
+                    PropC = items |> List.map (fun p -> { Prop0 = p }) |> IndexList.ofList }
             let am = AdaptiveModel.Create (mkC [ "a"; "b" ])
             let at0Before = am.PropC |> AList.force |> IndexList.toList |> List.item 0
             // Prepend "x" by REBUILDING the list (fresh Indices) — the idiomatic update.
@@ -161,6 +159,19 @@ let tests = testList "Adaptive.Assumptions" [
             let c = measureItems before after
             Expect.equal c { Sets = 0; Removes = 1 }
                 "only the removed key produces an op"
+        }
+
+        test "wholesale rebuild editing one key's VALUE: 0 outer ops — absorbed in place" {
+            // The most load-bearing keyed behaviour: an in-place edit of an
+            // existing key does not surface on the outer amap at all — the
+            // nested AdaptiveSubmodel is updated in place (proven by reference
+            // in the identity test below). A regression that re-created the
+            // submodel on value-edit would surface here as a Set.
+            let before = HashMap.ofList [ "a", { Prop0 = "a" }; "b", { Prop0 = "b" } ]
+            let after = HashMap.ofList [ "a", { Prop0 = "a" }; "b", { Prop0 = "b2" } ]
+            let c = measureItems before after
+            Expect.equal c { Sets = 0; Removes = 0 }
+                "editing an existing key's value emits no outer map ops — the delta is absorbed by the nested adaptive object"
         }
 
         test "rebuilt HashMap keeps each key's adaptive object — identity follows the KEY" {

@@ -82,10 +82,9 @@ let tests = testList "Y.Assumptions" [
             let r1 = read d1
             let r2 = read d2
             Expect.equal r1 r2 "docs converge (CRDT guarantees agreement)..."
-            Expect.equal r1.Length 1
-                "...but only one subtree survives — the loser's items are LOST"
-            Expect.isTrue (r1 = [ "from-d1" ] || r1 = [ "from-d2" ])
-                "the survivor is exactly one peer's array"
+            Expect.equal r1 [ "from-d2" ]
+                "...but only ONE subtree survives — the higher clientID's (the same \
+                 tiebreak as U4) — and the loser's items are LOST"
         }
     ]
 
@@ -148,10 +147,8 @@ let tests = testList "Y.Assumptions" [
 
             let v (d : Doc) = (root d).get "body" |> Option.get |> unbox<string>
             Expect.equal (v d1) (v d2) "docs converge"
-            Expect.isTrue (v d1 = "hello world" || v d1 = "oh, hello")
-                "exactly one write survives — the other is clobbered"
             Expect.equal (v d1) "oh, hello"
-                "the winner is the higher clientID's write (see U4), not a merge"
+                "exactly one write survives — the higher clientID's (see U4) — the other is clobbered, not merged"
         }
     ]
 
@@ -233,7 +230,11 @@ let tests = testList "Y.Assumptions" [
             let t = Y.Text.Create ""
             (root d1).set ("body", box t) |> ignore
             let mutable events = 0
-            (root d1).observeDeep (fun evts _tr -> events <- events + evts.Count)
+            let mutable textTargeted = false
+            (root d1).observeDeep (fun evts _tr ->
+                events <- events + evts.Count
+                for e in evts do
+                    if System.Object.ReferenceEquals (box e.target, box t) then textTargeted <- true)
 
             t.insert (0, "hi")                               // nested text edit
             let arr : YArray<obj> = Y.Array.Create ()
@@ -244,6 +245,11 @@ let tests = testList "Y.Assumptions" [
 
             Expect.equal events 4
                 "every edit — root-level and nested — surfaces through the single deep observer"
+            // The Fable binding doesn't expose YEvent.path, so pin routing via the
+            // event's TARGET instead: the nested text's event carries the Y.Text
+            // instance itself. (Step 6's decode direction will want `path` bound.)
+            Expect.isTrue textTargeted
+                "the nested text edit's deep event targets the Y.Text instance — the root observer can route without paths"
         }
     ]
 
@@ -267,8 +273,10 @@ let tests = testList "Y.Assumptions" [
             let r1 = (xs d1).toArray () |> List.ofSeq
             let r2 = (xs d2).toArray () |> List.ofSeq
             Expect.equal r1 r2 "docs converge"
-            Expect.equal (List.sort r1) [ "base"; "from-d1"; "from-d2" ]
-                "both concurrent inserts survive alongside the base item"
+            Expect.equal r1 [ "from-d1"; "from-d2"; "base" ]
+                "both concurrent inserts survive, in the deterministic converged order \
+                 (observed: lower clientID's insert first) — the order IS the pin; \
+                 a flipped insert tiebreak must fail here"
         }
     ]
 
@@ -297,10 +305,10 @@ let tests = testList "Y.Assumptions" [
 
     // U10 — Y.Map holds any JSON value, not just strings. Consequence: the v1
     // codec's Element<string> restriction is unnecessary; v2 elements carry
-    // typed primitives. (The .mjs run also pins null, plain objects and
-    // undefined; here we pin the payloads the v2 Value sub-language needs.)
+    // typed primitives. (The .mjs run also pins plain objects and undefined;
+    // here we pin the payloads the v2 Value sub-language needs, plus null.)
     testList "U10 typed primitives in Y.Map" [
-        test "numbers, floats, bools, strings and arrays round-trip" {
+        test "numbers, floats, bools, strings, arrays and null are stored" {
             let d = Y.Doc.Create ()
             let m = root d
             m.set ("num", box 42) |> ignore
@@ -310,6 +318,7 @@ let tests = testList "Y.Assumptions" [
             // NB: an F# int[] compiles to a JS Int32Array under Fable, which Yjs
             // rejects ("Unexpected content type") — a plain JS array is required.
             m.set ("arr", box [| box 1; box 2 |]) |> ignore
+            m.set ("nul", null) |> ignore
 
             Expect.equal (m.get "num" |> Option.get |> unbox<int>) 42 "int survives"
             Expect.equal (m.get "float" |> Option.get |> unbox<float>) 1.5 "float survives"
@@ -317,6 +326,12 @@ let tests = testList "Y.Assumptions" [
             Expect.equal (m.get "str" |> Option.get |> unbox<string>) "s" "string survives"
             Expect.equal (m.get "arr" |> Option.get |> unbox<obj[]> |> Array.map unbox<int> |> List.ofArray) [ 1; 2 ]
                 "plain arrays survive"
+            // A stored JS null is a real Y.Map value, but the Fable binding
+            // collapses `get` to 'T option, so null reads back as None —
+            // indistinguishable from a missing key. Pin presence via `has`;
+            // the codec's option semantics must NOT rely on null through `get`.
+            Expect.isTrue (m.has "nul")
+                "null is stored as a real value (readable only via has under Fable)"
         }
     ]
 
