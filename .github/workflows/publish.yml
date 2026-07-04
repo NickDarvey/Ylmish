@@ -1,8 +1,9 @@
 name: publish
 
+# Publishing to NuGet is disabled. The automatic push-to-master trigger has been
+# replaced with manual-only dispatch so this workflow never publishes on its own.
 on:
-  push:
-    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   publish:

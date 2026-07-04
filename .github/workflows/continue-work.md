@@ -1,9 +1,11 @@
 ---
 description: Continue work by assigning Claude to the next issue when a task is completed
 engine: claude
+# Starting work from GitHub issues is disabled. The automatic issue-closed
+# trigger has been replaced with manual-only dispatch so this workflow no longer
+# assigns agents to the next issue on its own.
 on:
-  issues:
-    types: [closed]
+  workflow_dispatch:
 permissions:
   contents: read
   issues: read
