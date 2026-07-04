@@ -323,7 +323,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 1 — Pin the assumptions (M) — 125 passing (+16 Y.Assumptions, +10 Adaptive.Assumptions)
 - [x] Step 2a — Differential harness (M) — 130 passing (+5 calibration)
 - [x] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**) — 130 passing, 3 pending (the north stars, skipped until Step 7) — **awaiting Nick's signature review**
-- [ ] Step 3 — `Ylmish.Text` (M)
+- [x] Step 3 — `Ylmish.Text` (M) — 142 passing (+12), 3 pending — **note the Adaptify finding: `Text` is a sealed class, not a record**
 - [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
 - [ ] Step 5 — Binding, encode direction (L; sub-steps 5a–5g)
 - [ ] Step 6 — Binding, decode direction (M)
@@ -408,6 +408,14 @@ Pure value type, no Yjs dependency. Replace the Step 2b stubs with the real impl
 *Acceptance:* `Text` usable in a model today, even before sync exists.
 
 *Check-in:* test count; the property-test generators (they get reused); confirmation the Adaptify round-trip works (this is the step most likely to surface a generator limitation — if `cval<Text>` doesn't survive `[<ModelType>]`, stop and check in, because it forces a design change).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- 142 passing (+12), 3 pending. `src/Ylmish/Text.fs` implemented; `tests/Ylmish.Tests/Text.fs` with reusable generators (`TextOp` with deliberately out-of-range positions; a plain-string reference implementation the content semantics are checked against, differential-style).
+- **The predicted generator limitation appeared, and forced the predicted design change.** `[<ModelType>]` with a field whose type is a *cross-assembly record with hidden representation* makes Adaptify emit the member as `aval<obj>` while the backing cell is correctly `cval<Ylmish.Text>` — the generated code does not even compile. Diagnosis: Adaptify introspects record fields to build wrappers and falls back to `obj` when it cannot see them across the assembly boundary (same-assembly `MapModel`/`Submodel` were fine; building the referenced project first changed nothing; the 1.3.7 CLI behaves the same). **Fix: `Text` is a `[<Sealed>]` class** with internal state, custom content-only equality/comparison/hash, and unchanged module API — Adaptify passes an opaque class through as a plain changeable value with its type intact (`aval<Ylmish.Text>` confirmed in the regenerated code). **Rule for the rest of the plan: any public Ylmish value type destined for consumer `[<ModelType>]` models must be a class (or public-representation record), never a hidden-representation record.**
+- While diagnosing: the Adaptify CLI tool (1.3.7, `dotnet-tools.json`) and the `Adaptify.Core` package (1.3.4, `Directory.Packages.props`) were mismatched — aligned both to 1.3.7, NuGet lock files regenerated.
+- Contract decisions pinned by tests: **edit positions clamp** (an out-of-range edit in an Elmish `update` must not crash the loop); **content-neutral edits are elided** (e.g. replacing "a" with "a") — a deliberate consequence of content-only equality, since adaptive propagation is content-driven and such an intent could never reach the doc anyway; `Text.edit`'s affix diff pinned minimal per L3 ("hello"→"hełlo" = remove 1, insert "ł") and property-checked affix-minimal (the splice neither starts nor ends with a kept character).
+- Internals (`Text.pending`/`drain`/`applySplice`) are exercised via `InternalsVisibleTo("Ylmish.Tests")` (`src/Ylmish/AssemblyInfo.fs`) rather than widening the public surface.
 
 ### Step 4 — Codec v2: typed primitives, `text`, `atomic`, `custom`, keyed `map`
 

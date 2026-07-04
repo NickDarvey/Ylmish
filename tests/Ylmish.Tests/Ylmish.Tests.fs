@@ -3,6 +3,7 @@ module Ylmish.Tests
 open Ylmish
 
 let tests = [
+   Tests.Text.tests
    Adaptive.Codec.tests
    Adaptive.Assumptions.tests
    Y.Delta.tests

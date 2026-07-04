@@ -22,6 +22,7 @@
 		<ProjectReference Include="../Fable.Yjs/Fable.Yjs.fsproj" />
 	</ItemGroup>
 	<ItemGroup>
+		<Compile Include="AssemblyInfo.fs" />
 		<Compile Include="Disposables.fs" />
 		<Compile Include="Text.fs" />
 		<Compile Include="Codec.fs" />

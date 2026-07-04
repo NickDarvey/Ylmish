@@ -1,6 +1,6 @@
 <Project>
   <ItemGroup>
-    <PackageVersion Include="Adaptify.Core" Version="1.3.4" />
+    <PackageVersion Include="Adaptify.Core" Version="1.3.7" />
 
     <PackageVersion Include="Fable.Elmish" Version="4.2.0" />
 
