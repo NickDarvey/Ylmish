@@ -10,6 +10,7 @@ let tests = [
    Y.Map.tests
    Y.Element.tests
    Y.Doc.tests
+   Y.Assumptions.tests
    Program.tests
    TodoCollaborative.tests
 ]
