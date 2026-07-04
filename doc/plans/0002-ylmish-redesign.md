@@ -307,7 +307,7 @@ For the engineer executing this (competent F#, new to this codebase):
 
 ### Progress
 
-- [ ] Step 0 — Baseline (S)
+- [x] Step 0 — Baseline (S) — **99 passing, 0 pending, 0 failing**
 - [ ] Step 1 — Pin the assumptions (M)
 - [ ] Step 2a — Differential harness (M)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
@@ -326,6 +326,14 @@ For the engineer executing this (competent F#, new to this codebase):
 No code changes. Get the toolchain running per `AGENTS.md`, run `npm test`, record the passing/skipped counts in *Progress*, and skim `src/Ylmish/Y.fs`, `Adaptive.Codec.fs`, `Program.fs` plus this plan's *Validated assumptions* table.
 
 *Check-in:* baseline test count; anything already broken on your machine; questions about the plan itself before work starts.
+
+**Done (baseline established).**
+
+- **Test count:** `npm test` → **99 passing, 0 pending, 0 failing** (~0.85s). This is the baseline; every subsequent check-in reports against it.
+- **Toolchain:** the environment shipped without a .NET SDK, so `npm install` (which runs `dotnet restore && dotnet tool restore`) failed at first. Installed .NET SDK `10.0.300` per `global.json` (via `dotnet-install.sh` to `/root/.dotnet`); after that, restore and tests are green. Fable `5.1.0`, Adaptify `1.3.7`, Femto `0.12.0` restored as local tools. Node `v22.22.2`.
+- **Nothing broken.** One pre-existing benign restore warning: `NU1608` — `YoloDev.Expecto.TestSdk 0.13.3` wants `Expecto < 10` but `10.2.3` resolved. Tests pass regardless; left untouched (out of scope for this step).
+- **Files skimmed:** `Y.fs` (Delta/Text/Array/Map `attach*` plumbing with boolean `active` reentrancy guards — the substance Step 5 will re-home under `Ylmish.Internal` with origin tokens; `Doc.materialize`/`dematerialize` — the whole-tree path this plan replaces, and note `materialize` deletes unrecognised root keys, exactly the U15 anti-behaviour), `Adaptive.Codec.fs` (the v1 codec — `Element<'Value>` union `Value | AList | AMap`, `Encode`/`Decode`, `Decoder.ask` Reader already present), `Program.fs` (`withYlmish` running on materialize + a `observeDeep` handler gated by an `isWritingToYDoc` bool; ~330 lines of commented-out prior codec sketches below the live code — candidates for Step 7's deletion).
+- **No blocking questions.** The plan's Step 0 premise holds; proceeding to Step 1 is unblocked.
 
 ### Step 1 — Pin the assumptions (Yjs **and** Adaptive)
 
