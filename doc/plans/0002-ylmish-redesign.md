@@ -308,7 +308,7 @@ For the engineer executing this (competent F#, new to this codebase):
 ### Progress
 
 - [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
-- [ ] Step 1 — Pin the assumptions (M)
+- [x] Step 1 — Pin the assumptions (M) — 121 passing (+22), 0 skipped
 - [ ] Step 2a — Differential harness (M)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
 - [ ] Step 3 — `Ylmish.Text` (M)
@@ -336,6 +336,38 @@ Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs`
 *Acceptance:* suite green; every design-consequence claim in this plan is enforced by CI, so a Yjs or Adaptify upgrade that changes semantics fails loudly.
 
 *Check-in:* test count; a one-line map from each assumption id (U*/A1) to its test name; any assumption that did **not** reproduce (that's a stop-the-line finding — it invalidates part of the design).
+
+**Decisions & lessons:** Suite is now **121 passing, 0 skipped** (up from the Step 0 baseline of 99). Added `tests/Ylmish.Tests/Y.Assumptions.fs` (16 tests, ported from `doc/plans/0002-assumptions/experiments.mjs` and `experiments2.mjs`) and `tests/Ylmish.Tests/Adaptive.Assumptions.fs` (6 tests, adapted near-verbatim from the reference branch's `Adaptive.Spike.fs`, since its Example-model characterization transfers unchanged per the plan's own note).
+
+Assumption → test map:
+
+| Assumption | Test |
+| --- | --- |
+| U1 | `U1: doc.getMap() with no name is the root map, stable across calls` |
+| U2a | `U2a: two peers each create a nested container under the same map key — one subtree wins wholesale` |
+| U2b | `U2b: root-level arrays named the same merge — items from both peers survive` |
+| U3 | `U3: concurrent edits to a shared nested Y.Text interleave and converge` |
+| U3b | `U3b: concurrent set of a plain string map value LWW-clobbers (issue #83's failure mode)` |
+| U4 | `U4: the concurrent map.set winner is deterministic and order-independent (not wall-clock)` |
+| U5 (+U5b) | `U5: re-setting an already-integrated Y type under another key does not throw locally, but the doc becomes unsyncable` |
+| U6 | `U6: transaction origins propagate to observers, including applyUpdate's origin and the local flag` |
+| U7 | `U7: observeDeep on the root map fires for nested Y.Text/Y.Array/Y.Map edits` |
+| U8 | `U8: concurrent Y.Array inserts at the same position both survive, in a deterministic order` |
+| U9 | `U9: a delete beats a concurrent edit inside the deleted item` |
+| U10 | `U10: Y.Map holds any JSON-primitive value (...)` |
+| U11 | `U11: replacing a nested Y.Text wholesale discards a peer's concurrent edits to the old instance` |
+| U13 | `U13: concurrent delete+insert 'move' of the same item duplicates it` |
+| U14 | `U14: one doc.transact spanning many nested types produces exactly one observeDeep batch` |
+| U15 | `U15: a client applies an update containing keys it doesn't understand cleanly, and unknown keys survive` |
+| A1 | `A1a`–`A1f` in `Adaptive.Assumptions.fs` (append/prepend/remove-middle minimal; rebuild and reorder churn; nested-submodel positional rebind) |
+
+Every U-row in the "Validated assumptions" table reproduced as documented, including the notable one: **U5's corruption doesn't throw at the `.set` call site** — Yjs logs a `TypeError` to the console internally (visible as noise in the test run) and only a later peer's `applyUpdate` throws, exactly as the assumptions README calls out. U12 (independent-identical-init duplication) was intentionally not ported — it's a scratch experiment in `experiments.mjs`, not a row in the plan's assumptions table, so there's no design claim it backs.
+
+One correction against the source experiments during porting: U7's `observeDeep` batch count is **4**, not 3 — one batch per mutating statement (text insert, list-key set, array push, nested-map set), each in its own implicit transaction. The Fable Yjs binding doesn't expose `YEvent.path`, so U7 is pinned on batch count rather than the JS version's per-event path array; the design consequence (one observer sees the whole nested tree) still holds.
+
+A1's HashMap-keyed-reconcile half (the "whose Adaptify reconcile is keyed by construction" part of the table's A1 row) is **not** re-pinned here — the shared `Example` model (`tests/Ylmish.Tests/common/Example.fs`) has no `HashMap` field. Left as a note in `Adaptive.Assumptions.fs`; Step 5b's keyed-map binding tests are where that gets proven end-to-end against a real `Y.Map` binding, which is a stronger check anyway.
+
+No questions on the plan itself; nothing failed to reproduce.
 
 ### Step 2a — Differential harness
 
