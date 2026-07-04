@@ -4,12 +4,14 @@ open Ylmish
 
 let tests = [
    Adaptive.Codec.tests
+   Adaptive.Assumptions.tests
    Y.Delta.tests
    Y.Text.tests
    Y.Array.tests
    Y.Map.tests
    Y.Element.tests
    Y.Doc.tests
+   Y.Assumptions.tests
    Program.tests
    TodoCollaborative.tests
 ]

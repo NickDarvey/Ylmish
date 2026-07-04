@@ -308,7 +308,7 @@ For the engineer executing this (competent F#, new to this codebase):
 ### Progress
 
 - [x] Step 0 — Baseline (S) — **99 passing, 0 pending, 0 failing**
-- [ ] Step 1 — Pin the assumptions (M)
+- [x] Step 1 — Pin the assumptions (M) — **121 passing (+22)**
 - [ ] Step 2a — Differential harness (M)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
 - [ ] Step 3 — `Ylmish.Text` (M)
@@ -342,6 +342,36 @@ Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs`
 *Acceptance:* suite green; every design-consequence claim in this plan is enforced by CI, so a Yjs or Adaptify upgrade that changes semantics fails loudly.
 
 *Check-in:* test count; a one-line map from each assumption id (U*/A1) to its test name; any assumption that did **not** reproduce (that's a stop-the-line finding — it invalidates part of the design).
+
+**Done.**
+
+- **Test count:** 99 → **121 passing** (+22), 0 pending, 0 failing. New files: `tests/Ylmish.Tests/Y.Assumptions.fs` (16 tests, U-ids) and `tests/Ylmish.Tests/Adaptive.Assumptions.fs` (6 tests, A1/L1). Both wired into `Ylmish.Tests.fsproj` and the aggregate list. Ground truth captured by running `doc/plans/0002-assumptions/*.mjs` against the pinned yjs (13.6.x) first, then asserted.
+- **Every assumption reproduced.** No stop-the-line findings. The two Adaptify op-count pins landed exactly on the reference-branch values in this environment (FSharp.Data.Adaptive 1.2.26 under Fable, Adaptify 1.3.7): rebuild-prepend = 4 Sets/0 Removes, reverse = 2 Sets/0 Removes.
+- **Assumption → test name (Yjs, `Y.Assumptions`):**
+  - U1 → "getMap() returns the same instance on repeated calls"
+  - U2a → "each peer creates its own Y.Array under the same key — one side is lost"
+  - U2b → "two peers naming the same root array — both items survive"
+  - U3 → "concurrent inserts on a shared Y.Text both survive"
+  - U3b → "two peers set the same key to different strings — one is lost"
+  - U4 → "winner is order-independent and picks the higher clientID"
+  - U5b → "re-setting an integrated Y.Text under another key breaks a later sync"
+  - U6 → "explicit origin and remote-apply origin reach observers with local flags"
+  - U7 → "a nested Y.Text edit fires the root's observeDeep, targeting the text"
+  - U8 → "two peers insert at the same position — both items survive"
+  - U9 → "one peer deletes an item while the other edits inside it — delete wins"
+  - U10 → "number, bool, null and string round-trip through a Y.Map value"
+  - U11 → "replacement wins; a concurrent edit of the old text is lost"
+  - U13 → "both peers move the same item to the end — it appears twice"
+  - U14 → "a transact touching text, array and a map key fires one deep batch"
+  - U15 → "an old client applies an update adding an unknown key without loss"
+- **Assumption → test name (Adaptive, `Adaptive.Assumptions (A1 / L1)`):** A1 is pinned by six tests — the three identity-preserving cases (append/prepend/remove = minimal delta), the two identity-destroying cases (rebuild = positional 4-op rewrite; reorder = 2-op churn), and the nested-state hazard ("rebuilt list of submodels rebinds inner adaptive objects BY POSITION, not by id"), which is the exact corruption L1's `Encode.list`-values-only rule prevents.
+
+**Decisions & lessons (Step 1):**
+
+- **Kept the plan's U-numbering, not the reference branch's A1–A6 scheme.** The reference `Y.Assumptions.fs` covered a different (smaller) subset under its own ids and encoded the *flattening* design's needs; I re-derived the required set (U2a/U2b, U3, U4, U5b, U6, U9, U11, U13, U14, U15 + the cheap U1/U3b/U7/U8/U10) straight from the plan's table and the `.mjs` scripts so each test maps 1:1 to a plan row.
+- **U5b is asserted as an invariant, not an exact failure mode.** In yjs 13.6.x, re-parenting an integrated type *does not throw at the call site* — it corrupts, and a later `applyUpdate` throws (`Cannot read properties of undefined (reading 'id')`) with content lost. Rather than pin the precise throw location (brittle across versions), the test asserts `setThrew || syncThrew || contentLost`. This still fails loudly in the one case that matters: if a future yjs made re-parenting *safe*, all three go false and the "bind, never re-parent" API constraint would be flagged for review.
+- **U10 null is a Fable-boundary artifact.** A stored JS `null` is a real Y.Map value, but Fable collapses `YMap.get` → `'T option` so `null` reads back as `None`, indistinguishable from a missing key. Asserted null-presence via `.has` instead of `.Value`. The load-bearing U10 claim (Y.Map holds typed number/bool/string primitives, not only strings) is asserted directly.
+- **U7 pinned via `event.target` reference-equality, not `event.path`.** The Fable binding (`YEvent`) doesn't surface `path`; rather than reach for dynamic interop, the test proves the actual design consequence — a nested edit reaches the *single* root `observeDeep` and the deep event targets the nested type itself. The `.mjs` spike's path evidence (`["body"]`, `["list", 0]`) is noted in a comment.
 
 ### Step 2a — Differential harness
 
