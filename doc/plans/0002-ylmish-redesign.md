@@ -309,7 +309,7 @@ For the engineer executing this (competent F#, new to this codebase):
 
 - [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
 - [x] Step 1 — Pin the assumptions (M) — 125 passing (+16 Y.Assumptions, +10 Adaptive.Assumptions)
-- [ ] Step 2a — Differential harness (M)
+- [x] Step 2a — Differential harness (M) — 130 passing (+5 calibration)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
 - [ ] Step 3 — `Ylmish.Text` (M)
 - [ ] Step 4 — Codec v2 (L; sub-steps 4a–4e)
@@ -357,6 +357,13 @@ Calibrate it — this is the step's real deliverable: **green on the oracle** (g
 *Acceptance:* the three calibration results above, as committed tests (the materialize-red one marked as expected-fail/pending so the suite stays green).
 
 *Check-in:* test count; the calibration triad's output; the harness's public surface (it will be reused in Steps 5, 7, 9).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- 130 passing (+5). `tests/Ylmish.Tests/Harness.fs`, adapted from the reference branch's `Harness.fs` per the quarry note — the design transfers wholesale (Bridge / schedule driver / differential vs raw-Yjs oracle / minimality meter).
+- Public surface for reuse: `Bridge`/`BridgeFactory` (whole models in, converged model out), `run : BridgeFactory -> Delivery -> ReplicaOp list -> RunResult` with `Immediate`/`Concurrent` delivery, `differential` (SUT vs oracle, reports `Lost` ids), `incrementalBytes`/`measureApplies` (O(delta)-vs-O(state) meter, calibrated now, first *used* in Step 5).
+- **Interpretation surfaced:** the plan said the materialize-red calibration lands "as expected-fail/pending". A pending test asserts nothing, so instead it lands as a *passing* test that asserts the mismatch and the lost id (`MatchesOracle = false`, `Lost` non-empty) — a stronger pin with the same green suite. When Step 5 fixes the bug this test fails by design and gets flipped into the fix's regression test; its message says so.
+- The driver models `withYlmish`'s remote-update → read-back → `Set` loop on every delivery (refresh the receiving replica's model from its bridge before its next local op). Without this the old path would fail even sequentially and the harness would be hostile rather than discriminating.
 
 ### Step 2b — Target API skeleton + north stars (red) — **design-review checkpoint**
 
