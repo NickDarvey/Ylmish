@@ -307,8 +307,8 @@ For the engineer executing this (competent F#, new to this codebase):
 
 ### Progress
 
-- [ ] Step 0 — Baseline (S)
-- [ ] Step 1 — Pin the assumptions (M)
+- [x] Step 0 — Baseline (S) — 99 passing, 0 skipped
+- [x] Step 1 — Pin the assumptions (M) — 125 passing (+16 Y.Assumptions, +10 Adaptive.Assumptions)
 - [ ] Step 2a — Differential harness (M)
 - [ ] Step 2b — Target API skeleton + north stars (M — **design-review checkpoint**)
 - [ ] Step 3 — `Ylmish.Text` (M)
@@ -327,6 +327,8 @@ No code changes. Get the toolchain running per `AGENTS.md`, run `npm test`, reco
 
 *Check-in:* baseline test count; anything already broken on your machine; questions about the plan itself before work starts.
 
+*Decisions & lessons (executed 2026-07-04):* baseline 99 passing, 0 skipped, nothing broken. (PR #123 "establish test baseline" merged with an empty diff, so the count is recorded here instead.) Toolchain note (from the parallel Step 0 runs, PRs #125/#127): fresh environments ship without a .NET SDK, so `npm install` fails at `dotnet restore` — install SDK 10.0.300 per `global.json` via `dotnet-install.sh` first. One benign pre-existing restore warning (`NU1608`: `YoloDev.Expecto.TestSdk 0.13.3` wants `Expecto < 10`, `10.2.3` resolves) — tests pass regardless.
+
 ### Step 1 — Pin the assumptions (Yjs **and** Adaptive)
 
 Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs` (U2a/U2b, U3, U4, U5b, U6, U9, U11, U13, U14, U15 at minimum), and re-pin the Adaptify delta characterization (A1/L1: rebuild-regime positional rewrites; positional rebinding of nested adaptive objects; `HashMap` keyed reconcile) in `Adaptive.Assumptions.fs`. The reference branch has working versions of both files to adapt.
@@ -334,6 +336,17 @@ Port `doc/plans/0002-assumptions/*.mjs` to `tests/Ylmish.Tests/Y.Assumptions.fs`
 *Acceptance:* suite green; every design-consequence claim in this plan is enforced by CI, so a Yjs or Adaptify upgrade that changes semantics fails loudly.
 
 *Check-in:* test count; a one-line map from each assumption id (U*/A1) to its test name; any assumption that did **not** reproduce (that's a stop-the-line finding — it invalidates part of the design).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- Every assumption reproduced exactly as tabled — no stop-the-line findings. Assumption → test map (all in `Y.Assumptions.fs` under the same-named `testList`): U1 root map identity, U2a nested first-create race, U2b root-level create race, U3 shared nested Y.Text, U3b plain-string map value, U4 LWW tiebreak, U5b re-parenting an integrated type, U6 transaction origins, U7 observeDeep coverage, U8 concurrent array inserts, U9 delete vs edit-inside, U10 typed primitives in Y.Map, U11 replace vs concurrent edit, U13 concurrent structural move, U14 transaction batching, U15 unknown keys. A1/L1 in `Adaptive.Assumptions.fs`: three IndexList structural-op tests (minimal deltas), rebuild + reorder positional-rewrite tests, positional nested rebinding, and four HashMap keyed-reconcile tests (O(delta) ops on add/remove; zero outer ops on value-update; identity follows the key). Ported beyond the plan's minimum: U1, U3b, U7, U8, U10 (cheap, and each backs a design claim). Not ported: U5 (subsumed by U5b), U12 (subsumed by U2a).
+- The HashMap keyed-reconcile characterization needed a model with a `HashMap` field; added `MapModel` to the test common's `Example.fs` (Adaptify generates a keyed `ChangeableModelMap` for it, confirming the L1 contrast by construction).
+- Interpretation: U7's path-tracked events (`["list", 0]`) are pinned as *coverage* (event counts through one deep observer) plus **target identity** (the nested text's deep event carries the `Y.Text` instance itself, by reference — grafted from #127's approach), not paths — the Fable.Yjs `YEvent` binding doesn't expose `path`. The binding gap is real and Step 6 (decode direction) will need `path` bound; noting rather than fixing here since Step 1 adds no production code.
+- Fable interop gotcha: an F# `int[]` compiles to a JS `Int32Array`, which Yjs rejects with "Unexpected content type" — U10 pins plain (boxed) arrays. Worth remembering for the codec's list encoding.
+- Fable interop gotcha #2 (grafted from #127): a stored JS `null` is a real Y.Map value, but the binding's `YMap.get : string -> 'T option` collapses it to `None` — **indistinguishable from a missing key**. U10 pins null presence via `has`. Design consequence for Step 4: `Encode.option` must model absence via key presence, never via null through `get`.
+- U5b makes Yjs log an internal `TypeError` to the console mid-suite; expected noise, documented in the test.
+- Post-review hardening (review on PR #126): U2a, U3b and U8 now pin their exact deterministic outcomes (survivor `["from-d2"]`; winner `"oh, hello"`; converged order `["from-d1"; "from-d2"; "base"]`) instead of disjunctions/sorted membership — a flipped tiebreak now fails loudly. Added the keyed **value-update** delta characterization (editing an existing key's value = 0 outer amap ops, absorbed by the nested adaptive object in place) — the case Step 5b's O(delta) claims lean on hardest.
+- Inventory for Step 7 (grafted from #127's skim): `Program.fs` carries ~330 lines of commented-out prior codec sketches below the live `withYlmish` — part of Step 7's deletion.
 
 ### Step 2a — Differential harness
 

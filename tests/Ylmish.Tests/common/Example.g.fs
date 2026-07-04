@@ -1,5 +1,5 @@
-//faeb7074-59b6-18d2-bb45-ac1b0ebca0de
-//f6dbec3f-031b-62ea-3685-40fa122835b6
+//3fca5087-7243-cba1-a08e-f34761d10038
+//3fb1ef17-1c48-6314-c9df-c84836673833
 #nowarn "49" // upper case patterns
 #nowarn "66" // upcast is unncecessary
 #nowarn "1337" // internal types
@@ -64,4 +64,22 @@ type AdaptiveSubmodel(value : Submodel) =
             _Prop0_.Value <- value.Prop0
     member __.Current = __adaptive
     member __.Prop0 = _Prop0_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.string>
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("NameConventions", "*")>]
+type AdaptiveMapModel(value : MapModel) =
+    let _ItemsByKey_ =
+        let inline __arg2 (m : AdaptiveSubmodel) (v : Submodel) =
+            m.Update(v)
+            m
+        FSharp.Data.Traceable.ChangeableModelMap(value.ItemsByKey, (fun (v : Submodel) -> AdaptiveSubmodel(v)), __arg2, (fun (m : AdaptiveSubmodel) -> m))
+    let mutable __value = value
+    let __adaptive = FSharp.Data.Adaptive.AVal.custom((fun (token : FSharp.Data.Adaptive.AdaptiveToken) -> __value))
+    static member Create(value : MapModel) = AdaptiveMapModel(value)
+    static member Unpersist = Adaptify.Unpersist.create (fun (value : MapModel) -> AdaptiveMapModel(value)) (fun (adaptive : AdaptiveMapModel) (value : MapModel) -> adaptive.Update(value))
+    member __.Update(value : MapModel) =
+        if Microsoft.FSharp.Core.Operators.not((FSharp.Data.Adaptive.ShallowEqualityComparer<MapModel>.ShallowEquals(value, __value))) then
+            __value <- value
+            __adaptive.MarkOutdated()
+            _ItemsByKey_.Update(value.ItemsByKey)
+    member __.Current = __adaptive
+    member __.ItemsByKey = _ItemsByKey_ :> FSharp.Data.Adaptive.amap<Microsoft.FSharp.Core.string, AdaptiveSubmodel>
 

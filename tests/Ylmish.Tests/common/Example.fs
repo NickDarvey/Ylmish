@@ -23,6 +23,12 @@ and [<ModelType>] Model = {
 and [<ModelType>] Submodel = {
     Prop0 : string
 }
+/// A keyed collection, as plan 0002 prescribes for entities with identity
+/// (`Encode.map` over `HashMap<key, _>`). Used by Adaptive.Assumptions.fs to
+/// characterize Adaptify's keyed reconcile.
+and [<ModelType>] MapModel = {
+    ItemsByKey : HashMap<string, Submodel>
+}
 
 module Model =
     let update msg model =
