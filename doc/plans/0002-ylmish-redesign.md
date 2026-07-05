@@ -328,7 +328,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 3 — `Ylmish.Text` (M) — 142 passing (+12), 3 pending — **note the Adaptify finding: `Text` is a sealed class, not a record**
 - [x] Step 4 — Codec v2 (L; sub-steps 4a–4e) — 158 passing (+16), 3 pending
 - [x] Step 5 — Binding, encode direction (L; sub-steps 5a–5g) — 174 passing (+16), 3 pending — **note the design amendment: root anchoring for top-level containers**
-- [ ] Step 6 — Binding, decode direction (M)
+- [x] Step 6 — Binding, decode direction (M) — 181 passing (+7), 3 pending
 - [ ] Step 7 — `withYlmish` v2; old path dies (M)
 - [ ] Step 8 — `CustomElement` end-to-end (M)
 - [ ] Step 9 — Property stress (S)
@@ -483,6 +483,16 @@ One `observeDeep` → decode → dispatch, custom elements riding the same obser
 *Acceptance:* full bidirectional binding at the adaptive layer, still without Elmish.
 
 *Check-in:* test count; a trace of one remote transaction → one `Set` (the U14 batching evidence); confirmation both imported crash regressions are covered by name.
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- 181 passing (+7), 3 pending. `Binding.subscribe` (one notification per foreign content-changing transaction), `Binding.read` (schema-directed doc→Element), `Decode.run` implemented (structural whole-doc read), decoder relaxations, `tests/Ylmish.Tests/Binding.Decode.fs`. Acceptance met: the full bidirectional round trip at the adaptive layer — every codec kind out through one peer's binding, through a sync, back in through the other peer's read+decode — with no Elmish involved.
+- **U14 batching evidence:** three local transactions on peer 1 ship as ONE update; peer 2 receives exactly one notification spanning register + text + keyed item (test: "one remote transaction spanning many types = exactly one notification").
+- **Both L4 crash regressions covered by name:** "L4 regression: a remote apply never triggers a re-entrant local write" — the decode loop folds the decoded model back into the adaptive model and the encode direction stays silent because every decoded value is content-equal (Text's content-only equality is load-bearing here, by design); zero own-origin transactions observed. And "L4 regression: adaptive mutation outside transact throws" — pinning the constraint Step 7's `Set` handler must respect.
+- **Empirical finding (pinned in plain yjs before fixing):** `afterTransaction` fires for `applyUpdate`, but its `changedParentTypes` is EMPTY for remotely-created types with no local observers — a guard on it silently filters exactly the remote transactions the decode direction exists for. The doc-level `'update'` event is the correct hook: it fires only for content-changing transactions and hands the origin directly.
+- **Design refinement (follows from Step 5's amendment):** top-level customs anchor to named root types too. A custom's `Connect` may call `Get*` eagerly (that is its contract), so an argless-map slot would reintroduce the U2a creation race *and* leave the consumer holding an orphaned instance when the peer's copy wins; a named root is race-free and the captured instance is the one remote edits land on. Found by the L6 test failing honestly.
+- **Read architecture:** the schema (Encoded) directs only the LAYOUT (which named roots, which argless-map slots) and the CUSTOM positions; values are read structurally by runtime kind, so a kind mismatch surfaces as a path-tracked decoder error rather than a read crash. Decoder relaxations follow: object decoders accept map elements and vice versa (structurally identical Y shapes), and `Decode.atomic` passes bare scalars through. Known limitation, documented: custom elements inside keyed-map ITEMS are not decodable (the schema cannot be applied to remote-only keys); customs at fixed paths are fully supported.
+- Public `Decode.run model decoder doc` = structural whole-doc read (named roots by `doc.share` + argless root map merged as top-level fields) — supports everything except customs, which need the runtime.
 
 ### Step 7 — `withYlmish` v2, end-to-end
 

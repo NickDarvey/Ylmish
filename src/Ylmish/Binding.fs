@@ -415,8 +415,99 @@ let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
                     let t : Y.Text = doc.getText k
                     t, (t.toString () = "")
                 attachText doc attachment ensure a
-            | EncValue _ | EncOption _ | EncAtomic _ | EncCustom _ ->
+            | EncCustom custom ->
+                // Top-level customs anchor to named root types like other
+                // containers: race-free creation (U2b) and a stable instance
+                // that receives remote edits — Connect may call Get* eagerly.
+                let ctx : BindContext =
+                    { GetText = fun () -> doc.getText k
+                      GetMap = fun () -> doc.getMap k
+                      GetArray = fun () -> doc.getArray k
+                      Origin = attachment.Origin }
+                attachment.Add (custom.Connect ctx)
+            | EncValue _ | EncOption _ | EncAtomic _ ->
                 attachNode doc attachment rootMap k path child
         attachment
+    | _ ->
+        raise (SchemaDrift (UnexpectedKind ([], "the top-level encoding must be Encode.object")))
+
+// -----------------------------------------------------------------------------
+// Step 6 — the decode direction.
+// -----------------------------------------------------------------------------
+
+#if FABLE_COMPILER
+// The doc's 'update' event fires exactly once per transaction THAT CHANGED
+// SOMETHING (afterTransaction fires for no-ops too, and its changedParentTypes
+// is empty for remotely-created types with no local observers — verified
+// empirically), and it hands the transaction origin directly.
+[<Fable.Core.Emit("$0.on('update', $1)")>]
+let private onUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
+
+[<Fable.Core.Emit("$0.off('update', $1)")>]
+let private offUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
+#else
+let private onUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit =
+    failwith "the binding runtime runs under Fable only"
+let private offUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
+#endif
+
+/// Invoke `handler` exactly once per content-changing transaction that was NOT
+/// tagged with `ownOrigin` — i.e. every remote apply and every foreign local
+/// write, with this attachment's own echoes filtered out (U6). One remote
+/// transaction spanning many types = one invocation (U14).
+let subscribe (doc : Y.Doc) (ownOrigin : obj) (handler : unit -> unit) : IDisposable =
+    let f =
+        Action<obj, obj> (fun _update origin ->
+            let own = not (isNull origin) && Object.ReferenceEquals (origin, ownOrigin)
+            if not own then handler ())
+    onUpdate doc f
+    { new IDisposable with
+        member _.Dispose () = offUpdate doc f }
+
+/// Schema-directed read of the doc into an Element tree: the Encoded tells us
+/// the LAYOUT (which named root types exist, argless-map slots for leaves) and
+/// which positions are custom elements; the VALUES are read structurally, so a
+/// kind mismatch surfaces as a decoder error with its path, not a crash here.
+let read (doc : Y.Doc) (encoded : Encoded) : Element =
+    let structural (v : obj) : Element option = ElementOfY.ofYValue v
+
+    let rec readSlot (parent : Y.Map<obj>) (key : string) (e : Encoded) : Element option =
+        match e with
+        | EncCustom c -> Some (ElCustom c)
+        | EncOption (_, inner) -> readSlot parent key inner
+        | EncObject props ->
+            match parent.get key with
+            | Some v when Interop.isYMap v -> Some (readObjectFrom (unbox<Y.Map<obj>> v) props)
+            | Some v -> structural v   // wrong kind: let the decoder report it
+            | None -> None
+        | _ ->
+            match parent.get key with
+            | Some v -> structural v
+            | None -> None
+
+    and readObjectFrom (self : Y.Map<obj>) (props : (string * Encoded) list) : Element =
+        let mutable fields = HashMap.empty
+        for (k, child) in props do
+            match readSlot self k child with
+            | Some el -> fields <- HashMap.add k el fields
+            | None -> ()
+        ElObject fields
+
+    match encoded with
+    | EncObject props ->
+        let rootMap : Y.Map<obj> = doc.getMap ()
+        let mutable fields = HashMap.empty
+        for (k, child) in props do
+            let el =
+                match child with
+                | EncObject nested -> Some (readObjectFrom (doc.getMap k) nested)
+                | EncMap _ -> structural (box (doc.getMap k : Y.Map<obj>))
+                | EncList _ -> structural (box (doc.getArray k : Y.Array<obj>))
+                | EncText _ -> Some (ElText ((doc.getText k : Y.Text).toString ()))
+                | EncValue _ | EncOption _ | EncAtomic _ | EncCustom _ -> readSlot rootMap k child
+            match el with
+            | Some el -> fields <- HashMap.add k el fields
+            | None -> ()
+        ElObject fields
     | _ ->
         raise (SchemaDrift (UnexpectedKind ([], "the top-level encoding must be Encode.object")))

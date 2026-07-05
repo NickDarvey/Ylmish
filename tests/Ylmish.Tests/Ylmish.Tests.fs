@@ -16,6 +16,7 @@ let tests = [
    Y.Assumptions.tests
    Harness.tests
    Tests.Binding.tests
+   Tests.BindingDecode.tests
    NorthStar.tests
    Program.tests
    TodoCollaborative.tests

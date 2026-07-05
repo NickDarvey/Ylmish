@@ -326,8 +326,8 @@ let tests = testList "Binding (encode direction)" [
         match seen with
         | [ a; b ] -> Expect.isTrue (Object.ReferenceEquals (a, b)) "GetText is get-or-adopt: one integrated instance (U5)"
         | _ -> failwith "expected two GetText calls"
-        Expect.equal (((root doc).get "hits" |> Option.get |> unbox<Y.Text>).toString ()) "hi"
-            "the custom's Connect-driven write landed"
+        Expect.equal ((doc.getText "hits" : Y.Text).toString ()) "hi"
+            "the custom's Connect-driven write landed on the named root (race-free for eager Connects)"
     }
 
     test "the differential harness goes green where materialize failed (Step 2a's red, flipped)" {

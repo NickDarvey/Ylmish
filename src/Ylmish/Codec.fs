@@ -199,6 +199,140 @@ module internal Element =
         | ElAtomic _ -> "an atomic value"
         | ElCustom _ -> "a custom element"
 
+
+// -----------------------------------------------------------------------------
+// Structural reading of Y values (Step 6). The doc's values are inspected by
+// runtime kind; the schema (where available, in the binding layer) only directs
+// WHERE to look and which positions are custom elements.
+// -----------------------------------------------------------------------------
+
+module internal Interop =
+#if FABLE_COMPILER
+    [<Fable.Core.Import("Text", "yjs")>]
+    let private jsYText : obj = obj ()
+
+    [<Fable.Core.Import("Array", "yjs")>]
+    let private jsYArray : obj = obj ()
+
+    [<Fable.Core.Import("Map", "yjs")>]
+    let private jsYMap : obj = obj ()
+
+    [<Fable.Core.Emit("$0 instanceof $1")>]
+    let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
+
+    let isYText (v : obj) = jsInstanceOf v jsYText
+    let isYMap (v : obj) = jsInstanceOf v jsYMap
+    let isYArray (v : obj) = jsInstanceOf v jsYArray
+
+    [<Fable.Core.Emit("typeof $0 === 'object' && $0 !== null && !Array.isArray($0)")>]
+    let isPlainObject (_v : obj) : bool = false
+
+    [<Fable.Core.Emit("Array.isArray($0)")>]
+    let isPlainArray (_v : obj) : bool = false
+
+    [<Fable.Core.Emit("Object.keys($0)")>]
+    let plainObjectKeys (_v : obj) : string[] = [||]
+
+    [<Fable.Core.Emit("$0[$1]")>]
+    let plainObjectGet (_v : obj) (_k : string) : obj = null
+
+    [<Fable.Core.Emit("Array.from($0.share.keys())")>]
+    let shareKeys (_doc : Y.Doc) : string[] = [||]
+#else
+    let isYText (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YText"
+    let isYMap (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YMap"
+    let isYArray (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YArray"
+    let isPlainObject (v : obj) = v :? System.Collections.Generic.IDictionary<string, obj>
+    let isPlainArray (v : obj) = v :? (obj[])
+    let plainObjectKeys (v : obj) : string[] =
+        (v :?> System.Collections.Generic.IDictionary<string, obj>).Keys |> Seq.toArray
+    let plainObjectGet (v : obj) (k : string) : obj =
+        (v :?> System.Collections.Generic.IDictionary<string, obj>).[k]
+    let shareKeys (_doc : Y.Doc) : string[] =
+        failwith "structural doc reads run under Fable only"
+#endif
+
+    let objToPrim (v : obj) : Primitive option =
+        match v with
+        | :? string as s -> Some (PString s)
+        | :? bool as b -> Some (PBool b)
+        | :? float as f -> Some (PNumber f)
+        | :? int as i -> Some (PNumber (float i))
+        | _ -> None
+
+
+/// Structural conversion of live Y values into the pure Element tree. Custom
+/// elements cannot be inferred structurally — the schema-directed reader in the
+/// binding layer overlays them; `Decode.run` (schema-less) does not support them.
+module internal ElementOfY =
+    open Interop
+
+    let rec ofYValue (v : obj) : Element option =
+        if isNull v then None
+        elif isYText v then Some (ElText ((unbox<Y.Text> v).toString ()))
+        elif isYMap v then
+            let m = unbox<Y.Map<obj>> v
+            let mutable fields = HashMap.empty
+            m.forEach (fun value key _ ->
+                match ofYValue value with
+                | Some el -> fields <- HashMap.add key el fields
+                | None -> ()) |> ignore
+            // Structurally, an object and a keyed map look identical; decoders
+            // accept either kind for either decoder (see the relaxations).
+            Some (ElObject fields)
+        elif isYArray v then
+            let a = unbox<Y.Array<obj>> v
+            let ps =
+                a.toArray ()
+                |> Seq.choose objToPrim
+                |> Seq.toList
+            Some (ElList ps)
+        elif isPlainArray v then
+            // Plain arrays only arise inside atomic subtrees.
+            plainToElement v
+        elif isPlainObject v then
+            // Plain objects arise from Encode.atomic: wrap so Decode.atomic
+            // unwraps symmetrically.
+            let mutable fields = HashMap.empty
+            for k in plainObjectKeys v do
+                match plainToElement (plainObjectGet v k) with
+                | Some el -> fields <- HashMap.add k el fields
+                | None -> ()
+            Some (ElAtomic (ElObject fields))
+        else objToPrim v |> Option.map ElValue
+
+    and private plainToElement (v : obj) : Element option =
+        if isNull v then None
+        elif isPlainArray v then
+            let arr = unbox<obj[]> v
+            Some (ElList (arr |> Seq.choose objToPrim |> Seq.toList))
+        elif isPlainObject v then
+            let mutable fields = HashMap.empty
+            for k in plainObjectKeys v do
+                match plainToElement (plainObjectGet v k) with
+                | Some el -> fields <- HashMap.add k el fields
+                | None -> ()
+            Some (ElObject fields)
+        else objToPrim v |> Option.map ElValue
+
+    /// Whole-doc structural read: named root types become top-level fields by
+    /// name; the argless root map's entries merge in beside them.
+    let ofDoc (doc : Y.Doc) : Element =
+        let mutable fields = HashMap.empty
+        for name in shareKeys doc do
+            if name <> "" then
+                // Share values are already concrete Y types after integration;
+                // the generic getter avoids forcing a kind.
+                let v : obj = box (doc.get name)
+                match ofYValue v with
+                | Some el -> fields <- HashMap.add name el fields
+                | None -> ()
+        (doc.getMap () : Y.Map<obj>).forEach (fun value key _ ->
+            match ofYValue value with
+            | Some el -> fields <- HashMap.add key el fields
+            | None -> ()) |> ignore
+        ElObject fields
+
 // -----------------------------------------------------------------------------
 // Decoder — a Reader over (current model, path, element). No aval in the
 // surface: liveness (when to re-decode) is the runtime's concern (Step 6).
@@ -316,7 +450,7 @@ module Decode =
         let (Decoder item) = decodeItem
         Decoder (fun model path el ->
             match el with
-            | ElMap items ->
+            | ElMap items | ElObject items ->
                 let mutable oks = HashMap.empty
                 let mutable errs = []
                 for (k, v) in HashMap.toSeq items do
@@ -346,7 +480,9 @@ module Decode =
         Decoder (fun model path el ->
             match el with
             | ElAtomic e -> inner model path e
-            | el -> Error [ UnexpectedKind (path, sprintf "expected an atomic value but found %s" (Element.kind el)) ])
+            | el ->
+                // A structural read of a scalar atomic yields the bare value.
+                inner model path el)
 
     /// Reads the CustomElement's merged `Value`, unboxed under 'a. NB: the
     /// unbox is trust-based under Fable (JS casts are unchecked), so a binding
@@ -359,10 +495,12 @@ module Decode =
             | ElCustom c -> Ok (unbox<'a> c.Value)
             | el -> Error [ UnexpectedKind (path, sprintf "expected a custom element but found %s" (Element.kind el)) ])
 
-    /// Run a decoder against the doc's current state. Total: errors are
-    /// path-tracked values, not exceptions.
+    /// Run a decoder against the doc's current state via a structural read
+    /// (named root types + the argless root map). Total: errors are
+    /// path-tracked values, not exceptions. Custom elements need the schema
+    /// and are only decodable through the runtime (`withYlmish`), not here.
     let run (model : 'model) (decoder : Decoder<'model, 'r>) (doc : Y.Doc) : Result<'r, Error list> =
-        failwith "plan 0002: decoding live doc state is the binding runtime's job — Step 6"
+        runElement model decoder (ElementOfY.ofDoc doc)
 
     type ObjectBuilder () =
         member _.Return (x : 'a) : Decoder<'model, 'a> =
@@ -380,10 +518,12 @@ module Decode =
         member _.Run (d : Decoder<'model, 'a>) : Decoder<'model, 'a> = d
 
         /// Decode a property of the object by key; missing = MissingProperty.
+        /// (Accepts a map element too: a structural doc read cannot distinguish
+        /// an object from a keyed map — they are the same Y shape.)
         member _.required (key : string) (Decoder d : Decoder<'model, 'a>) : Decoder<'model, 'a> =
             Decoder (fun model path el ->
                 match el with
-                | ElObject props ->
+                | ElObject props | ElMap props ->
                     match HashMap.tryFind key props with
                     | Some v -> d model (ObjectKey key :: path) v
                     | None -> Error [ MissingProperty (ObjectKey key :: path) ]
@@ -393,7 +533,7 @@ module Decode =
         member _.optional (key : string) (Decoder d : Decoder<'model, 'a>) : Decoder<'model, 'a option> =
             Decoder (fun model path el ->
                 match el with
-                | ElObject props ->
+                | ElObject props | ElMap props ->
                     match HashMap.tryFind key props with
                     | Some v -> d model (ObjectKey key :: path) v |> Result.map Some
                     | None -> Ok None

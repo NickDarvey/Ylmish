@@ -21,6 +21,7 @@
     <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Harness.fs" />
     <Compile Include="Binding.fs" />
+    <Compile Include="Binding.Decode.fs" />
     <Compile Include="NorthStar.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
