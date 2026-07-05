@@ -15,6 +15,7 @@ let tests = [
    Y.Doc.tests
    Y.Assumptions.tests
    Harness.tests
+   Tests.Binding.tests
    NorthStar.tests
    Program.tests
    TodoCollaborative.tests

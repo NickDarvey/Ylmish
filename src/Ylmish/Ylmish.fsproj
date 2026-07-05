@@ -28,6 +28,7 @@
 		<Compile Include="Codec.fs" />
 		<Compile Include="Adaptive.Codec.fs" />
 		<Compile Include="Y.fs" />
+		<Compile Include="Binding.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>

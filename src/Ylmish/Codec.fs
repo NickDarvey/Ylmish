@@ -250,13 +250,18 @@ module Encode =
     /// Some→None deletes the key, and delete beats concurrent edits inside
     /// (U9). Collections have no aval view — an empty map/list is their "none".
     let option (encodeSome : aval<'a> -> Encoded) (a : aval<'a option>) : Encoded =
-        // The inner view is only forced while `isSome` is true (guarded in
-        // Element.ofEncoded today; Step 5 replaces this projection with the
-        // proper Some-window primitive).
+        // The Some-window projection: while Some, the inner view tracks the
+        // payload; across a Some→None transition it HOLDS the last payload
+        // (instead of a null-ish default) so any in-flight inner callback that
+        // runs before the option's own handler detaches it sees an unchanged
+        // value and does nothing. The binding layer never writes while None.
         let inner =
+            let mutable lastSome = Unchecked.defaultof<'a>
             a |> AVal.map (function
-                | Some v -> v
-                | None -> Unchecked.defaultof<'a>)
+                | Some v ->
+                    lastSome <- v
+                    v
+                | None -> lastSome)
         EncOption (a |> AVal.map Option.isSome, encodeSome inner)
 
     /// Deliberate wholesale-LWW replacement of an entire subtree (L8).

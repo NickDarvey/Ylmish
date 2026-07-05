@@ -20,6 +20,7 @@
     <Compile Include="Y.Doc.fs" />
     <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Harness.fs" />
+    <Compile Include="Binding.fs" />
     <Compile Include="NorthStar.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
