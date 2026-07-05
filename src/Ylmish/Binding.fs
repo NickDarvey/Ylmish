@@ -195,9 +195,19 @@ let rec private subtreeVersion (e : Encoded) : aval<int> =
 // The attachment
 // -----------------------------------------------------------------------------
 
-type Attachment (origin : obj, disposables : ResizeArray<IDisposable>) =
+type Attachment (origin : obj, suppress : bool ref, disposables : ResizeArray<IDisposable>) =
     member _.Origin = origin
+    member internal _.Suppress = suppress
     member _.Add (d : IDisposable) = disposables.Add d
+    /// Fold doc-originated state into the adaptive model WITHOUT echoing it
+    /// back: while `f` runs, the encode direction realigns its internal
+    /// trackers but writes nothing — the doc already holds exactly this
+    /// content. (Without this, a decoded remote model looks like a local edit
+    /// and text re-splices / list items duplicate — the read-back hazard the
+    /// reference branch hit, L4.)
+    member _.RunSuppressed (f : unit -> unit) =
+        suppress.Value <- true
+        try f () finally suppress.Value <- false
     interface IDisposable with
         member _.Dispose () =
             for d in disposables do d.Dispose ()
@@ -255,6 +265,7 @@ and private attachValue (doc : Y.Doc) (attachment : Attachment) (parent : Ensure
     let mutable initial = true
     attachment.Add (a.AddCallback (fun (p : Primitive) ->
         if initial then initial <- false
+        elif attachment.Suppress.Value then ()   // doc-originated: already there
         else transact (fun () ->
             let v = primToObj p
             let pm = parent ()
@@ -268,7 +279,9 @@ and private attachText (doc : Y.Doc) (attachment : Attachment) (ensure : unit ->
     let transact (f : unit -> unit) = Y.transact (doc, (fun _ -> f ()), attachment.Origin)
     let mutable last = AVal.force a
     attachment.Add (a.AddCallback (fun (next : Text) ->
-        if not (Object.ReferenceEquals (next, last)) && Text.toString next <> Text.toString last then
+        if attachment.Suppress.Value then
+            last <- next   // doc-originated: realign, never re-splice
+        elif not (Object.ReferenceEquals (next, last)) && Text.toString next <> Text.toString last then
             transact (fun () ->
                 let ytext, fresh = ensure ()
                 if fresh then ytext.insert (0, Text.toString next)
@@ -286,7 +299,7 @@ and private attachMap (doc : Y.Doc) (attachment : Attachment) (self : EnsureMap)
     let transact (f : unit -> unit) = Y.transact (doc, (fun _ -> f ()), origin)
     let children = System.Collections.Generic.Dictionary<string, Attachment> ()
     let attachItem (k : string) (child : Encoded) =
-        let childAttachment = Attachment (origin, ResizeArray ())
+        let childAttachment = Attachment (origin, attachment.Suppress, ResizeArray ())
         attachNode doc childAttachment self k (MapKey k :: path) child
         children.[k] <- childAttachment
         attachment.Add (childAttachment :> IDisposable)
@@ -301,6 +314,24 @@ and private attachMap (doc : Y.Doc) (attachment : Attachment) (self : EnsureMap)
     attachment.Add (items.AddCallback (fun _state (delta : HashMapDelta<string, Encoded>) ->
         if pendingInitial then
             pendingInitial <- false
+        elif attachment.Suppress.Value then
+            // Doc-originated: keep the child subscriptions in step, but the
+            // containers and their content are already in the doc.
+            for (k, op) in HashMapDelta.toSeq delta do
+                match op with
+                | Set child ->
+                    match children.TryGetValue k with
+                    | true, old ->
+                        (old :> IDisposable).Dispose ()
+                        children.Remove k |> ignore
+                    | _ -> ()
+                    attachItem k child
+                | Remove ->
+                    match children.TryGetValue k with
+                    | true, old ->
+                        (old :> IDisposable).Dispose ()
+                        children.Remove k |> ignore
+                    | _ -> ()
         else
             transact (fun () ->
                 for (k, op) in HashMapDelta.toSeq delta do
@@ -336,6 +367,7 @@ and private attachList (doc : Y.Doc) (attachment : Attachment) (ensure : unit ->
     let mutable pendingInitial = not (IndexList.isEmpty (AList.force l))
     attachment.Add (l.AddCallback (fun (state : IndexList<Primitive>) (delta : IndexListDelta<Primitive>) ->
         if pendingInitial then pendingInitial <- false
+        elif attachment.Suppress.Value then ()   // doc-originated: already there
         else transact (fun () ->
             let yarr = ensure ()
             Ylmish.Y.Delta.applyAdaptiveDelta
@@ -349,7 +381,7 @@ and private attachOption (doc : Y.Doc) (attachment : Attachment) (parent : Ensur
     let transact (f : unit -> unit) = Y.transact (doc, (fun _ -> f ()), origin)
     let mutable innerAttachment : Attachment option = None
     let attachInner () =
-        let a = Attachment (origin, ResizeArray ())
+        let a = Attachment (origin, attachment.Suppress, ResizeArray ())
         attachNode doc a parent key path inner
         innerAttachment <- Some a
         attachment.Add (a :> IDisposable)
@@ -358,6 +390,13 @@ and private attachOption (doc : Y.Doc) (attachment : Attachment) (parent : Ensur
     let mutable initial = true
     attachment.Add (isSome.AddCallback (fun (someNow : bool) ->
         if initial then initial <- false
+        elif attachment.Suppress.Value then
+            match someNow, innerAttachment with
+            | true, None -> attachInner ()   // doc-originated: content already there
+            | false, Some a ->
+                (a :> IDisposable).Dispose ()
+                innerAttachment <- None      // doc-originated: key already gone
+            | _ -> ()
         else
             match someNow, innerAttachment with
             | true, None ->
@@ -375,6 +414,7 @@ and private attachAtomic (doc : Y.Doc) (attachment : Attachment) (parent : Ensur
     let mutable initial = true
     attachment.Add (version.AddCallback (fun (_ : int) ->
         if initial then initial <- false
+        elif attachment.Suppress.Value then ()   // doc-originated: already there
         else transact (fun () ->
             match Element.ofEncoded inner with
             | Some el -> (parent ()).set (key, plainOfElement el) |> ignore
@@ -400,7 +440,7 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
 /// items are protected by their app-minted unique keys, and a fixed-path
 /// nested record's FIRST write remains the accepted U2a residual race.
 let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
-    let attachment = Attachment (box (obj ()), ResizeArray ())
+    let attachment = Attachment (box (obj ()), ref false, ResizeArray ())
     let rootMap : EnsureMap = fun () -> doc.getMap ()
     match encoded with
     | EncObject props ->

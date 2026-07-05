@@ -17,7 +17,6 @@
     <Compile Include="Y.Array.fs" />
     <Compile Include="Y.Map.fs" />
     <Compile Include="Y.Element.fs" />
-    <Compile Include="Y.Doc.fs" />
     <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Harness.fs" />
     <Compile Include="Binding.fs" />

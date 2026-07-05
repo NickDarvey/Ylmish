@@ -1,7 +1,7 @@
 module Ylmish.NorthStar
 
 // Plan 0002, Step 2b — the north-star acceptance tests, written against the
-// TARGET public API and skipped (ptestCase) until Step 7 un-skips them. Their
+// TARGET public API and skipped (testCase) until Step 7 un-skips them. Their
 // job today is to force the API surface to exist and to read well as consumer
 // code; their job at Step 7 is to close issue #83 by test.
 //
@@ -86,13 +86,13 @@ module Codec =
 
 let private makeProgram (doc : Y.Doc) =
     Elmish.Program.mkProgram (fun () -> Model.init, Elmish.Cmd.none) update (fun _ _ -> ())
-    |> Ylmish.Program.V2.withYlmish {
+    |> Ylmish.Program.withYlmish {
         Doc = doc
         Create = AdaptiveModel.Create
         Update = fun am m -> am.Update m
         Encode = Codec.encode
         Decode = Codec.decode
-        OnError = Ylmish.Program.V2.OnError.log
+        OnError = Ylmish.Program.OnError.log
     }
 
 let private user msg = Ylmish.Program.Message.User msg
@@ -105,7 +105,7 @@ let tests = testList "NorthStar" [
 
     // Issue #83's acceptance: concurrent edits to the same text field converge
     // to an interleaved result IN THE ELMISH MODELS, not just the docs.
-    ptestCase "concurrent Text edits converge interleaved across two withYlmish programs" (fun () ->
+    testCase "concurrent Text edits converge interleaved across two withYlmish programs" (fun () ->
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()
         use p1 = Elmish.Program.test (makeProgram d1)
@@ -128,7 +128,7 @@ let tests = testList "NorthStar" [
 
     // The accepted-limitation rule, demonstrated positively: offline creation
     // is safe because todos are keyed by app-minted unique ids (Encode.map).
-    ptestCase "keyed-map concurrent adds both survive (offline creation with app-minted ids)" (fun () ->
+    testCase "keyed-map concurrent adds both survive (offline creation with app-minted ids)" (fun () ->
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()
         use p1 = Elmish.Program.test (makeProgram d1)
@@ -143,7 +143,7 @@ let tests = testList "NorthStar" [
 
     // Leave what you don't own (U15): a full session against a doc carrying a
     // key this codec doesn't know must not destroy that key.
-    ptestCase "unknown keys survive a full withYlmish session" (fun () ->
+    testCase "unknown keys survive a full withYlmish session" (fun () ->
         let d1 = Y.Doc.Create ()
         (d1.getMap () : Y.Map<obj>).set ("someone-elses-key", box "v1-data") |> ignore
 

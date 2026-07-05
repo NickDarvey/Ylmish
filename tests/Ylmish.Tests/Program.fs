@@ -1,12 +1,28 @@
-module Ylmish.Program
+module Ylmish.Tests.Program
 
-//open Expect.Elmish
-open Elmish
+// Plan 0002, Step 7 — withYlmish on the binding runtime. The v1 suite (which
+// pinned materialize-per-update semantics, eager persistence included) died
+// with that path; these tests pin the v2 contract:
+//
+//   - init decodes existing doc state through the consumer's decoder, and an
+//     empty doc decodes to the init model with NOTHING written (decode-empty
+//     = init);
+//   - one Elmish update = one origin-tagged Y transaction, however many
+//     fields changed (the write-side U14);
+//   - each remote transaction dispatches exactly one Set, and own writes
+//     never echo;
+//   - decode failures and schema drift go to OnError and the loop survives;
+//   - the dual-key migration recipe works with plain codec combinators, and
+//     mixed-schema clients never destroy each other's representation (U15).
+
+open System
+
 open FSharp.Data.Adaptive
 open Yjs
 
 open Ylmish
-open Ylmish.Adaptive.Codec
+open Ylmish.Codec
+open Ylmish.Internal
 
 #if FABLE_COMPILER
 open Fable.Mocha
@@ -14,585 +30,217 @@ open Fable.Mocha
 open Expecto
 #endif
 
-module Example =
-    open Example
+// --- A small consumer model ---------------------------------------------------
 
+type Model = {
+    Name : string
+    Body : Text
+    Local : string   // app-only: never encoded
+}
 
-    let program (opts : {| Init : _; Doc: _; Encode : _; Decode : _ |} )=
-        Program.mkSimple (fun () -> opts.Init) Model.update Model.view
-        |> Program.withYlmish {
-            Create = AdaptiveModel.Create
-            Update = fun a b -> a.Update b
-            Encode = opts.Encode
-            Decode = opts.Decode
-            Doc = opts.Doc
-        }
-        |> Program.test
+module Model =
+    let init = { Name = ""; Body = Text.empty; Local = "" }
 
-    let dispatch (dispatcher : Program.ElmishDispatcher<_,_>) msg =
-        dispatcher.Dispatch <| Ylmish.Program.Message.User msg
+type Msg =
+    | SetName of string
+    | EditBody of (Text -> Text)
+    | SetLocal of string
+    | Multi of string * (Text -> Text)   // touches two encoded fields at once
 
+let update msg m =
+    match msg with
+    | SetName v -> { m with Name = v }, Elmish.Cmd.none
+    | EditBody f -> { m with Body = f m.Body }, Elmish.Cmd.none
+    | SetLocal v -> { m with Local = v }, Elmish.Cmd.none
+    | Multi (n, f) -> { m with Name = n; Body = f m.Body }, Elmish.Cmd.none
 
-let tests = testList "Program" [
-    test "withYlmish persists initial value" {
-        let doc = Y.Doc.Create ()
-        let value = "initial"
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = value
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            // or encoded = Element<'a where 'a = _ option aval>
-            Encode = fun m -> Encode.object [
-                "propA", m.PropA |> Encode.value id
-            ]
-            Decode = Decode.object {
-                let! propA = Decode.object.required "propA" Decode.value
-                return {
-                    PropA = propA
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
+type AdaptiveModel (m : Model) =
+    let name = cval m.Name
+    let body = cval m.Body
+    member _.Name = name :> aval<string>
+    member _.Body = body :> aval<Text>
+    member _.Update (m : Model) =
+        name.Value <- m.Name
+        body.Value <- m.Body
 
-        //Promise.awaitAnimationFrame ()
+let private encode (am : AdaptiveModel) : Encoded =
+    Encode.object [
+        "name", Encode.string am.Name
+        "body", Encode.text am.Body
+    ]
 
-        Expect.equal (value) (dispatcher.Model.PropA) "Model value"
-        Expect.equal (Some value) (doc.getMap().get("propA")) "Y.Doc value"
-        
+let private decode : Decoder<Model, Model> =
+    Decode.object {
+        let! model = Decode.ask
+        let! name = Decode.object.optional "name" Decode.string
+        let! body = Decode.object.optional "body" Decode.text
+        return
+            { model with
+                Name = defaultArg name model.Name
+                Body = defaultArg body model.Body }
     }
 
-    test "withYlmish restores value" {
-        let doc = Y.Doc.Create ()
-        let value = doc.getMap().set("propA", "persisted")
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "initial"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propA", m.PropA |> Encode.value id
-            ]
-            Decode = Decode.object {
-                let! propA = Decode.object.required "propA" Decode.value
-                return {
-                    PropA = propA
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        //Promise.awaitAnimationFrame ()
-
-        Expect.equal (value) (dispatcher.Model.PropA) "Model value"
-        Expect.equal (Some value) (doc.getMap().get("propA")) "Y.Doc value"       
+let private makeProgramWith (onError : Ylmish.Program.OnError) (doc : Y.Doc) =
+    Elmish.Program.mkProgram (fun () -> Model.init, Elmish.Cmd.none) update (fun _ _ -> ())
+    |> Ylmish.Program.withYlmish {
+        Doc = doc
+        Create = AdaptiveModel
+        Update = fun (am : AdaptiveModel) m -> am.Update m
+        Encode = encode
+        Decode = decode
+        OnError = onError
     }
 
-    test "withYlmish restores optional value" {
+let private makeProgram doc = makeProgramWith Ylmish.Program.OnError.log doc
+
+let private user msg = Ylmish.Program.Message.User msg
+
+let private sync (src : Y.Doc) (dst : Y.Doc) =
+    Y.applyUpdate (dst, Y.encodeStateAsUpdate src, box "test-remote")
+
+let tests = testList "Program (withYlmish v2)" [
+
+    test "init on an empty doc is the init model, and writes nothing" {
         let doc = Y.Doc.Create ()
-        let value = doc.getMap().set("propB", "persisted")
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propB", m.PropB |> Encode.option
-            ]
-            Decode = Decode.object {
-                let! propB = Decode.object.optional "propB" Decode.value
-                return {
-                    PropA = "unused"
-                    PropB = propB
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        //Promise.awaitAnimationFrame ()
-
-        Expect.equal (Some value) (dispatcher.Model.PropB) "Model value"
-        Expect.equal (Some value) (doc.getMap().get("propB")) "Y.Doc value"       
+        use p = Elmish.Program.test (makeProgram doc)
+        Expect.equal p.Model Model.init "decode-empty = init"
+        Expect.isEmpty ((doc.getMap () : Y.Map<obj>).keys () |> Seq.toList)
+            "no eager writes at startup"
     }
 
-    test "withYlmish persists updated value" {
-        let doc = Y.Doc.Create ()
-        let value = "initial"
-        let value' = "updated"
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = value
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propA", m.PropA |> Encode.value id
-            ]
-            Decode = Decode.object {
-                let! propA = Decode.object.required "propA" Decode.value
-                return {
-                    PropA = propA
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
+    test "init on a doc with existing state restores it through the decoder" {
+        let d1 = Y.Doc.Create ()
+        let seed () =
+            use p1 = Elmish.Program.test (makeProgram d1)
+            p1.Dispatch (user (SetName "restored"))
+            p1.Dispatch (user (EditBody (Text.edit "existing text")))
+        seed ()
 
-        Example.dispatch dispatcher <| Example.SetPropA value'
-
-        //Promise.awaitAnimationFrame ()
-
-        Expect.equal (value') (dispatcher.Model.PropA) "Model value"
-        Expect.equal (Some value') (doc.getMap().get("propA")) "Y.Doc value"       
+        // A brand-new program over the same doc starts from the doc's state.
+        use p2 = Elmish.Program.test (makeProgram d1)
+        Expect.equal p2.Model.Name "restored" "register restored at init"
+        Expect.equal (Text.toString p2.Model.Body) "existing text" "text restored at init"
+        Expect.equal p2.Model.Local "" "app-only fields come from init (via ask)"
     }
 
-    test "withYlmish persists initial optional value" {
+    test "one Elmish update = one origin-tagged Y transaction, however many fields changed" {
         let doc = Y.Doc.Create ()
-        let value = "initial"
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = Some value
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propB", m.PropB |> Encode.option
-            ]
-            Decode = Decode.object {
-                let! propB = Decode.object.optional "propB" Decode.value
-                return {
-                    PropA = "unused"
-                    PropB = propB
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
+        let mutable transactions = 0
+        use _all = Binding.subscribe doc (box (obj ())) (fun () -> transactions <- transactions + 1)
+        use p = Elmish.Program.test (makeProgram doc)
 
-        //Promise.awaitAnimationFrame ()
-
-        Expect.equal (Some value) (dispatcher.Model.PropB) "Model value"
-        Expect.equal (Some value) (doc.getMap().get("propB")) "Y.Doc value"       
+        p.Dispatch (user (Multi ("both", Text.edit "fields")))
+        Expect.equal transactions 1 "the register write and the text splice shared one transaction"
+        Expect.equal ((doc.getMap () : Y.Map<obj>).get "name" |> Option.map string) (Some "both") "register landed"
+        Expect.equal ((doc.getText "body" : Y.Text).toString ()) "fields" "text landed"
     }
 
-    test "withYlmish persists updated none value" {
-        let doc = Y.Doc.Create ()
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = Some "initial"
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propB", m.PropB |> Encode.option
-            ]
-            Decode = Decode.object {
-                let! propB = Decode.object.optional "propB" Decode.value
-                return {
-                    PropA = "unused"
-                    PropB = propB
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
+    test "a remote transaction dispatches one Set; own writes never echo" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (makeProgram d1)
+        use p2 = Elmish.Program.test (makeProgram d2)
 
-        Example.dispatch dispatcher <| Example.SetPropB None
+        p1.Dispatch (user (SetName "from-p1"))
+        Expect.equal p2.Model.Name "" "nothing crossed the wire yet"
+        sync d1 d2
+        Expect.equal p2.Model.Name "from-p1" "the remote change decoded into p2's model"
 
-        Expect.equal None (dispatcher.Model.PropB) "Model value"
-        Expect.equal None (doc.getMap().get("propB")) "Y.Doc value"       
+        // App-only state must survive remote folds (ask), and never sync.
+        p2.Dispatch (user (SetLocal "only-here"))
+        p1.Dispatch (user (EditBody (Text.edit "hi")))
+        sync d1 d2
+        Expect.equal (Text.toString p2.Model.Body) "hi" "remote text arrived"
+        Expect.equal p2.Model.Local "only-here" "app-only state survived the remote Set (ask)"
+        Expect.isFalse ((d2.getMap () : Y.Map<obj>).has "local") "app-only state never synced"
     }
 
-    test "withYlmish persists initial list of objects" {
+    test "a decode failure goes to OnError and the model is kept; the loop survives" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        let errors = ResizeArray<Error list> ()
+        use p2 = Elmish.Program.test (makeProgramWith { Handle = errors.Add } d2)
+        use p1 = Elmish.Program.test (makeProgram d1)
+
+        p1.Dispatch (user (SetName "good"))
+        sync d1 d2
+        Expect.equal p2.Model.Name "good" "healthy path works"
+
+        // A foreign client poisons the register with the wrong primitive.
+        Y.transact (d1, (fun _ -> (d1.getMap () : Y.Map<obj>).set ("name", box 42) |> ignore), box "v99")
+        sync d1 d2
+        Expect.equal errors.Count 1 "the failure surfaced through OnError"
+        Expect.equal p2.Model.Name "good" "the model was kept"
+
+        // Healing write: the loop is alive and decodes again.
+        Y.transact (d1, (fun _ -> (d1.getMap () : Y.Map<obj>).set ("name", box "healed") |> ignore), box "v99")
+        sync d1 d2
+        Expect.equal p2.Model.Name "healed" "the loop survived the failure"
+    }
+
+    test "unknown keys survive a whole session (U15)" {
         let doc = Y.Doc.Create ()
-        let value = "test"
-        //let propCitem0 = doc.getMap()
-        //let _ = propCitem0.set("prop0", value)
-        //let propC = doc.getArray()
-        //let _ = propC.push(Array.singleton propCitem0)
-        //let _ = doc.getMap().set("propC", propC)
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = None
-                PropC = IndexList.single { Prop0 = value }
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propC", m.PropC |> Encode.listWith <| fun m -> Encode.object [
-                    "prop0", m.Prop0 |> Encode.value id
+        (doc.getMap () : Y.Map<obj>).set ("someone-elses", box "v1-data") |> ignore
+        use p = Elmish.Program.test (makeProgram doc)
+        p.Dispatch (user (SetName "mine"))
+        p.Dispatch (user (EditBody (Text.edit "mine too")))
+        Expect.equal ((doc.getMap () : Y.Map<obj>).get "someone-elses" |> Option.map string) (Some "v1-data")
+            "the encoder never touches keys it does not mention"
+    }
+
+    // --- The dual-key migration recipe, with plain combinators (no module) -----
+
+    test "dual-key migration: v1 and v2 schemas coexist on one doc without destroying each other" {
+        // v1 schema: a single "title" register.
+        // v2 schema: renames it to "heading"; reads new-or-old, writes BOTH.
+        let mkV1 (doc : Y.Doc) =
+            let title = cval ""
+            let enc = Encode.object [ "title", Encode.string title ]
+            let att = Binding.attach doc enc
+            title, enc, att
+        let mkV2 (doc : Y.Doc) =
+            let heading = cval ""
+            let enc =
+                Encode.object [
+                    "heading", Encode.string heading   // the new shape
+                    "title", Encode.string heading     // dual-write for v1 readers
                 ]
-            ]
-            Decode = Decode.object {
-                let! propC = Decode.object.required "propC" (Decode.list.required <| Decode.object {
-                    let! prop0 = Decode.object.required "prop0" Decode.value
-                    return {
-                        Example.Submodel.Prop0 = prop0
-                    }
-                })
-                return {
-                    PropA = "unused"
-                    PropB = None
-                    PropC = propC
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
+            let att = Binding.attach doc enc
+            heading, enc, att
+        let decodeV2 : Decoder<string, string> =
+            Decode.object {
+                let! newKey = Decode.object.optional "heading" Decode.string
+                let! oldKey = Decode.object.optional "title" Decode.string
+                // Read new-or-old, prefer new.
+                return
+                    match newKey, oldKey with
+                    | Some h, _ -> h
+                    | None, Some t -> t
+                    | None, None -> ""
             }
-        |}
+        let decodeV1 : Decoder<string, string> =
+            Decode.object {
+                let! t = Decode.object.optional "title" Decode.string
+                return defaultArg t ""
+            }
 
-        //Promise.awaitAnimationFrame ()
+        let d1 = Y.Doc.Create ()   // the v1 client
+        let d2 = Y.Doc.Create ()   // the v2 client
+        let title1, encV1, _a1 = mkV1 d1
+        let heading2, encV2, _a2 = mkV2 d2
 
-        let root : Y.Map<Y.Array<Y.Map<string>>> = doc.getMap ()
-        Expect.equal value (dispatcher.Model.PropC[0].Prop0) "Model value"
-        Expect.equal (Some value) (root.get("propC").Value.get(0).get("prop0")) "Y.Doc value"       
+        // The v1 client writes its shape; the v2 client reads it via fallback.
+        transact (fun () -> title1.Value <- "from v1")
+        sync d1 d2
+        Expect.equal (Decode.runElement "" decodeV2 (Binding.read d2 encV2)) (Ok "from v1")
+            "v2 reads the old shape through the fallback"
+
+        // The v2 client writes; the v1 client still reads its own key.
+        transact (fun () -> heading2.Value <- "from v2")
+        sync d2 d1
+        Expect.equal (Decode.runElement "" decodeV1 (Binding.read d1 encV1)) (Ok "from v2")
+            "v1 keeps working because v2 dual-writes the old key"
+        Expect.equal ((d1.getMap () : Y.Map<obj>).get "heading" |> Option.map string) (Some "from v2")
+            "and v1 never deletes the key it does not understand (U15)"
     }
-
-    test "withYlmish persists updated list of objects" {
-        let doc = Y.Doc.Create ()
-        let item1 : Example.Submodel = { Prop0 = "item-1" }
-        let item2 : Example.Submodel = { Prop0 = "item-2" }
-
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = None
-                PropC = IndexList.single item1
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propC", m.PropC |> Encode.listWith <| fun m -> Encode.object [
-                    "prop0", m.Prop0 |> Encode.value id
-                ]
-            ]
-            Decode = Decode.object {
-                let! propC = Decode.object.required "propC" (Decode.list.required <| Decode.object {
-                    let! prop0 = Decode.object.required "prop0" Decode.value
-                    return {
-                        Example.Submodel.Prop0 = prop0
-                    }
-                })
-                return {
-                    PropA = "unused"
-                    PropB = None
-                    PropC = propC
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        Example.dispatch dispatcher <| Example.AddPropC item2
-        Example.dispatch dispatcher <| Example.RemPropC item1
-
-        let root : Y.Map<Y.Array<Y.Map<string>>> = doc.getMap ()
-        Expect.equal item2.Prop0 (dispatcher.Model.PropC[0].Prop0) "Model value"
-        Expect.equal (Some item2.Prop0) (root.get("propC").Value.get(0).get("prop0")) "Y.Doc value"
-    }
-
-    test "withYlmish persists initial list of values" {
-        let doc = Y.Doc.Create ()
-        let value = "test"
-        //let propCitem0 = doc.getMap()
-        //let _ = propCitem0.set("prop0", value)
-        //let propC = doc.getArray()
-        //let _ = propC.push(Array.singleton propCitem0)
-        //let _ = doc.getMap().set("propC", propC)
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "unused"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.single value
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propD", m.PropD |> Encode.list (fun s -> Encode.value id (AVal.constant s))
-            ]
-            Decode = Decode.object {
-                let! propD = Decode.object.required "propD" (Decode.list.required Decode.value)
-                return {
-                    PropA = "unused"
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = propD
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        //Promise.awaitAnimationFrame ()
-
-        let root : Y.Map<Y.Array<string>> = doc.getMap ()
-        Expect.equal value (dispatcher.Model.PropD[0]) "Model value"
-        Expect.equal value (root.get("propD").Value.get(0)) "Y.Doc value"       
-    }
-
-    test "withYlmish persists initial object" {
-        let doc = Y.Doc.Create ()
-        let value : Example.Submodel = { Prop0 = "initial" }
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "not-used"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = value
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propE", Encode.object [
-                    "prop0", m.PropE.Prop0 |> Encode.value id
-                ]
-            ]
-            Decode = Decode.object {
-                let! propE = Decode.object.required "propE" <| Decode.object {
-                    let! prop0 = Decode.object.required "prop0" Decode.value
-                    return {
-                        Example.Prop0 = prop0
-                    }
-                }
-                return {
-                    PropA = "not-used"
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = propE
-                    PropF = None
-                }
-            }
-        |}
-
-        //Promise.awaitAnimationFrame ()
-        
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
-        Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
-        
-    }
-
-    test "withYlmish persists updated object" {
-        let doc = Y.Doc.Create ()
-        let value : Example.Submodel = { Prop0 = "updated" }
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "not-used"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "initial" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propE", Encode.object [
-                    "prop0", m.PropE.Prop0 |> Encode.value id
-                ]
-            ]
-            Decode = Decode.object {
-                let! propE = Decode.object.required "propE" <| Decode.object {
-                    let! prop0 = Decode.object.required "prop0" Decode.value
-                    return {
-                        Example.Prop0 = prop0
-                    }
-                }
-                return {
-                    PropA = "not-used"
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = propE
-                    PropF = None
-                }
-            }
-        |}
-
-        Example.dispatch dispatcher <| Example.SetPropE value
-        
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
-        Expect.equal (value.Prop0) (dispatcher.Model.PropE.Prop0) "Model value"
-        Expect.equal (Some value.Prop0) (root.get("propE").Value.get("prop0")) "Y.Doc value"
-        
-    }
-
-    test "withYlmish falls back to init model when Y.Doc has incompatible state" {
-        let doc = Y.Doc.Create ()
-        // Pre-populate Y.Doc with an incompatible shape: a string value where
-        // the decoder expects a nested object (propE -> { prop0: string }).
-        doc.getMap().set("propE", "not-an-object") |> ignore
-
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "init-value"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "init-prop0" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propE", Encode.object [
-                    "prop0", m.PropE.Prop0 |> Encode.value id
-                ]
-            ]
-            Decode = Decode.object {
-                let! propE = Decode.object.required "propE" <| Decode.object {
-                    let! prop0 = Decode.object.required "prop0" Decode.value
-                    return {
-                        Example.Prop0 = prop0
-                    }
-                }
-                return {
-                    PropA = "init-value"
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = propE
-                    PropF = None
-                }
-            }
-        |}
-
-        // Should fall back to init model since decode fails
-        Expect.equal "init-value" (dispatcher.Model.PropA) "Model PropA should be from init"
-        Expect.equal "init-prop0" (dispatcher.Model.PropE.Prop0) "Model PropE.Prop0 should be from init"
-        // Y.Doc should be re-materialized with the init model's encoded data
-        let root : Y.Map<Y.Map<string>> = doc.getMap ()
-        Expect.equal (Some "init-prop0") (root.get("propE").Value.get("prop0")) "Y.Doc should be re-materialized"
-    }
-
-    test "withYlmish observes Y.Doc changes and updates model" {
-        let doc = Y.Doc.Create ()
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "initial"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propA", m.PropA |> Encode.value id
-            ]
-            Decode = Decode.object {
-                let! propA = Decode.object.required "propA" Decode.value
-                return {
-                    PropA = propA
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        // Mutate the Y.Doc directly after the program has started.
-        // The observeDeep handler should decode the new state and dispatch Set.
-        doc.getMap().set("propA", "from-ydoc") |> ignore
-
-        Expect.equal "from-ydoc" (dispatcher.Model.PropA) "Model should be updated by Y.Doc observer"
-        Expect.equal (Some "from-ydoc") (doc.getMap().get("propA")) "Y.Doc value should be unchanged"
-    }
-
-    test "withYlmish reentrancy guard prevents Y.Doc observer firing on user updates" {
-        let doc = Y.Doc.Create ()
-        let mutable observerFiredCount = 0
-        use dispatcher = Example.program {|
-            Init = {
-                PropA = "initial"
-                PropB = None
-                PropC = IndexList.empty
-                PropD = IndexList.empty
-                PropE = { Prop0 = "not-used" }
-                PropF = None
-            }
-            Doc = doc
-            Encode = fun m -> Encode.object [
-                "propA", m.PropA |> Encode.value id
-            ]
-            Decode = Decode.object {
-                let! propA = Decode.object.required "propA" Decode.value
-                observerFiredCount <- observerFiredCount + 1
-                return {
-                    PropA = propA
-                    PropB = None
-                    PropC = IndexList.empty
-                    PropD = IndexList.empty
-                    PropE = { Prop0 = "not-used" }
-                    PropF = None
-                }
-            }
-        |}
-
-        // Reset count after init (which decodes once when pre-existing state is present, or 0 times on fresh doc)
-        observerFiredCount <- 0
-
-        // A user update writes to Y.Doc; the reentrancy guard should suppress the observer
-        Example.dispatch dispatcher <| Example.SetPropA "user-updated"
-
-        Expect.equal "user-updated" (dispatcher.Model.PropA) "Model value"
-        // Decoder should not have been called again via the Y.Doc observer
-        Expect.equal 0 observerFiredCount "Reentrancy guard should prevent observer from firing on user updates"
-    }
-
 ]

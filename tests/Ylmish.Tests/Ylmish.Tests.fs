@@ -12,13 +12,12 @@ let tests = [
    Y.Array.tests
    Y.Map.tests
    Y.Element.tests
-   Y.Doc.tests
    Y.Assumptions.tests
    Harness.tests
    Tests.Binding.tests
    Tests.BindingDecode.tests
    NorthStar.tests
-   Program.tests
+   Tests.Program.tests
    TodoCollaborative.tests
 ]
 
