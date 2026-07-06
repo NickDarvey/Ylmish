@@ -18,6 +18,7 @@ let tests = [
    Tests.BindingDecode.tests
    NorthStar.tests
    Tests.CustomElements.tests
+   Tests.Stress.tests
    Tests.Program.tests
    TodoCollaborative.tests
 ]

@@ -332,7 +332,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 6 — Binding, decode direction (M) — 181 passing (+7), 3 pending
 - [x] Step 7 — `withYlmish` v2; old path dies (M) — 156 passing, 0 pending, **north stars green: issue #83 closed by test** — note the suppression-window design addition
 - [x] Step 8 — `CustomElement` end-to-end (M) — 159 passing (+3), 0 pending — **the hatch proven from consumer code: `open Yjs` + `open Ylmish.Codec` only**
-- [ ] Step 9 — Property stress (S)
+- [x] Step 9 — Property stress (S) — 163 passing (+4), 0 pending — **200 schedules in ~0.4s, no CI split needed; first run caught a real oracle/SUT semantic gap (elision vs LWW)**
 - [ ] Step 10 — Demo (M)
 - [ ] Step 11 — Docs (M)
 
@@ -538,6 +538,15 @@ Random two-replica add/remove/edit schedules over the keyed-map + text + registe
 *Acceptance:* ~100 schedules per policy, deterministic seeds, green in CI.
 
 *Check-in:* test count; runtime cost of the stress suite (if it dominates CI, propose a split: small always-on set + larger nightly/manual set — that's a check-in decision, not yours alone).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- **163 passing (+4), 0 pending: two 100-schedule properties (`tests/Ylmish.Tests/Stress.fs`) plus two new oracle ground truths.** Runtime is a non-issue: 179ms (Concurrent) + 236ms (Immediate) inside a 1s suite — 200 schedules, each running a full-withYlmish SUT pair AND a raw-Yjs oracle pair. No split proposed; there is headroom to raise the schedule count if we ever want it.
+- **The SUT is the whole stack, not just the binding:** each schedule spins two real `withYlmish` programs (Elmish dispatcher, suppression window, decode → `Set`), with the consumer `update` phrasing each harness op as intent (`Text.replace` for splices, keyed `HashMap` ops, register set) — ~400 program instances per property run.
+- **Harness extension (as Step 2a anticipated — the oracle grew, the shape held):** `Harness.Model` is now the trio record (`Items`/`Body`/`Note`), the oracle is *op-driven* (each op = one primitive Yjs operation on a `Y.Map` of items, a `Y.Text` body, a root-map register) while whole-model bridges just ignore the op, and `run` **pins clientIDs** (1 and 2). Pinning makes every schedule replay to one deterministic outcome and lets `differential` compare **full converged models**, not just membership — the SUT and oracle runs share every LWW/interleave tiebreak. Deleted `measureApplies` (dead since Step 7 took the materialize bridge with it); `incrementalBytes` stays.
+- **The first run caught a real semantic gap, which is the point of the exercise:** the oracle wrote register sets unconditionally, so a replica's `SetNote ""` over an already-`""` local model entered the LWW race on the oracle side — but Ylmish's content-driven change propagation writes *nothing* for it (the pinned no-op-restamp-skip contract), so the SUT's converged note differed. The oracle now elides content-neutral ops exactly as Ylmish does (register set to current value, edit to unchanged title, no-op splice). Surfaced as a consumer-facing fact for Step 11's docs: **you cannot "touch" an unchanged field to win LWW — only content changes write.**
+- **An invariant beyond the plan's three, for free:** under `Immediate` delivery there is no concurrency window, so the converged state must equal the plain *sequential fold* of the schedule over `applyOp`. That catches semantic drift between the consumer `update` and the harness spec, which SUT-vs-oracle (both op-driven) structurally cannot.
+- Interpretation surfaced: `Move` stays in the harness alphabet but the generator does not emit it — Step 9's plan text says add/remove/edit schedules, the stress model has no order field, and fractional-index reorder is demo Act 7's job over `Encode.map`.
 
 ### Step 10 — The demo
 

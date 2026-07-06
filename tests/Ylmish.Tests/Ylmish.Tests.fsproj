@@ -23,6 +23,7 @@
     <Compile Include="Binding.Decode.fs" />
     <Compile Include="NorthStar.fs" />
     <Compile Include="CustomElements.fs" />
+    <Compile Include="Stress.fs" />
     <Compile Include="Program.fs" />
     <Compile Include="TodoCollaborative.fs" />
     <Compile Include="Ylmish.Tests.fs" />

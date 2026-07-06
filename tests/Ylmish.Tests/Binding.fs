@@ -342,13 +342,17 @@ let tests = testList "Binding (encode direction)" [
                 let _att = Binding.attach doc encoded
                 { Name = "binding"
                   Doc = doc
-                  Apply = fun m ->
+                  Apply = fun _ m ->
                     transact (fun () ->
-                        items.Value <- HashMap.ofList [ for i in m -> i.Id, i.Id ])
+                        items.Value <- HashMap.ofList [ for i in m.Items -> i.Id, i.Text ])
                   Read = fun () ->
-                    (doc.getMap "items" : Y.Map<obj>).keys ()
-                    |> Seq.toList
-                    |> List.map (fun id -> { Ylmish.Harness.Item.Id = id; Ylmish.Harness.Item.Text = "" }) }
+                    let ymap : Y.Map<obj> = doc.getMap "items"
+                    { Ylmish.Harness.Model.Items =
+                        [ for id in ymap.keys () ->
+                            { Ylmish.Harness.Item.Id = id
+                              Ylmish.Harness.Item.Text = ymap.get id |> Option.map string |> Option.defaultValue "" } ]
+                      Ylmish.Harness.Model.Body = ""
+                      Ylmish.Harness.Model.Note = "" } }
 
         let add r id : Ylmish.Harness.ReplicaOp = { Replica = r; Op = Ylmish.Harness.Add (id, "") }
         let d = Ylmish.Harness.differential factory Ylmish.Harness.Concurrent [ add 0 "a"; add 1 "b" ]
