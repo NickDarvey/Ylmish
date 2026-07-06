@@ -333,7 +333,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 7 — `withYlmish` v2; old path dies (M) — 156 passing, 0 pending, **north stars green: issue #83 closed by test** — note the suppression-window design addition
 - [x] Step 8 — `CustomElement` end-to-end (M) — 159 passing (+3), 0 pending — **the hatch proven from consumer code: `open Yjs` + `open Ylmish.Codec` only**
 - [x] Step 9 — Property stress (S) — 163 passing (+4), 0 pending — **200 schedules in ~0.4s, no CI split needed; first run caught a real oracle/SUT semantic gap (elision vs LWW)**
-- [ ] Step 10 — Demo (M)
+- [x] Step 10 — Demo (M) — 164 passing (+1), 0 pending — **nine acts green, transcript byte-for-byte reproducible and embedded in the README; act 4 exposed and fixed a real binding bug (whole-item re-flush restamped unchanged fields)**
 - [ ] Step 11 — Docs (M)
 
 ### Step 0 — Baseline
@@ -565,6 +565,14 @@ Random two-replica add/remove/edit schedules over the keyed-map + text + registe
 *Acceptance:* the demo exercises only the public API; `npm run demo` output reads as documentation, and the transcript is embedded in the README.
 
 *Check-in:* the transcript itself — read it as a stranger; each act should be intelligible without having read this plan.
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- **164 passing (+1), 0 pending; all nine acts run green and the transcript is embedded in the README (`## Demo`).** The demo is deterministic: clientIDs pinned (A=1, B=2) makes every Yjs tiebreak reproduce, verified by diffing two runs — byte for byte identical, and identical to the embedded transcript. Determinism is what lets the transcript BE documentation.
+- **The example grew into the plan's consumer sketch:** `Todo = { Title; Done; Order }` records in a keyed map (per-field registers via three-line `todo` encoder), a collaborative `Note : Text`, a `Theme` LWW register, `Hits` through the consumer-authored `GrowOnlyCounter` (`Counter.fs` — the escape hatch as example code, quotable by Step 11's guides), and an app-only `Draft`. The old two-process IPC demo died for the scripted single-process narrative the plan specifies — "offline" is just not having called sync yet, and every act prints Elmish models, never docs.
+- **Act 4 caught a real binding bug — the demo earned its keep before shipping:** concurrent `SetDone` (A) + `Rename` (B) on the same todo converged to B's *entire* record — A's tick was clobbered. Cause: a one-field record edit replaces the item's whole `Encoded`, and `Binding.flush`'s item-replacement path wrote every field unconditionally, so B restamped `done = false` and won an LWW race B never intended to enter. Fix: `flush` now skips content-equal register writes, the same skip `attachValue` already had (and the same principle Step 9 pinned: only content changes write). Regression test at the example level: "concurrent edits to different fields of the same todo both stick (demo act 4)".
+- Observation recorded, not fixed (nothing exercises it yet): during keyed-item replacement, an `Encode.option` field transitioning Some→None inside the replaced item relies on the fresh option attachment's transition callback; the flush path itself never deletes keys. Worth a pin if option-inside-map-item becomes a real shape.
+- Act 7's reorder narration stages the sequential add explicitly (two syncs) — fractional `Order` is app data, so "move" is one register write and duplication is structurally impossible; the act text says so in one breath.
 
 ### Step 11 — Docs rewrite
 

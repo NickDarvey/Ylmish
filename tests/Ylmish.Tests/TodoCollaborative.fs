@@ -2,7 +2,9 @@ module Ylmish.TodoCollaborative
 
 // Plan 0002, Step 7 — the example app over withYlmish v2, including issue
 // #83's acceptance at the example level: concurrent adds from two peers both
-// survive in both Elmish models.
+// survive in both Elmish models. (Step 10 grew the example model to the demo
+// shape: keyed per-field todos, a collaborative note, a theme register, the
+// counter escape hatch, and an app-only draft.)
 
 open FSharp.Data.Adaptive
 open Yjs
@@ -23,16 +25,20 @@ let private syncBoth (a : Y.Doc) (b : Y.Doc) =
     Main.sync a b
     Main.sync b a
 
+let private titles (m : TodoModel) =
+    m.Todos |> HashMap.toList |> List.map (fun (_, t) -> t.Title) |> List.sort
+
 let tests = testList "TodoCollaborative" [
     test "Program.withYlmish wired: a dispatched add reaches the model and the doc" {
         let doc = Y.Doc.Create ()
         use p = Elmish.Program.test (Main.makeProgram doc)
-        p.Dispatch (user (AddItem "Buy eggs"))
-        Expect.equal (p.Model.Items |> IndexList.toList) [ "Buy eggs" ] "model updated"
+        p.Dispatch (user (AddTodo ("id-1", "Buy eggs", 1.0)))
         Expect.equal
-            ((doc.getArray "items" : Y.Array<obj>).toArray () |> Seq.map string |> Seq.toList)
-            [ "Buy eggs" ]
-            "the item landed in the doc as a list element"
+            (p.Model.Todos |> HashMap.tryFind "id-1" |> Option.map (fun t -> t.Title))
+            (Some "Buy eggs")
+            "model updated"
+        Expect.isTrue ((doc.getMap "todos" : Y.Map<obj>).has "id-1")
+            "the todo landed in the doc under its app-minted key"
     }
 
     test "two programs converge after sync" {
@@ -41,14 +47,14 @@ let tests = testList "TodoCollaborative" [
         use p1 = Elmish.Program.test (Main.makeProgram d1)
         use p2 = Elmish.Program.test (Main.makeProgram d2)
 
-        p1.Dispatch (user (AddItem "Task A"))
+        p1.Dispatch (user (AddTodo ("id-a", "Task A", 1.0)))
         syncBoth d1 d2
-        Expect.equal (p2.Model.Items |> IndexList.toList) [ "Task A" ] "p2 received the item"
+        Expect.equal (titles p2.Model) [ "Task A" ] "p2 received the item"
 
-        p2.Dispatch (user (AddItem "Task B"))
+        p2.Dispatch (user (AddTodo ("id-b", "Task B", 2.0)))
         syncBoth d1 d2
-        Expect.equal (p1.Model.Items |> IndexList.toList) (p2.Model.Items |> IndexList.toList) "converged"
-        Expect.equal (p1.Model.Items |> IndexList.toList |> List.sort) [ "Task A"; "Task B" ] "both present"
+        Expect.equal p1.Model.Todos p2.Model.Todos "converged"
+        Expect.equal (titles p1.Model) [ "Task A"; "Task B" ] "both present"
     }
 
     test "concurrent adds from both peers both survive (issue #83's class, at the example level)" {
@@ -57,15 +63,37 @@ let tests = testList "TodoCollaborative" [
         use p1 = Elmish.Program.test (Main.makeProgram d1)
         use p2 = Elmish.Program.test (Main.makeProgram d2)
 
-        // Offline: both peers add concurrently.
-        p1.Dispatch (user (AddItem "From peer 1"))
-        p2.Dispatch (user (AddItem "From peer 2"))
+        // Offline: both peers add concurrently, under their own unique keys.
+        p1.Dispatch (user (AddTodo ("id-1", "From peer 1", 1.0)))
+        p2.Dispatch (user (AddTodo ("id-2", "From peer 2", 2.0)))
         syncBoth d1 d2
 
-        let items1 = p1.Model.Items |> IndexList.toList
-        let items2 = p2.Model.Items |> IndexList.toList
-        Expect.equal items1 items2 "models converge"
-        Expect.equal (List.sort items1) [ "From peer 1"; "From peer 2" ]
+        Expect.equal p1.Model.Todos p2.Model.Todos "models converge"
+        Expect.equal (titles p1.Model) [ "From peer 1"; "From peer 2" ]
             "NEITHER add was lost — the exact failure mode the materialize path had"
+    }
+
+    test "concurrent edits to different fields of the same todo both stick (demo act 4)" {
+        // Regression for the Step 10 discovery: a one-field record edit
+        // re-flushes the whole keyed item, and an unconditional flush restamps
+        // the UNCHANGED fields too — entering LWW races the consumer never
+        // intended (here: B's restamped done=false clobbered A's done=true).
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (Main.makeProgram d1)
+        use p2 = Elmish.Program.test (Main.makeProgram d2)
+
+        p1.Dispatch (user (AddTodo ("id-1", "buy milk", 1.0)))
+        syncBoth d1 d2
+
+        // Offline: A ticks it done while B renames it.
+        p1.Dispatch (user (SetDone ("id-1", true)))
+        p2.Dispatch (user (Rename ("id-1", "buy oat milk")))
+        syncBoth d1 d2
+
+        let todo = p1.Model.Todos |> HashMap.tryFind "id-1" |> Option.get
+        Expect.equal todo.Title "buy oat milk" "B's rename stuck"
+        Expect.isTrue todo.Done "and A's tick stuck too — per-field merge inside a keyed item"
+        Expect.equal p1.Model.Todos p2.Model.Todos "converged"
     }
 ]

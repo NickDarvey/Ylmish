@@ -1,167 +1,175 @@
 module TodoCollaborative.Demo
 
-// A runnable, two-process demonstration of TodoCollaborative.
+// npm run demo — TodoCollaborative as a scripted two-peer narrative
+// (plan 0002, Step 10).
 //
-//   node Demo.js                 -> launcher: forks two peers and relays
-//                                   Yjs updates between them over IPC.
-//   node Demo.js --peer <name>   -> peer: runs the Ylmish-wired Elmish
-//                                   program over its own Y.Doc.
+// Two complete `withYlmish` programs run in this one process, each over its
+// own Y.Doc. There is no server and no network: "offline" simply means sync
+// has not been called yet, and every act prints the peers' ELMISH models —
+// what a UI would render — never the docs directly.
 //
-// The launcher acts as a tiny message hub: every local Yjs update a peer
-// produces is forwarded to the other peer, who applies it to its own Y.Doc.
-// Ylmish then decodes the change back into that peer's Elmish model.
+// ClientIDs are pinned (A=1, B=2) so Yjs's concurrency tiebreaks always
+// resolve the same way: the transcript is reproducible byte for byte, and it
+// is embedded in the README as documentation.
 
-open Fable.Core
-open Fable.Core.JsInterop
 open FSharp.Data.Adaptive
-open Elmish
 open Yjs
 
 open Ylmish
 open TodoCollaborative
 
 // ---------------------------------------------------------------------------
-// Minimal Node.js interop (kept local so the example needs no extra packages)
+// A peer: a real Elmish program bound to its own doc.
 // ---------------------------------------------------------------------------
 
-module Node =
-    [<Emit("process.argv")>]
-    let argv : string[] = jsNative
-
-    [<Emit("typeof process.send === 'function'")>]
-    let isChild : bool = jsNative
-
-    [<Emit("process.send($0)")>]
-    let send (_msg : obj) : unit = jsNative
-
-    [<Emit("process.on('message', $0)")>]
-    let onMessage (_handler : obj -> unit) : unit = jsNative
-
-    [<Import("fork", "child_process")>]
-    let private forkRaw (_modulePath : string) (_args : string[]) : obj = jsNative
-
-    /// Fork a child process running the given module with args.
-    let fork (modulePath : string) (args : string[]) : obj = forkRaw modulePath args
-
-    [<Emit("$0.send($1)")>]
-    let childSend (_child : obj) (_msg : obj) : unit = jsNative
-
-    [<Emit("$0.on($1, $2)")>]
-    let childOn (_child : obj) (_event : string) (_handler : obj -> unit) : unit = jsNative
-
-    [<Emit("$0.kill()")>]
-    let childKill (_child : obj) : unit = jsNative
-
-    [<Emit("setTimeout($1, $0)")>]
-    let setTimeout (_ms : int) (_f : unit -> unit) : unit = jsNative
-
-    [<Emit("process.exit($0)")>]
-    let exit (_code : int) : unit = jsNative
-
-// Yjs interop the bindings don't expose conveniently.
-[<Emit("$0.on('update', $1)")>]
-let private onDocUpdate (_doc : Y.Doc) (_handler : obj -> obj -> unit) : unit = jsNative
-
-[<Emit("$0 === 'remote'")>]
-let private isRemoteOrigin (_origin : obj) : bool = jsNative
-
-// Yjs updates are Uint8Array; convert to/from plain number arrays so the
-// default JSON-based IPC serialization round-trips them safely.
-[<Emit("Array.from($0)")>]
-let private bytesToNums (_bytes : obj) : int[] = jsNative
-
-[<Emit("Uint8Array.from($0)")>]
-let private numsToBytes (_nums : int[]) : JS.Uint8Array = jsNative
-
-// ---------------------------------------------------------------------------
-// Peer process
-// ---------------------------------------------------------------------------
-
-let runPeer (name : string) =
+type private Peer (name : string, clientId : float) =
     let doc = Y.Doc.Create ()
-
-    // Forward our own (local) Yjs updates to the launcher. Updates we apply
-    // from a remote peer carry the "remote" origin and must not be re-sent.
-    onDocUpdate doc (fun update origin ->
-        if not (isRemoteOrigin origin) then
-            Node.send {| kind = "update"; from = name; bytes = bytesToNums update |})
-
-    // Apply inbound updates / scripted operations from the launcher.
+    do doc.clientID <- clientId
+    let mutable model = TodoModel.init
     let mutable dispatch : Program.Message<TodoModel, Msg> -> unit = ignore
-    Node.onMessage (fun msg ->
-        match msg?kind : string with
-        | "update" ->
-            Y.applyUpdate (doc, numsToBytes (msg?bytes), "remote")
-        | "op-add" ->
-            dispatch (Program.Message.User (AddItem (msg?text)))
-        | _ -> ())
-
-    // Run the Ylmish-wired program, capturing dispatch and logging each model.
-    let setState (model : TodoModel) (d : Program.Message<TodoModel, Msg> -> unit) =
-        dispatch <- d
-        printfn "[peer %s] items=%A newItem=%A"
-            name (model.Items |> IndexList.toList) model.NewItem
-
-    Main.makeProgram doc
-    |> Program.withSetState setState
-    |> Program.runWith ()
-
-    // Tell the launcher we're up and our dispatch loop is live.
-    Node.send {| kind = "ready"; from = name |}
+    do
+        Main.makeProgram doc
+        |> Elmish.Program.withSetState (fun m d ->
+            model <- m
+            dispatch <- d)
+        |> Elmish.Program.runWith ()
+    member _.Name = name
+    member _.Doc = doc
+    member _.Model = model
+    member _.Do (msg : Msg) = dispatch (Program.Message.User msg)
 
 // ---------------------------------------------------------------------------
-// Launcher process
+// Narration helpers
 // ---------------------------------------------------------------------------
 
-let runLauncher () =
-    let selfPath = Node.argv.[1]
-    printfn "[launcher] forking two peers (A and B)…"
+let private show (p : Peer) =
+    let m = p.Model
+    printfn "  %s | note \"%s\" | theme %s | hits %d | draft \"%s\""
+        p.Name (Text.toString m.Note) m.Theme m.Hits m.Draft
+    m.Todos
+    |> HashMap.toList
+    |> List.sortBy (fun (_, t) -> t.Order)
+    |> List.iter (fun (id, t) ->
+        printfn "  %s |   %s %s  (%s, order %g)"
+            p.Name (if t.Done then "[x]" else "[ ]") t.Title id t.Order)
 
-    let peerA = Node.fork selfPath [| "--peer"; "A" |]
-    let peerB = Node.fork selfPath [| "--peer"; "B" |]
+let private act (n : int) (title : string) =
+    printfn ""
+    printfn "Act %d — %s" n title
 
-    let mutable readyCount = 0
+let private say (line : string) = printfn "  %s" line
 
-    // Relay updates from one peer to the other, track readiness, kick off the
-    // scripted scenario once both peers are live.
-    let route (other : obj) (msg : obj) =
-        match msg?kind : string with
-        | "update" -> Node.childSend other msg
-        | "ready" ->
-            readyCount <- readyCount + 1
-            if readyCount = 2 then
-                printfn "[launcher] both peers ready — running scenario"
-
-                // Peer A adds an item; it should appear on B.
-                Node.setTimeout 250 (fun () ->
-                    printfn "[launcher] -> A: add \"Buy milk\""
-                    Node.childSend peerA {| kind = "op-add"; text = "Buy milk" |})
-
-                // Peer B adds an item; it should appear on A.
-                Node.setTimeout 750 (fun () ->
-                    printfn "[launcher] -> B: add \"Walk the dog\""
-                    Node.childSend peerB {| kind = "op-add"; text = "Walk the dog" |})
-
-                // Wrap up.
-                Node.setTimeout 1500 (fun () ->
-                    printfn "[launcher] done — shutting peers down"
-                    Node.childKill peerA
-                    Node.childKill peerB
-                    Node.exit 0)
-        | _ -> ()
-
-    Node.childOn peerA "message" (route peerB)
-    Node.childOn peerB "message" (route peerA)
+let private sync (a : Peer) (b : Peer) =
+    Main.sync a.Doc b.Doc
+    Main.sync b.Doc a.Doc
+    printfn "  ~ sync ~"
 
 // ---------------------------------------------------------------------------
-// Entry point: dispatch on argv
+// The script
 // ---------------------------------------------------------------------------
 
-let main () =
-    let args = Node.argv
-    let peerIndex = args |> Array.tryFindIndex (fun a -> a = "--peer")
-    match peerIndex with
-    | Some i when i + 1 < args.Length -> runPeer args.[i + 1]
-    | _ -> runLauncher ()
+let private run () =
+    printfn "TodoCollaborative — two Elmish programs, one shared document, no server."
 
-main ()
+    let a = Peer ("A", 1.0)
+    let b = Peer ("B", 2.0)
+
+    act 1 "an empty doc decodes to your init state"
+    say "Both peers start against empty docs. Nothing is written at startup:"
+    say "init is what an empty doc decodes to, not something to persist."
+    show a
+    show b
+
+    act 2 "concurrent edits to the same text interleave"
+    say "A writes the note and syncs; then, offline, A appends while B prepends."
+    a.Do (EditNote (Text.edit "hello"))
+    sync a b
+    a.Do (EditNote (Text.insert 5 " world"))
+    b.Do (EditNote (Text.insert 0 "oh, "))
+    say "before the network heals:"
+    show a
+    show b
+    sync a b
+    say "after: both edits survive, interleaved — nobody's keystrokes lost."
+    show a
+    show b
+
+    act 3 "offline creation is safe under app-minted keys"
+    say "Still offline, each peer creates a todo. The ids are the app's own"
+    say "(anything creatable offline needs a unique key — that's the rule)."
+    a.Do (AddTodo ("a-1", "buy milk", 1.0))
+    a.Do (SetDraft "eggs too?")
+    b.Do (AddTodo ("b-1", "walk dog", 2.0))
+    sync a b
+    say "after sync: BOTH creations survive (keyed element-wise merge)."
+    show a
+    show b
+
+    act 4 "same todo, different fields: per-field merge"
+    say "Concurrently, A ticks 'buy milk' done while B renames it."
+    a.Do (SetDone ("a-1", true))
+    b.Do (Rename ("a-1", "buy oat milk"))
+    sync a b
+    say "after sync: both stick — a todo is a record of independent registers."
+    show a
+    show b
+
+    act 5 "same register, concurrent writes: an honest clobber"
+    say "Both flip the theme at once. A register is last-writer-wins: one value"
+    say "survives, deterministically (clientID tiebreak) — NOT 'whoever was later'."
+    a.Do (SetTheme "dark")
+    b.Do (SetTheme "sepia")
+    sync a b
+    show a
+    show b
+
+    act 6 "delete beats concurrent edits inside"
+    say "A deletes 'walk dog' while B concurrently ticks it done."
+    a.Do (RemoveTodo "b-1")
+    b.Do (SetDone ("b-1", true))
+    sync a b
+    say "after sync: the todo is gone on both — ticking it could not resurrect it."
+    show a
+    show b
+
+    act 7 "reordering is data, not structure"
+    say "A adds a second todo and syncs it across."
+    a.Do (AddTodo ("a-2", "water plants", 2.0))
+    sync a b
+    say "Now, concurrently: A moves 'water plants' to the top (order 0.5) while"
+    say "B pushes 'buy oat milk' to the bottom (order 3). Order is a fractional"
+    say "index: a reorder writes one number, so reorders cannot duplicate items."
+    a.Do (Reorder ("a-2", 0.5))
+    b.Do (Reorder ("a-1", 3.0))
+    sync a b
+    say "after sync: one converged order, every item exactly once."
+    show a
+    show b
+
+    act 8 "the escape hatch: a merge no built-in provides"
+    say "Hits is a consumer-authored counter over a raw Y.Array (see Counter.fs)."
+    say "Offline, A bumps twice and B bumps once — optimistically:"
+    a.Do Bump
+    a.Do Bump
+    b.Do Bump
+    show a
+    show b
+    sync a b
+    say "after sync: the counts SUM — concurrent increments are all kept."
+    show a
+    show b
+
+    act 9 "app-only state never syncs"
+    say "A's draft has said \"eggs too?\" since act 3 — B never saw it, because"
+    say "the codec never mentions Draft. It is not in the doc either:"
+    show a
+    show b
+    let root : Y.Map<obj> = a.Doc.getMap ()
+    say (sprintf "A's doc, top-level register keys: %A" (root.keys () |> List.ofSeq))
+    say (sprintf "A's doc has a 'draft' key: %b" (root.has "draft"))
+
+    printfn ""
+    printfn "The models above are what each peer's UI renders — no peer ever read"
+    printfn "another's memory, only Yjs updates travelled."
+
+run ()

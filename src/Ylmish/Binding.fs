@@ -218,7 +218,17 @@ type Attachment (origin : obj, suppress : bool ref, disposables : ResizeArray<ID
 /// new subtree must appear at once. Adopts existing containers; never replaces.
 let rec private flush (doc : Y.Doc) (origin : obj) (parent : EnsureMap) (key : string) (path : Path) (e : Encoded) : unit =
     match e with
-    | EncValue a -> (parent ()).set (key, primToObj (AVal.force a)) |> ignore
+    | EncValue a ->
+        let v = primToObj (AVal.force a)
+        let pm = parent ()
+        // Same skip as attachValue: a same-value set is a real Y op and would
+        // clobber a concurrent peer write for no reason. This matters most for
+        // keyed-map item replacement (a one-field record edit re-flushes the
+        // whole item): only fields whose CONTENT changed may enter LWW races —
+        // per-field merge inside keyed items depends on it.
+        match pm.get key with
+        | Some existing when existing = v -> ()
+        | _ -> pm.set (key, v) |> ignore
     | EncText a ->
         let ytext, fresh = ensureText parent key path ()
         if fresh then ytext.insert (0, Text.toString (AVal.force a))

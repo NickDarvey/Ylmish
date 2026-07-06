@@ -88,6 +88,126 @@ Using Ylmish.Adaptive.Codec:
 ```
 
 
+## Demo
+
+`npm run demo` runs [`examples/TodoCollaborative`](examples/TodoCollaborative): two complete
+`withYlmish` programs in one process, each over its own `Y.Doc`, with sync performed
+explicitly between acts — so every kind of concurrency is staged deliberately and the
+output below is reproducible byte for byte (clientIDs are pinned). Every act prints the
+peers' **Elmish models** — what a UI would render — never the docs directly.
+
+```
+TodoCollaborative — two Elmish programs, one shared document, no server.
+
+Act 1 — an empty doc decodes to your init state
+  Both peers start against empty docs. Nothing is written at startup:
+  init is what an empty doc decodes to, not something to persist.
+  A | note "" | theme light | hits 0 | draft ""
+  B | note "" | theme light | hits 0 | draft ""
+
+Act 2 — concurrent edits to the same text interleave
+  A writes the note and syncs; then, offline, A appends while B prepends.
+  ~ sync ~
+  before the network heals:
+  A | note "hello world" | theme light | hits 0 | draft ""
+  B | note "oh, hello" | theme light | hits 0 | draft ""
+  ~ sync ~
+  after: both edits survive, interleaved — nobody's keystrokes lost.
+  A | note "oh, hello world" | theme light | hits 0 | draft ""
+  B | note "oh, hello world" | theme light | hits 0 | draft ""
+
+Act 3 — offline creation is safe under app-minted keys
+  Still offline, each peer creates a todo. The ids are the app's own
+  (anything creatable offline needs a unique key — that's the rule).
+  ~ sync ~
+  after sync: BOTH creations survive (keyed element-wise merge).
+  A | note "oh, hello world" | theme light | hits 0 | draft "eggs too?"
+  A |   [ ] buy milk  (a-1, order 1)
+  A |   [ ] walk dog  (b-1, order 2)
+  B | note "oh, hello world" | theme light | hits 0 | draft ""
+  B |   [ ] buy milk  (a-1, order 1)
+  B |   [ ] walk dog  (b-1, order 2)
+
+Act 4 — same todo, different fields: per-field merge
+  Concurrently, A ticks 'buy milk' done while B renames it.
+  ~ sync ~
+  after sync: both stick — a todo is a record of independent registers.
+  A | note "oh, hello world" | theme light | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk  (a-1, order 1)
+  A |   [ ] walk dog  (b-1, order 2)
+  B | note "oh, hello world" | theme light | hits 0 | draft ""
+  B |   [x] buy oat milk  (a-1, order 1)
+  B |   [ ] walk dog  (b-1, order 2)
+
+Act 5 — same register, concurrent writes: an honest clobber
+  Both flip the theme at once. A register is last-writer-wins: one value
+  survives, deterministically (clientID tiebreak) — NOT 'whoever was later'.
+  ~ sync ~
+  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk  (a-1, order 1)
+  A |   [ ] walk dog  (b-1, order 2)
+  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
+  B |   [x] buy oat milk  (a-1, order 1)
+  B |   [ ] walk dog  (b-1, order 2)
+
+Act 6 — delete beats concurrent edits inside
+  A deletes 'walk dog' while B concurrently ticks it done.
+  ~ sync ~
+  after sync: the todo is gone on both — ticking it could not resurrect it.
+  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk  (a-1, order 1)
+  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
+  B |   [x] buy oat milk  (a-1, order 1)
+
+Act 7 — reordering is data, not structure
+  A adds a second todo and syncs it across.
+  ~ sync ~
+  Now, concurrently: A moves 'water plants' to the top (order 0.5) while
+  B pushes 'buy oat milk' to the bottom (order 3). Order is a fractional
+  index: a reorder writes one number, so reorders cannot duplicate items.
+  ~ sync ~
+  after sync: one converged order, every item exactly once.
+  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
+  A |   [ ] water plants  (a-2, order 0.5)
+  A |   [x] buy oat milk  (a-1, order 3)
+  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
+  B |   [ ] water plants  (a-2, order 0.5)
+  B |   [x] buy oat milk  (a-1, order 3)
+
+Act 8 — the escape hatch: a merge no built-in provides
+  Hits is a consumer-authored counter over a raw Y.Array (see Counter.fs).
+  Offline, A bumps twice and B bumps once — optimistically:
+  A | note "oh, hello world" | theme sepia | hits 2 | draft "eggs too?"
+  A |   [ ] water plants  (a-2, order 0.5)
+  A |   [x] buy oat milk  (a-1, order 3)
+  B | note "oh, hello world" | theme sepia | hits 1 | draft ""
+  B |   [ ] water plants  (a-2, order 0.5)
+  B |   [x] buy oat milk  (a-1, order 3)
+  ~ sync ~
+  after sync: the counts SUM — concurrent increments are all kept.
+  A | note "oh, hello world" | theme sepia | hits 3 | draft "eggs too?"
+  A |   [ ] water plants  (a-2, order 0.5)
+  A |   [x] buy oat milk  (a-1, order 3)
+  B | note "oh, hello world" | theme sepia | hits 3 | draft ""
+  B |   [ ] water plants  (a-2, order 0.5)
+  B |   [x] buy oat milk  (a-1, order 3)
+
+Act 9 — app-only state never syncs
+  A's draft has said "eggs too?" since act 3 — B never saw it, because
+  the codec never mentions Draft. It is not in the doc either:
+  A | note "oh, hello world" | theme sepia | hits 3 | draft "eggs too?"
+  A |   [ ] water plants  (a-2, order 0.5)
+  A |   [x] buy oat milk  (a-1, order 3)
+  B | note "oh, hello world" | theme sepia | hits 3 | draft ""
+  B |   [ ] water plants  (a-2, order 0.5)
+  B |   [x] buy oat milk  (a-1, order 3)
+  A's doc, top-level register keys: [theme]
+  A's doc has a 'draft' key: false
+
+The models above are what each peer's UI renders — no peer ever read
+another's memory, only Yjs updates travelled.
+```
+
 ## TODO
 
 
