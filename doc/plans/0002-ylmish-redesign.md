@@ -331,7 +331,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 5 — Binding, encode direction (L; sub-steps 5a–5g) — 174 passing (+16), 3 pending — **note the design amendment: root anchoring for top-level containers**
 - [x] Step 6 — Binding, decode direction (M) — 181 passing (+7), 3 pending
 - [x] Step 7 — `withYlmish` v2; old path dies (M) — 156 passing, 0 pending, **north stars green: issue #83 closed by test** — note the suppression-window design addition
-- [ ] Step 8 — `CustomElement` end-to-end (M)
+- [x] Step 8 — `CustomElement` end-to-end (M) — 159 passing (+3), 0 pending — **the hatch proven from consumer code: `open Yjs` + `open Ylmish.Codec` only**
 - [ ] Step 9 — Property stress (S)
 - [ ] Step 10 — Demo (M)
 - [ ] Step 11 — Docs (M)
@@ -522,6 +522,14 @@ Prove the hatch under `withYlmish` (the types exist since 2b/4e; the dispatch si
 *Acceptance:* the hatch is sufficient to build a counter *without touching Ylmish internals or Adaptive* — the escape-hatch and encapsulation claims proven together.
 
 *Check-in:* test count; the counter's full source (its size and its `open` list are the measure of the hatch's ergonomics — bring both).
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- **159 passing (+3), 0 pending.** No runtime changes were needed — Step 8 is pure consumer-side proof, as the step predicted: the tests live in `tests/Ylmish.Tests/CustomElements.fs` and everything they use existed since Steps 4e/5f/6.
+- **The counter is ~20 lines and opens `System`, `Yjs`, `Ylmish`, `Ylmish.Codec` — no `FSharp.Data.Adaptive`, no `Ylmish.Internal`.** That's the encapsulation acceptance met from real consumer code. It captures `ctx.GetArray ()` and `ctx.Origin` in `Connect`, and `Value` is `(arr.toArray ()).Count` — the merged value is the **sum** of concurrent increments (array inserts merge, U8), a merge no built-in encoding provides.
+- **The consumer wiring pattern that fell out:** `Bump -> { m with Hits = m.Hits + 1 }, Cmd.ofEffect (fun _ -> counter.Bump ())` — an optimistic local increment plus an effect that pushes a tick. `Bump()` transacts under the captured attachment origin (via `arr.doc`), so the local write never echoes back as a `Set`; the authoritative count returns through `Decode.custom` when *remote* transactions arrive. Interpretation surfaced: a custom element that writes must tag its transactions with `ctx.Origin` or it will self-notify — this belongs in `custom-elements.md` (Step 11) as the first rule of writing a binding.
+- **`EditorSurface` is 12 lines:** captures `ctx.GetText ()`, exposes `.Text` for a real editor component. The test writes to that live `Y.Text` directly — in the editor's own transactions, knowing nothing of Ylmish — and the content flows into the model's decoded field, interleaving with a peer to `"oh, hello world"` (U3). This is the "hand a real Y.Text to CodeMirror" story working end-to-end.
+- The U5 double-integration guard was pinned as a `BindContext` contract test: repeated `GetArray` calls return the *same* integrated instance (`Object.ReferenceEquals`), so a naive binding cannot corrupt the doc by re-integrating (U5's silent-corruption trap).
 
 ### Step 9 — Property-based stress
 
