@@ -3,6 +3,8 @@ module TodoCollaborative.Codec
 // The schema, decoupled from the model: one word per field is the merge
 // choice. Draft appears in neither direction — app-only state never reaches
 // the doc (it survives remote updates through `Decode.ask`).
+//
+// Quoted verbatim by README.md (quickstart) and doc/guides/codec.md.
 
 open FSharp.Data.Adaptive
 

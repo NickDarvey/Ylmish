@@ -40,6 +40,7 @@ let private ok (r : Result<'r, Error list>) : 'r =
     | Ok v -> v
     | Error e -> failwithf "decode failed: %A" e
 
+// Quoted verbatim by doc/guides/codec.md.
 /// A domain type riding a string primitive — the contramap/map path.
 type TodoId = TodoId of string
 
@@ -136,6 +137,7 @@ let tests = testList "Codec (v2)" [
             }
         }
 
+        // Quoted verbatim by doc/guides/codec.md.
         test "item errors accumulate, each with its index" {
             let e = Encode.list Value.Encode.string (AList.ofList [ "x"; "y" ])
             match decodeVia () (Decode.list Value.Decode.int) e with

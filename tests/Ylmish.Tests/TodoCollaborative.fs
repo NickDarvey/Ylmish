@@ -57,6 +57,7 @@ let tests = testList "TodoCollaborative" [
         Expect.equal (titles p1.Model) [ "Task A"; "Task B" ] "both present"
     }
 
+    // Quoted verbatim by doc/guides/recipes.md.
     test "concurrent adds from both peers both survive (issue #83's class, at the example level)" {
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()

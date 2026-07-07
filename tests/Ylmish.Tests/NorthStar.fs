@@ -60,6 +60,7 @@ type AdaptiveModel (m : Model) =
     static member Create (m : Model) = AdaptiveModel m
 
 // --- The codec: one word per field is the merge choice; Filter is absent.
+// Quoted verbatim by doc/guides/codec.md (the Encode.option shape).
 
 module Codec =
     let encode (am : AdaptiveModel) : Encoded =
@@ -105,6 +106,7 @@ let tests = testList "NorthStar" [
 
     // Issue #83's acceptance: concurrent edits to the same text field converge
     // to an interleaved result IN THE ELMISH MODELS, not just the docs.
+    // Quoted verbatim by doc/guides/text.md.
     testCase "concurrent Text edits converge interleaved across two withYlmish programs" (fun () ->
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()

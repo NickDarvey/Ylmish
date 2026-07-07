@@ -6,6 +6,7 @@ open FSharp.Data.Adaptive
 
 open Ylmish
 
+// Quoted verbatim by README.md (quickstart) and doc/guides/recipes.md.
 /// One todo. A plain record of independent registers: because the codec
 /// encodes each field separately (see Codec.fs), concurrent edits to
 /// DIFFERENT fields of the same todo merge per field. `Order` is a fractional
@@ -47,6 +48,7 @@ module TodoModel =
         Draft = ""
     }
 
+    // The Bump case below is quoted verbatim by doc/guides/custom-elements.md.
     let private updateTodo id f todos =
         match HashMap.tryFind id todos with
         | Some t -> HashMap.add id (f t) todos

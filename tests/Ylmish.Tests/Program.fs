@@ -198,6 +198,7 @@ let tests = testList "Program (withYlmish v2)" [
             let enc = Encode.object [ "title", Encode.string title ]
             let att = Binding.attach doc enc
             title, enc, att
+        // mkV2 and decodeV2 are quoted verbatim by doc/guides/recipes.md.
         let mkV2 (doc : Y.Doc) =
             let heading = cval ""
             let enc =

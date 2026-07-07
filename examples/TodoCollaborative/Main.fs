@@ -5,6 +5,7 @@ open Yjs
 
 open Ylmish
 
+// Quoted verbatim by README.md (quickstart).
 /// Create a Program.withYlmish-wired Elmish program for a given Y.Doc. Each
 /// peer owns one counter binding — created here so update's Bump effect and
 /// the codec share the instance.

@@ -95,6 +95,7 @@ let tests = testList "Text" [
             }
         }
 
+        // Quoted verbatim by doc/guides/text.md.
         test "bounds are clamped, not thrown" {
             let t = Text.ofString "abc"
             Expect.equal (Text.insert -5 "x" t |> Text.toString) "xabc" "negative insert clamps to 0"

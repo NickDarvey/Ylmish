@@ -334,7 +334,7 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 8 — `CustomElement` end-to-end (M) — 159 passing (+3), 0 pending — **the hatch proven from consumer code: `open Yjs` + `open Ylmish.Codec` only**
 - [x] Step 9 — Property stress (S) — 163 passing (+4), 0 pending — **200 schedules in ~0.4s, no CI split needed; first run caught a real oracle/SUT semantic gap (elision vs LWW)**
 - [x] Step 10 — Demo (M) — 164 passing (+1), 0 pending — **nine acts green, transcript byte-for-byte reproducible and embedded in the README; act 4 exposed and fixed a real binding bug (whole-item re-flush restamped unchanged fields)**
-- [ ] Step 11 — Docs (M)
+- [x] Step 11 — Docs (M) — 164 passing, 0 pending — **README rewritten (quickstart, taxonomy, honest limits, layer map, transcript); four guides in `doc/guides/`; AGENTS.md updated; all 18 doc code blocks mechanically verified verbatim against compiled sources — THE PLAN IS COMPLETE**
 
 ### Step 0 — Baseline
 
@@ -581,6 +581,14 @@ Random two-replica add/remove/edit schedules over the keyed-map + text + registe
 - **AGENTS.md**: update layout/testing sections (the harness becomes a documented testing tool); mark plans 0001 and 0002 statuses.
 
 *Acceptance:* every code sample in the docs is compiled — concretely: each sample is a verbatim excerpt of code that lives in `examples/` or `tests/` (marked with a comment naming the doc that quotes it), so CI compiles them by construction; no free-floating fenced code that can rot.
+
+*Decisions & lessons (executed 2026-07-04):*
+
+- **README:** philosophy sections kept intact (only the flow diagram's steps [3]/[4] and the v1 `Ylmish.Adaptive.Codec` reference updated to the decode-→-`Set` reality); new: a positioning paragraph, a three-part quickstart quoted from the example app, the taxonomy table doubling as the merge-semantics table, the five honest limits (each cross-referenced to the demo act that stages it), the layer map + dependency posture, guide links, and a Developing section. The old TODO list is gone — every line of it was either done by this plan or superseded by its design.
+- **Guides:** `codec.md` (the worked codec, `Decode.ask`/app-only/decode-empty=init, registers and both LWW honesty rules, the type-level list restriction quoted as the should-not-compile record, `contramap`, options, path-tracked errors, U15), `text.md` (value semantics, the #83 north star as the usage sample, the clamp contract, `edit`'s ambiguity, pointer to the hatch), `custom-elements.md` (the contract incl. the first rule — transact under `ctx.Origin` — the counter, the Bump wiring, `EditorSurface`, rules of the road), `recipes.md` (app-minted keys, fractional-index ordering incl. why not structural moves, dual-key migration with the three-phase rollout, app-only state).
+- **The verbatim discipline is enforced mechanically, not by intention:** every fenced F# block in README + guides was checked by script to be a character-for-character substring of its named source file (18/18 OK, allowing only uniform dedent for blocks quoted from nested scopes). Each quoted region carries a `// Quoted verbatim by <doc>` marker at the source. AGENTS.md's stale v1 Hedgehog sample — exactly the free-floating rot this acceptance bans — was replaced by references to real properties.
+- **AGENTS.md:** layout block now names the real modules and the public/internal line; toolchain gotchas recorded (SDK via global.json, `rm -rf build` after dependency changes, the deliberate Adaptify 1.3.7-CLI/1.3.4-package skew, re-embedding the transcript when demo output changes); the differential harness is documented as the standing tool for CRDT-semantics claims (including the content-neutral-elision subtlety the oracle must honour); plan statuses marked (0001 superseded, 0002 executed).
+- Re-verified end-state: 164 passing, demo transcript still byte-identical to the README embed after all source-marker insertions.
 
 *Check-in:* final test count vs the Step 0 baseline; the README read top-to-bottom; the list of plan Open questions that remain open (they carry forward, not silently expire).
 

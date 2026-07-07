@@ -54,6 +54,8 @@ type GrowOnlyCounter () =
 // something that wants the real thing (a CodeMirror/Monaco binding). The
 // editor writes to it directly; the model receives the merged content through
 // the ordinary decode path.
+//
+// Quoted verbatim by doc/guides/custom-elements.md.
 // =============================================================================
 
 type EditorSurface () =
