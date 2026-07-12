@@ -16,26 +16,26 @@ Your model stays a plain immutable record. Your `update` stays pure. You write a
 
 The snippets below are verbatim from the working example in [`examples/TodoCollaborative`](examples/TodoCollaborative) (every code sample in these docs is compiled — each is an excerpt of code that lives in `examples/` or `tests/`).
 
-**1. Model.** A plain record; the only Ylmish type in it is `Text`. Field types are chosen for the merge you want (see the table below).
+**1. Model.** Plain records; the only Ylmish type anywhere in them is the todo's `Text` note. Field types are chosen for the merge you want (see the table below).
 
 ```fsharp
-/// One todo. A plain record of independent registers: because the codec
-/// encodes each field separately (see Codec.fs), concurrent edits to
-/// DIFFERENT fields of the same todo merge per field. `Order` is a fractional
-/// index — reordering writes a number instead of moving structure, so
-/// concurrent reorders converge without duplication.
-type Todo = { Title : string; Done : bool; Order : float }
+/// One todo. A record of independent registers plus a collaborative note:
+/// because the codec encodes each field separately (see Codec.fs), concurrent
+/// edits to DIFFERENT fields of the same todo merge per field — and concurrent
+/// edits to the SAME note merge as text. `Order` is a fractional index —
+/// reordering writes a number instead of moving structure, so concurrent
+/// reorders converge without duplication.
+type Todo = { Title : string; Done : bool; Order : float; Note : Text }
 ```
 
 ```fsharp
-/// The model's type IS the merge choice: Text merges interleaved, the keyed
-/// map merges element-wise (app-minted ids make offline creation safe), Theme
-/// is an honest last-writer-wins register, Hits comes back through the
-/// escape-hatch counter, and Draft is app-only — the codec never mentions it,
-/// so it never syncs.
+/// The model's type IS the merge choice: the keyed map merges element-wise
+/// (app-minted ids make offline creation safe) and each todo's Note merges as
+/// collaborative text, Theme is an honest last-writer-wins register, Hits
+/// comes back through the escape-hatch counter, and Draft is app-only — the
+/// codec never mentions it, so it never syncs.
 [<ModelType>]
 type TodoModel = {
-    Note : Text
     Todos : HashMap<string, Todo>
     Theme : string
     Hits : int
@@ -45,12 +45,19 @@ type TodoModel = {
 
 (`[<ModelType>]` is [Adaptify](https://github.com/krauthaufen/Adaptify)'s attribute: it generates the incremental `AdaptiveTodoModel` companion that lets Ylmish observe *deltas* between successive models.)
 
-**2. Codec.** One word per field is the merge choice. `Draft` is absent — app-only state never reaches the doc.
+**2. Codec.** One word per field is the merge choice — including inside each keyed item. `Draft` is absent — app-only state never reaches the doc.
 
 ```fsharp
+let private todo (t : Todo) : Encoded =
+    Encode.object [
+        "title", Encode.string (AVal.constant t.Title)
+        "done", Encode.bool (AVal.constant t.Done)
+        "order", Encode.float (AVal.constant t.Order)
+        "note", Encode.text (AVal.constant t.Note)
+    ]
+
 let encode (counter : GrowOnlyCounter) (amodel : AdaptiveTodoModel) : Encoded =
     Encode.object [
-        "note", Encode.text amodel.Note
         "todos", Encode.map todo amodel.Todos
         "theme", Encode.string amodel.Theme
         "hits", Encode.custom counter
@@ -61,13 +68,11 @@ let encode (counter : GrowOnlyCounter) (amodel : AdaptiveTodoModel) : Encoded =
 let decode : Decoder<TodoModel, TodoModel> =
     Decode.object {
         let! model = Decode.ask
-        let! note = Decode.object.optional "note" Decode.text
         let! todos = Decode.object.optional "todos" (Decode.map decodeTodo)
         let! theme = Decode.object.optional "theme" Decode.string
         let! hits = Decode.object.required "hits" Decode.custom
         return
             { model with
-                Note = defaultArg note Text.empty
                 Todos = defaultArg todos HashMap.empty
                 Theme = defaultArg theme model.Theme
                 Hits = hits }
@@ -214,105 +219,116 @@ TodoCollaborative — two Elmish programs, one shared document, no server.
 Act 1 — an empty doc decodes to your init state
   Both peers start against empty docs. Nothing is written at startup:
   init is what an empty doc decodes to, not something to persist.
-  A | note "" | theme light | hits 0 | draft ""
-  B | note "" | theme light | hits 0 | draft ""
+  A | theme light | hits 0 | draft ""
+  B | theme light | hits 0 | draft ""
 
-Act 2 — concurrent edits to the same text interleave
-  A writes the note and syncs; then, offline, A appends while B prepends.
+Act 2 — concurrent edits to the same todo's note interleave
+  A creates the first todo, writes its note, and syncs.
   ~ sync ~
+  Offline, A appends to that note while B prepends to the same note.
   before the network heals:
-  A | note "hello world" | theme light | hits 0 | draft ""
-  B | note "oh, hello" | theme light | hits 0 | draft ""
+  A | theme light | hits 0 | draft ""
+  A |   [ ] buy milk — "hello world"  (a-1, order 1)
+  B | theme light | hits 0 | draft ""
+  B |   [ ] buy milk — "oh, hello"  (a-1, order 1)
   ~ sync ~
   after: both edits survive, interleaved — nobody's keystrokes lost.
-  A | note "oh, hello world" | theme light | hits 0 | draft ""
-  B | note "oh, hello world" | theme light | hits 0 | draft ""
+  A | theme light | hits 0 | draft ""
+  A |   [ ] buy milk — "oh, hello world"  (a-1, order 1)
+  B | theme light | hits 0 | draft ""
+  B |   [ ] buy milk — "oh, hello world"  (a-1, order 1)
 
 Act 3 — offline creation is safe under app-minted keys
   Still offline, each peer creates a todo. The ids are the app's own
   (anything creatable offline needs a unique key — that's the rule).
   ~ sync ~
   after sync: BOTH creations survive (keyed element-wise merge).
-  A | note "oh, hello world" | theme light | hits 0 | draft "eggs too?"
-  A |   [ ] buy milk  (a-1, order 1)
-  A |   [ ] walk dog  (b-1, order 2)
-  B | note "oh, hello world" | theme light | hits 0 | draft ""
-  B |   [ ] buy milk  (a-1, order 1)
-  B |   [ ] walk dog  (b-1, order 2)
+  A | theme light | hits 0 | draft "eggs too?"
+  A |   [ ] buy milk — "oh, hello world"  (a-1, order 1)
+  A |   [ ] walk dog — ""  (b-1, order 2)
+  A |   [ ] water plants — ""  (a-2, order 3)
+  B | theme light | hits 0 | draft ""
+  B |   [ ] buy milk — "oh, hello world"  (a-1, order 1)
+  B |   [ ] walk dog — ""  (b-1, order 2)
+  B |   [ ] water plants — ""  (a-2, order 3)
 
 Act 4 — same todo, different fields: per-field merge
   Concurrently, A ticks 'buy milk' done while B renames it.
   ~ sync ~
   after sync: both stick — a todo is a record of independent registers.
-  A | note "oh, hello world" | theme light | hits 0 | draft "eggs too?"
-  A |   [x] buy oat milk  (a-1, order 1)
-  A |   [ ] walk dog  (b-1, order 2)
-  B | note "oh, hello world" | theme light | hits 0 | draft ""
-  B |   [x] buy oat milk  (a-1, order 1)
-  B |   [ ] walk dog  (b-1, order 2)
+  A | theme light | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  A |   [ ] walk dog — ""  (b-1, order 2)
+  A |   [ ] water plants — ""  (a-2, order 3)
+  B | theme light | hits 0 | draft ""
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  B |   [ ] walk dog — ""  (b-1, order 2)
+  B |   [ ] water plants — ""  (a-2, order 3)
 
 Act 5 — same register, concurrent writes: an honest clobber
   Both flip the theme at once. A register is last-writer-wins: one value
   survives, deterministically (clientID tiebreak) — NOT 'whoever was later'.
   ~ sync ~
-  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
-  A |   [x] buy oat milk  (a-1, order 1)
-  A |   [ ] walk dog  (b-1, order 2)
-  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
-  B |   [x] buy oat milk  (a-1, order 1)
-  B |   [ ] walk dog  (b-1, order 2)
+  A | theme sepia | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  A |   [ ] walk dog — ""  (b-1, order 2)
+  A |   [ ] water plants — ""  (a-2, order 3)
+  B | theme sepia | hits 0 | draft ""
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  B |   [ ] walk dog — ""  (b-1, order 2)
+  B |   [ ] water plants — ""  (a-2, order 3)
 
 Act 6 — delete beats concurrent edits inside
   A deletes 'walk dog' while B concurrently ticks it done.
   ~ sync ~
   after sync: the todo is gone on both — ticking it could not resurrect it.
-  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
-  A |   [x] buy oat milk  (a-1, order 1)
-  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
-  B |   [x] buy oat milk  (a-1, order 1)
+  A | theme sepia | hits 0 | draft "eggs too?"
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  A |   [ ] water plants — ""  (a-2, order 3)
+  B | theme sepia | hits 0 | draft ""
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
+  B |   [ ] water plants — ""  (a-2, order 3)
 
 Act 7 — reordering is data, not structure
-  A adds a second todo and syncs it across.
-  ~ sync ~
-  Now, concurrently: A moves 'water plants' to the top (order 0.5) while
-  B pushes 'buy oat milk' to the bottom (order 3). Order is a fractional
+  Concurrently: A moves 'water plants' to the top (order 0.5) while B
+  pushes 'buy oat milk' to the bottom (order 4). Order is a fractional
   index: a reorder writes one number, so reorders cannot duplicate items.
   ~ sync ~
   after sync: one converged order, every item exactly once.
-  A | note "oh, hello world" | theme sepia | hits 0 | draft "eggs too?"
-  A |   [ ] water plants  (a-2, order 0.5)
-  A |   [x] buy oat milk  (a-1, order 3)
-  B | note "oh, hello world" | theme sepia | hits 0 | draft ""
-  B |   [ ] water plants  (a-2, order 0.5)
-  B |   [x] buy oat milk  (a-1, order 3)
+  A | theme sepia | hits 0 | draft "eggs too?"
+  A |   [ ] water plants — ""  (a-2, order 0.5)
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
+  B | theme sepia | hits 0 | draft ""
+  B |   [ ] water plants — ""  (a-2, order 0.5)
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
 
 Act 8 — the escape hatch: a merge no built-in provides
   Hits is a consumer-authored counter over a raw Y.Array (see Counter.fs).
   Offline, A bumps twice and B bumps once — optimistically:
-  A | note "oh, hello world" | theme sepia | hits 2 | draft "eggs too?"
-  A |   [ ] water plants  (a-2, order 0.5)
-  A |   [x] buy oat milk  (a-1, order 3)
-  B | note "oh, hello world" | theme sepia | hits 1 | draft ""
-  B |   [ ] water plants  (a-2, order 0.5)
-  B |   [x] buy oat milk  (a-1, order 3)
+  A | theme sepia | hits 2 | draft "eggs too?"
+  A |   [ ] water plants — ""  (a-2, order 0.5)
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
+  B | theme sepia | hits 1 | draft ""
+  B |   [ ] water plants — ""  (a-2, order 0.5)
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
   ~ sync ~
   after sync: the counts SUM — concurrent increments are all kept.
-  A | note "oh, hello world" | theme sepia | hits 3 | draft "eggs too?"
-  A |   [ ] water plants  (a-2, order 0.5)
-  A |   [x] buy oat milk  (a-1, order 3)
-  B | note "oh, hello world" | theme sepia | hits 3 | draft ""
-  B |   [ ] water plants  (a-2, order 0.5)
-  B |   [x] buy oat milk  (a-1, order 3)
+  A | theme sepia | hits 3 | draft "eggs too?"
+  A |   [ ] water plants — ""  (a-2, order 0.5)
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
+  B | theme sepia | hits 3 | draft ""
+  B |   [ ] water plants — ""  (a-2, order 0.5)
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
 
 Act 9 — app-only state never syncs
   A's draft has said "eggs too?" since act 3 — B never saw it, because
   the codec never mentions Draft. It is not in the doc either:
-  A | note "oh, hello world" | theme sepia | hits 3 | draft "eggs too?"
-  A |   [ ] water plants  (a-2, order 0.5)
-  A |   [x] buy oat milk  (a-1, order 3)
-  B | note "oh, hello world" | theme sepia | hits 3 | draft ""
-  B |   [ ] water plants  (a-2, order 0.5)
-  B |   [x] buy oat milk  (a-1, order 3)
+  A | theme sepia | hits 3 | draft "eggs too?"
+  A |   [ ] water plants — ""  (a-2, order 0.5)
+  A |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
+  B | theme sepia | hits 3 | draft ""
+  B |   [ ] water plants — ""  (a-2, order 0.5)
+  B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
   A's doc, top-level register keys: [theme]
   A's doc has a 'draft' key: false
 

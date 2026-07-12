@@ -53,12 +53,13 @@ The shape, from the demo model
 ([`examples/TodoCollaborative/Model.fs`](../../examples/TodoCollaborative/Model.fs)):
 
 ```fsharp
-/// One todo. A plain record of independent registers: because the codec
-/// encodes each field separately (see Codec.fs), concurrent edits to
-/// DIFFERENT fields of the same todo merge per field. `Order` is a fractional
-/// index — reordering writes a number instead of moving structure, so
-/// concurrent reorders converge without duplication.
-type Todo = { Title : string; Done : bool; Order : float }
+/// One todo. A record of independent registers plus a collaborative note:
+/// because the codec encodes each field separately (see Codec.fs), concurrent
+/// edits to DIFFERENT fields of the same todo merge per field — and concurrent
+/// edits to the SAME note merge as text. `Order` is a fractional index —
+/// reordering writes a number instead of moving structure, so concurrent
+/// reorders converge without duplication.
+type Todo = { Title : string; Done : bool; Order : float; Note : Text }
 ```
 
 The demo uses a bare `float` and midpoints (`0.5` to move above `1.0`). Real
