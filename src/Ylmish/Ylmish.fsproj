@@ -23,11 +23,9 @@
 	</ItemGroup>
 	<ItemGroup>
 		<Compile Include="AssemblyInfo.fs" />
-		<Compile Include="Disposables.fs" />
 		<Compile Include="Text.fs" />
 		<Compile Include="Codec.fs" />
-		<Compile Include="Adaptive.Codec.fs" />
-		<Compile Include="Y.fs" />
+		<Compile Include="Delta.fs" />
 		<Compile Include="Binding.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>

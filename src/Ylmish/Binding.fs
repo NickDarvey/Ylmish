@@ -380,7 +380,7 @@ and private attachList (doc : Y.Doc) (attachment : Attachment) (ensure : unit ->
         elif attachment.Suppress.Value then ()   // doc-originated: already there
         else transact (fun () ->
             let yarr = ensure ()
-            Ylmish.Y.Delta.applyAdaptiveDelta
+            Delta.applyAdaptiveDelta
                 (fun (y : Y.Array<obj>) i items -> y.insert (i, items))
                 (fun (ps : Primitive list) -> ps |> List.map primToObj |> Array.ofList)
                 (fun y i n -> y.delete (i, n))

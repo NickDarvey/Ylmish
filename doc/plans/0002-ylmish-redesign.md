@@ -336,6 +336,8 @@ For the engineer executing this (competent F#, new to this codebase):
 - [x] Step 10 — Demo (M) — 164 passing (+1), 0 pending — **nine acts green, transcript byte-for-byte reproducible and embedded in the README; act 4 exposed and fixed a real binding bug (whole-item re-flush restamped unchanged fields)**
 - [x] Step 11 — Docs (M) — 164 passing, 0 pending — **README rewritten (quickstart, taxonomy, honest limits, layer map, transcript); four guides in `doc/guides/`; AGENTS.md updated; all 18 doc code blocks mechanically verified verbatim against compiled sources — THE PLAN IS COMPLETE**
 
+*Post-plan housekeeping (executed 2026-07-12, at Nick's direction):* the legacy layer is deleted — `Ylmish.Adaptive.Codec` (v1 codec), `Ylmish.Y` (v1 attach plumbing and Element conversions), `Ylmish.Disposables`, and their five test files (55 tests). The one live piece, `applyAdaptiveDelta` (the binding's list machinery), moved verbatim to `Ylmish.Internal.Delta` with its behaviour pins retargeted in `tests/Delta.fs`; `applyYDelta` (v1 decode direction — v2 re-reads whole state) died with its tests. 109 passing after a clean rebuild; demo transcript byte-identical. The Step 10 option-inside-replaced-map-item observation graduated to `TODO.md` as its first item.
+
 ### Step 0 — Baseline
 
 No code changes. Get the toolchain running per `AGENTS.md`, run `npm test`, record the passing/skipped counts in *Progress*, and skim `src/Ylmish/Y.fs`, `Adaptive.Codec.fs`, `Program.fs` plus this plan's *Validated assumptions* table.

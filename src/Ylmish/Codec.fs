@@ -1,12 +1,9 @@
 namespace Ylmish.Codec
 
-// Plan 0002, Step 4 — the v2 codec, for real. Pure schema layer: zero Yjs
-// runtime involvement (the `CustomElement`/`BindContext` *types* reference
-// Fable.Yjs — the decided dependency posture). The binding runtime arrives in
-// Steps 5/6; until then `Decode.run` (against a live doc) stays unimplemented
-// and tests exercise the codec through the internal snapshot/element pipeline.
-// The v1 codec (Ylmish.Adaptive.Codec) stays untouched and running until
-// Step 7. See doc/plans/0002-ylmish-redesign.md ("The codec, v2").
+// The codec (plan 0002, Step 4). Pure schema layer: zero Yjs runtime
+// involvement (the `CustomElement`/`BindContext` *types* reference Fable.Yjs —
+// the decided dependency posture). The binding runtime (Binding.fs) walks the
+// `Encoded` tree. See doc/plans/0002-ylmish-redesign.md ("The codec, v2").
 //
 // The taxonomy — the model's type is the merge choice:
 //

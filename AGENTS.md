@@ -31,10 +31,9 @@ src/Ylmish/          Core library:
   Text.fs              Ylmish.Text — mergeable text value (public)
   Codec.fs             Ylmish.Codec — Encode/Decode, Value sub-language,
                        CustomElement escape hatch (public)
+  Delta.fs             Ylmish.Internal.Delta — list-delta application (internal)
   Binding.fs           Ylmish.Internal.Binding — encoded tree ↔ Y.Doc (internal)
   Program.fs           Ylmish.Program.withYlmish — Elmish integration (public)
-  Y.fs                 internal delta/attach plumbing
-  Adaptive.Codec.fs    v1 codec, retained with its own tests only
 examples/TodoCollaborative/  The demo app; regions of it are quoted verbatim by
                              the README and doc/guides (markers name the doc)
 tests/Ylmish.Tests/  Fable.Mocha tests (compiled to JS and run with Mocha)

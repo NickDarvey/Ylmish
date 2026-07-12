@@ -10,13 +10,8 @@
     <Compile Include="common\Elmish.fs" />
     <Compile Include="Text.fs" />
     <Compile Include="Codec.fs" />
-    <Compile Include="Adaptive.Codec.fs" />
     <Compile Include="Adaptive.Assumptions.fs" />
-    <Compile Include="Y.Delta.fs" />
-    <Compile Include="Y.Text.fs" />
-    <Compile Include="Y.Array.fs" />
-    <Compile Include="Y.Map.fs" />
-    <Compile Include="Y.Element.fs" />
+    <Compile Include="Delta.fs" />
     <Compile Include="Y.Assumptions.fs" />
     <Compile Include="Harness.fs" />
     <Compile Include="Binding.fs" />

@@ -5,13 +5,8 @@ open Ylmish
 let tests = [
    Tests.Text.tests
    Tests.Codec.tests
-   Adaptive.Codec.tests
    Adaptive.Assumptions.tests
-   Y.Delta.tests
-   Y.Text.tests
-   Y.Array.tests
-   Y.Map.tests
-   Y.Element.tests
+   Tests.Delta.tests
    Y.Assumptions.tests
    Harness.tests
    Tests.Binding.tests

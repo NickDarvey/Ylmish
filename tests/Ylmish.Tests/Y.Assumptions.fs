@@ -17,8 +17,8 @@ open Fable.Mocha
 open Expecto
 #endif
 
-// Unambiguous aliases — `Y` is overloaded across the Yjs module, the Yjs class,
-// and Ylmish.Y, so spell the raw Yjs types out for annotations and casts.
+// Unambiguous aliases — `Y` is overloaded between the Yjs module and the Yjs
+// class, so spell the raw Yjs types out for annotations and casts.
 type private Doc = Yjs.Utils.Doc.Doc
 type private YText = Yjs.Types.YText.YText
 type private YMap<'a> = Yjs.Types.YMap.YMap<'a>
