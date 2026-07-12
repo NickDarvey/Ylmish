@@ -18,19 +18,20 @@ expression that mirrors it. The demo app's codec, entire
 ([`examples/TodoCollaborative/Codec.fs`](../../examples/TodoCollaborative/Codec.fs)):
 
 ```fsharp
-/// Per-field encoding of one todo: three independent registers under the
-/// item's key, so concurrent edits to different fields of the same todo both
-/// stick (only fields whose content changed are written).
+/// Per-field encoding of one todo: three independent registers plus a
+/// collaborative note under the item's key, so concurrent edits to different
+/// fields of the same todo both stick (only fields whose content changed are
+/// written) and concurrent edits to the same note interleave.
 let private todo (t : Todo) : Encoded =
     Encode.object [
         "title", Encode.string (AVal.constant t.Title)
         "done", Encode.bool (AVal.constant t.Done)
         "order", Encode.float (AVal.constant t.Order)
+        "note", Encode.text (AVal.constant t.Note)
     ]
 
 let encode (counter : GrowOnlyCounter) (amodel : AdaptiveTodoModel) : Encoded =
     Encode.object [
-        "note", Encode.text amodel.Note
         "todos", Encode.map todo amodel.Todos
         "theme", Encode.string amodel.Theme
         "hits", Encode.custom counter
@@ -41,19 +42,18 @@ let private decodeTodo : Decoder<TodoModel, Todo> =
         let! title = Decode.object.required "title" Decode.string
         let! isDone = Decode.object.required "done" Decode.bool
         let! order = Decode.object.required "order" Decode.float
-        return { Title = title; Done = isDone; Order = order }
+        let! note = Decode.object.optional "note" Decode.text
+        return { Title = title; Done = isDone; Order = order; Note = defaultArg note Text.empty }
     }
 
 let decode : Decoder<TodoModel, TodoModel> =
     Decode.object {
         let! model = Decode.ask
-        let! note = Decode.object.optional "note" Decode.text
         let! todos = Decode.object.optional "todos" (Decode.map decodeTodo)
         let! theme = Decode.object.optional "theme" Decode.string
         let! hits = Decode.object.required "hits" Decode.custom
         return
             { model with
-                Note = defaultArg note Text.empty
                 Todos = defaultArg todos HashMap.empty
                 Theme = defaultArg theme model.Theme
                 Hits = hits }
@@ -65,9 +65,9 @@ Things to notice:
 - **The model type never appears in the doc.** Rename a record field, keep the
   string key, and old and new clients keep interoperating. When you *do* want
   to rename a key, see the dual-key recipe in [recipes.md](recipes.md).
-- **The encoder walks live adaptive views** (`amodel.Note`, `amodel.Todos`),
-  so the runtime observes *deltas* — a one-character insert ships as a
-  one-character splice, not a re-upload of the note.
+- **The encoder walks live adaptive views** (`amodel.Todos`, `amodel.Theme`),
+  so the runtime observes *deltas* — a one-character insert into a todo's note
+  ships as a one-character splice, not a re-upload of the note.
 - **The decoder is total.** Errors are path-tracked values, not exceptions; a
   malformed or newer-versioned doc never crashes the loop (`withYlmish` routes
   errors to your `OnError` and keeps the current model).

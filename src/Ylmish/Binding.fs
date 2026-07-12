@@ -155,6 +155,26 @@ let private applySplicesToYText (ytext : Y.Text) (splices : Splice list) =
         if s.Removed > 0 then ytext.delete (s.At, s.Removed)
         if s.Inserted <> "" then ytext.insert (s.At, s.Inserted)
 
+/// Splices that carry an existing Y.Text from `current` to `next`'s content —
+/// the text-inside-a-replaced-map-item path, where there is no tracked `prev`
+/// VALUE to diff against (the item's whole encoding was rebuilt, and earlier
+/// flushes already wrote some of `next`'s pending history into the Y.Text).
+/// The not-yet-flushed intents are a SUFFIX of `next`'s pending list, so find
+/// the shortest suffix whose replay from `current` produces `next`'s content;
+/// fall back to one affix-diff splice when none does (wholesale replacement).
+let private unflushedSplices (current : string) (next : Text) : Splice list =
+    let pending = Text.pending next   // oldest first
+    let target = Text.toString next
+    let total = List.length pending
+    let rec tryLast k =
+        if k > total then
+            Text.pending (Text.edit target (Text.ofString current))
+        else
+            let suffix = List.skip (total - k) pending
+            if List.fold Text.applySplice current suffix = target then suffix
+            else tryLast (k + 1)
+    tryLast 0
+
 // -----------------------------------------------------------------------------
 // Atomic: any change in the subtree re-stamps it wholesale as plain JSON data.
 // -----------------------------------------------------------------------------
@@ -231,7 +251,17 @@ let rec private flush (doc : Y.Doc) (origin : obj) (parent : EnsureMap) (key : s
         | _ -> pm.set (key, v) |> ignore
     | EncText a ->
         let ytext, fresh = ensureText parent key path ()
-        if fresh then ytext.insert (0, Text.toString (AVal.force a))
+        let next = AVal.force a
+        if fresh then
+            let s = Text.toString next
+            if s <> "" then ytext.insert (0, s)
+        else
+            // Item-replacement re-flush: carry the adopted Y.Text to the new
+            // content as splices — intent-preserving, so concurrent peers'
+            // note edits interleave instead of clobbering.
+            let current = ytext.toString ()
+            if current <> Text.toString next then
+                applySplicesToYText ytext (unflushedSplices current next)
     | EncObject props ->
         let self = ensureChildMap parent key path
         for (k, child) in props do

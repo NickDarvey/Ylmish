@@ -44,14 +44,13 @@ type private Peer (name : string, clientId : float) =
 
 let private show (p : Peer) =
     let m = p.Model
-    printfn "  %s | note \"%s\" | theme %s | hits %d | draft \"%s\""
-        p.Name (Text.toString m.Note) m.Theme m.Hits m.Draft
+    printfn "  %s | theme %s | hits %d | draft \"%s\"" p.Name m.Theme m.Hits m.Draft
     m.Todos
     |> HashMap.toList
     |> List.sortBy (fun (_, t) -> t.Order)
     |> List.iter (fun (id, t) ->
-        printfn "  %s |   %s %s  (%s, order %g)"
-            p.Name (if t.Done then "[x]" else "[ ]") t.Title id t.Order)
+        printfn "  %s |   %s %s — \"%s\"  (%s, order %g)"
+            p.Name (if t.Done then "[x]" else "[ ]") t.Title (Text.toString t.Note) id t.Order)
 
 let private act (n : int) (title : string) =
     printfn ""
@@ -80,12 +79,14 @@ let private run () =
     show a
     show b
 
-    act 2 "concurrent edits to the same text interleave"
-    say "A writes the note and syncs; then, offline, A appends while B prepends."
-    a.Do (EditNote (Text.edit "hello"))
+    act 2 "concurrent edits to the same todo's note interleave"
+    say "A creates the first todo, writes its note, and syncs."
+    a.Do (AddTodo ("a-1", "buy milk", 1.0))
+    a.Do (EditNote ("a-1", Text.edit "hello"))
     sync a b
-    a.Do (EditNote (Text.insert 5 " world"))
-    b.Do (EditNote (Text.insert 0 "oh, "))
+    say "Offline, A appends to that note while B prepends to the same note."
+    a.Do (EditNote ("a-1", Text.insert 5 " world"))
+    b.Do (EditNote ("a-1", Text.insert 0 "oh, "))
     say "before the network heals:"
     show a
     show b
@@ -97,7 +98,7 @@ let private run () =
     act 3 "offline creation is safe under app-minted keys"
     say "Still offline, each peer creates a todo. The ids are the app's own"
     say "(anything creatable offline needs a unique key — that's the rule)."
-    a.Do (AddTodo ("a-1", "buy milk", 1.0))
+    a.Do (AddTodo ("a-2", "water plants", 3.0))
     a.Do (SetDraft "eggs too?")
     b.Do (AddTodo ("b-1", "walk dog", 2.0))
     sync a b
@@ -133,14 +134,11 @@ let private run () =
     show b
 
     act 7 "reordering is data, not structure"
-    say "A adds a second todo and syncs it across."
-    a.Do (AddTodo ("a-2", "water plants", 2.0))
-    sync a b
-    say "Now, concurrently: A moves 'water plants' to the top (order 0.5) while"
-    say "B pushes 'buy oat milk' to the bottom (order 3). Order is a fractional"
+    say "Concurrently: A moves 'water plants' to the top (order 0.5) while B"
+    say "pushes 'buy oat milk' to the bottom (order 4). Order is a fractional"
     say "index: a reorder writes one number, so reorders cannot duplicate items."
     a.Do (Reorder ("a-2", 0.5))
-    b.Do (Reorder ("a-1", 3.0))
+    b.Do (Reorder ("a-1", 4.0))
     sync a b
     say "after sync: one converged order, every item exactly once."
     show a

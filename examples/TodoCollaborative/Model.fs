@@ -7,16 +7,17 @@ open FSharp.Data.Adaptive
 open Ylmish
 
 // Quoted verbatim by README.md (quickstart) and doc/guides/recipes.md.
-/// One todo. A plain record of independent registers: because the codec
-/// encodes each field separately (see Codec.fs), concurrent edits to
-/// DIFFERENT fields of the same todo merge per field. `Order` is a fractional
-/// index — reordering writes a number instead of moving structure, so
-/// concurrent reorders converge without duplication.
-type Todo = { Title : string; Done : bool; Order : float }
+/// One todo. A record of independent registers plus a collaborative note:
+/// because the codec encodes each field separately (see Codec.fs), concurrent
+/// edits to DIFFERENT fields of the same todo merge per field — and concurrent
+/// edits to the SAME note merge as text. `Order` is a fractional index —
+/// reordering writes a number instead of moving structure, so concurrent
+/// reorders converge without duplication.
+type Todo = { Title : string; Done : bool; Order : float; Note : Text }
 
 type Msg =
-    | EditNote of (Text -> Text)
     | AddTodo of id : string * title : string * order : float
+    | EditNote of id : string * edit : (Text -> Text)
     | Rename of id : string * title : string
     | SetDone of id : string * value : bool
     | Reorder of id : string * order : float
@@ -25,14 +26,13 @@ type Msg =
     | Bump
     | SetDraft of string
 
-/// The model's type IS the merge choice: Text merges interleaved, the keyed
-/// map merges element-wise (app-minted ids make offline creation safe), Theme
-/// is an honest last-writer-wins register, Hits comes back through the
-/// escape-hatch counter, and Draft is app-only — the codec never mentions it,
-/// so it never syncs.
+/// The model's type IS the merge choice: the keyed map merges element-wise
+/// (app-minted ids make offline creation safe) and each todo's Note merges as
+/// collaborative text, Theme is an honest last-writer-wins register, Hits
+/// comes back through the escape-hatch counter, and Draft is app-only — the
+/// codec never mentions it, so it never syncs.
 [<ModelType>]
 type TodoModel = {
-    Note : Text
     Todos : HashMap<string, Todo>
     Theme : string
     Hits : int
@@ -41,7 +41,6 @@ type TodoModel = {
 
 module TodoModel =
     let init = {
-        Note = Text.empty
         Todos = HashMap.empty
         Theme = "light"
         Hits = 0
@@ -56,9 +55,10 @@ module TodoModel =
 
     let update (counter : GrowOnlyCounter) msg model =
         match msg with
-        | EditNote f -> { model with Note = f model.Note }, Cmd.none
         | AddTodo (id, title, order) ->
-            { model with Todos = model.Todos |> HashMap.add id { Title = title; Done = false; Order = order } }, Cmd.none
+            { model with Todos = model.Todos |> HashMap.add id { Title = title; Done = false; Order = order; Note = Text.empty } }, Cmd.none
+        | EditNote (id, edit) ->
+            { model with Todos = model.Todos |> updateTodo id (fun t -> { t with Note = edit t.Note }) }, Cmd.none
         | Rename (id, title) ->
             { model with Todos = model.Todos |> updateTodo id (fun t -> { t with Title = title }) }, Cmd.none
         | SetDone (id, value) ->

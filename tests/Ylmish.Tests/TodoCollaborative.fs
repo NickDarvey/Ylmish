@@ -74,6 +74,34 @@ let tests = testList "TodoCollaborative" [
             "NEITHER add was lost — the exact failure mode the materialize path had"
     }
 
+    test "concurrent edits to the same todo's note interleave (demo act 2)" {
+        // The text-inside-a-replaced-map-item path: an EditNote replaces the
+        // whole Todo record, so the note's changes travel through the item
+        // re-flush — which must carry the adopted Y.Text forward as SPLICES
+        // (intent-preserving), not skip it (edits lost) or rewrite it
+        // (interleaving lost).
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (Main.makeProgram d1)
+        use p2 = Elmish.Program.test (Main.makeProgram d2)
+
+        let note (p : Elmish.Program.ElmishDispatcher<TodoModel, _>) =
+            p.Model.Todos |> HashMap.tryFind "id-1" |> Option.map (fun t -> Text.toString t.Note)
+
+        p1.Dispatch (user (AddTodo ("id-1", "buy milk", 1.0)))
+        p1.Dispatch (user (EditNote ("id-1", Text.edit "hello")))
+        syncBoth d1 d2
+        Expect.equal (note p2) (Some "hello") "the note reached the peer"
+
+        // Offline: both edit the same todo's note concurrently.
+        p1.Dispatch (user (EditNote ("id-1", Text.insert 5 " world")))
+        p2.Dispatch (user (EditNote ("id-1", Text.insert 0 "oh, ")))
+        syncBoth d1 d2
+
+        Expect.equal (note p1) (Some "oh, hello world") "both edits survive, interleaved (U3)"
+        Expect.equal (note p2) (note p1) "converged"
+    }
+
     test "concurrent edits to different fields of the same todo both stick (demo act 4)" {
         // Regression for the Step 10 discovery: a one-field record edit
         // re-flushes the whole keyed item, and an unconditional flush restamps

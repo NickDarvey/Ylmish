@@ -1,5 +1,5 @@
-//e71eb302-cd3d-2c12-2b15-940ff8def9be
-//5d310652-f0db-7558-89f4-a82087ca69bd
+//53f570c4-96dd-4f4b-6ab3-f06ddcf60df0
+//1d262695-a500-c981-69fe-1570afcaec9b
 #nowarn "49" // upper case patterns
 #nowarn "66" // upcast is unncecessary
 #nowarn "1337" // internal types
@@ -12,7 +12,6 @@ open Adaptify
 open TodoCollaborative
 [<System.Diagnostics.CodeAnalysis.SuppressMessage("NameConventions", "*")>]
 type AdaptiveTodoModel(value : TodoModel) =
-    let _Note_ = FSharp.Data.Adaptive.cval(value.Note)
     let _Todos_ = FSharp.Data.Adaptive.cmap(value.Todos)
     let _Theme_ = FSharp.Data.Adaptive.cval(value.Theme)
     let _Hits_ = FSharp.Data.Adaptive.cval(value.Hits)
@@ -25,13 +24,11 @@ type AdaptiveTodoModel(value : TodoModel) =
         if Microsoft.FSharp.Core.Operators.not((FSharp.Data.Adaptive.ShallowEqualityComparer<TodoModel>.ShallowEquals(value, __value))) then
             __value <- value
             __adaptive.MarkOutdated()
-            _Note_.Value <- value.Note
             _Todos_.Value <- value.Todos
             _Theme_.Value <- value.Theme
             _Hits_.Value <- value.Hits
             _Draft_.Value <- value.Draft
     member __.Current = __adaptive
-    member __.Note = _Note_ :> FSharp.Data.Adaptive.aval<Ylmish.Text>
     member __.Todos = _Todos_ :> FSharp.Data.Adaptive.amap<Microsoft.FSharp.Core.string, Todo>
     member __.Theme = _Theme_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.string>
     member __.Hits = _Hits_ :> FSharp.Data.Adaptive.aval<Microsoft.FSharp.Core.int>
