@@ -6,6 +6,7 @@ module Ylmish.Tests.Codec
 // runtime (Steps 5/6) replaces the snapshot with live doc state; these tests
 // pin the schema semantics either way.
 //
+// sample:begin lists-hold-values
 // The lists-hold-values restriction is TYPE-LEVEL, so there is no runtime
 // test for it; this is the should-not-compile record:
 //
@@ -15,6 +16,7 @@ module Ylmish.Tests.Codec
 //
 // There is no injection from Encoded into Value.Encoder, so lists hold
 // primitives only; entities belong in Encode.map (keyed by identity).
+// sample:end lists-hold-values
 
 open FSharp.Data.Adaptive
 open Hedgehog
@@ -40,13 +42,14 @@ let private ok (r : Result<'r, Error list>) : 'r =
     | Ok v -> v
     | Error e -> failwithf "decode failed: %A" e
 
-// Quoted verbatim by doc/guides/codec.md.
 /// A domain type riding a string primitive — the contramap/map path.
+// sample:begin value-contramap
 type TodoId = TodoId of string
 
 module TodoId =
     let valueEncoder = Value.Encode.contramap (fun (TodoId s) -> s) Value.Encode.string
     let valueDecoder = Value.Decode.map TodoId Value.Decode.string
+// sample:end value-contramap
 
 let private fakeCustom (v : obj) : CustomElement =
     { new CustomElement with
@@ -137,7 +140,7 @@ let tests = testList "Codec (v2)" [
             }
         }
 
-        // Quoted verbatim by doc/guides/codec.md.
+        // sample:begin errors-accumulate
         test "item errors accumulate, each with its index" {
             let e = Encode.list Value.Encode.string (AList.ofList [ "x"; "y" ])
             match decodeVia () (Decode.list Value.Decode.int) e with
@@ -146,6 +149,7 @@ let tests = testList "Codec (v2)" [
                 Expect.equal p1 [ ArrayIndex 1 ] "second item's path"
             | r -> failwithf "expected two indexed errors, got %A" r
         }
+        // sample:end errors-accumulate
     ]
 
     testList "keyed maps (4d)" [

@@ -40,6 +40,7 @@ decode path, and your `Value` is re-read.
 The demo's grow-only counter, entire
 ([`examples/TodoCollaborative/Counter.fs`](../../examples/TodoCollaborative/Counter.fs)):
 
+<!-- sample: counter -->
 ```fsharp
 /// A grow-only counter over a Y.Array of ticks. Concurrent increments from
 /// different peers BOTH survive (array inserts merge), so the merged value is
@@ -76,6 +77,7 @@ the full codec in [codec.md](codec.md)) — and drive it from `update` with an
 optimistic increment plus an effect
 ([`examples/TodoCollaborative/Model.fs`](../../examples/TodoCollaborative/Model.fs)):
 
+<!-- sample: counter-bump -->
 ```fsharp
 | Bump ->
     // Optimistic local increment; the effect pushes a tick through the
@@ -97,6 +99,7 @@ content through the ordinary decode path — the editor and the Elmish program
 stay consistent without talking to each other
 ([`tests/Ylmish.Tests/CustomElements.fs`](../../tests/Ylmish.Tests/CustomElements.fs)):
 
+<!-- sample: editor-surface -->
 ```fsharp
 type EditorSurface () =
     let mutable text : Y.Text option = None

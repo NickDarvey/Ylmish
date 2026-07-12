@@ -17,6 +17,7 @@ construction; per-item fields then merge per their own encodings.
 The example app's acceptance test for exactly this
 ([`tests/Ylmish.Tests/TodoCollaborative.fs`](../../tests/Ylmish.Tests/TodoCollaborative.fs)):
 
+<!-- sample: concurrent-adds -->
 ```fsharp
 test "concurrent adds from both peers both survive (issue #83's class, at the example level)" {
     let d1 = Y.Doc.Create ()
@@ -52,6 +53,7 @@ deterministically. The demo stages this live.
 The shape, from the demo model
 ([`examples/TodoCollaborative/Model.fs`](../../examples/TodoCollaborative/Model.fs)):
 
+<!-- sample: todo-record -->
 ```fsharp
 /// One todo. A record of independent registers plus a collaborative note:
 /// because the codec encodes each field separately (see Codec.fs), concurrent
@@ -83,6 +85,7 @@ combinators, no framework:
 From the compatibility test
 ([`tests/Ylmish.Tests/Program.fs`](../../tests/Ylmish.Tests/Program.fs)):
 
+<!-- sample: migration-dual-key -->
 ```fsharp
 let mkV2 (doc : Y.Doc) =
     let heading = cval ""

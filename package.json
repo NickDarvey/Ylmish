@@ -19,7 +19,9 @@
     "test+watch": "concurrently --kill-others --names \"Fable/Mocha,Adaptify\" -c green,cyan \"npm:watch-fable-and-mocha\" \"npm:watch-adaptify-tests\"",
     "test": "npm run adaptify && npm run mocha",
     "demo:build": "dotnet fable examples/TodoCollaborative/TodoCollaborative.fsproj -o build/examples/TodoCollaborative --sourceMaps",
-    "demo": "npm run demo:build && node build/examples/TodoCollaborative/Demo.js"
+    "demo": "npm run demo:build && node build/examples/TodoCollaborative/Demo.js",
+    "docs": "node doc/sync-samples.mjs",
+    "docs:check": "node doc/sync-samples.mjs --check"
   },
   "keywords": [],
   "author": "",

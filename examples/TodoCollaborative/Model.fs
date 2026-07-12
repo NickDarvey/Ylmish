@@ -6,7 +6,7 @@ open FSharp.Data.Adaptive
 
 open Ylmish
 
-// Quoted verbatim by README.md (quickstart) and doc/guides/recipes.md.
+// sample:begin todo-record
 /// One todo. A record of independent registers plus a collaborative note:
 /// because the codec encodes each field separately (see Codec.fs), concurrent
 /// edits to DIFFERENT fields of the same todo merge per field — and concurrent
@@ -14,6 +14,7 @@ open Ylmish
 /// reordering writes a number instead of moving structure, so concurrent
 /// reorders converge without duplication.
 type Todo = { Title : string; Done : bool; Order : float; Note : Text }
+// sample:end todo-record
 
 type Msg =
     | AddTodo of id : string * title : string * order : float
@@ -26,6 +27,7 @@ type Msg =
     | Bump
     | SetDraft of string
 
+// sample:begin todo-model
 /// The model's type IS the merge choice: the keyed map merges element-wise
 /// (app-minted ids make offline creation safe) and each todo's Note merges as
 /// collaborative text, Theme is an honest last-writer-wins register, Hits
@@ -38,6 +40,7 @@ type TodoModel = {
     Hits : int
     Draft : string
 }
+// sample:end todo-model
 
 module TodoModel =
     let init = {
@@ -47,7 +50,6 @@ module TodoModel =
         Draft = ""
     }
 
-    // The Bump case below is quoted verbatim by doc/guides/custom-elements.md.
     let private updateTodo id f todos =
         match HashMap.tryFind id todos with
         | Some t -> HashMap.add id (f t) todos
@@ -67,11 +69,13 @@ module TodoModel =
             { model with Todos = model.Todos |> updateTodo id (fun t -> { t with Order = order }) }, Cmd.none
         | RemoveTodo id -> { model with Todos = HashMap.remove id model.Todos }, Cmd.none
         | SetTheme theme -> { model with Theme = theme }, Cmd.none
+        // sample:begin counter-bump
         | Bump ->
             // Optimistic local increment; the effect pushes a tick through the
             // counter binding, and the authoritative (summed) count returns
             // through Decode.custom on remote transactions.
             { model with Hits = model.Hits + 1 }, Cmd.ofEffect (fun _ -> counter.Bump ())
+        // sample:end counter-bump
         | SetDraft value -> { model with Draft = value }, Cmd.none
 
     let view _ _ = ()

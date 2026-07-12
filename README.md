@@ -18,6 +18,7 @@ The snippets below are from the working example in [`examples/TodoCollaborative`
 
 The model is a plain immutable record. Each field's type picks its merge behaviour (see the table below); the only Ylmish type here is the note's `Text`.
 
+<!-- sample: todo-record -->
 ```fsharp
 /// One todo. A record of independent registers plus a collaborative note:
 /// because the codec encodes each field separately (see Codec.fs), concurrent
@@ -28,6 +29,7 @@ The model is a plain immutable record. Each field's type picks its merge behavio
 type Todo = { Title : string; Done : bool; Order : float; Note : Text }
 ```
 
+<!-- sample: todo-model -->
 ```fsharp
 /// The model's type IS the merge choice: the keyed map merges element-wise
 /// (app-minted ids make offline creation safe) and each todo's Note merges as
@@ -47,6 +49,7 @@ type TodoModel = {
 
 The codec names the fields that sync and picks one combinator per field — including inside each keyed item. `Draft` is not mentioned, so it never syncs.
 
+<!-- sample: quickstart-encode -->
 ```fsharp
 let private todo (t : Todo) : Encoded =
     Encode.object [
@@ -64,6 +67,7 @@ let encode (counter : GrowOnlyCounter) (amodel : AdaptiveTodoModel) : Encoded =
     ]
 ```
 
+<!-- sample: quickstart-decode -->
 ```fsharp
 let decode : Decoder<TodoModel, TodoModel> =
     Decode.object {
@@ -83,6 +87,7 @@ let decode : Decoder<TodoModel, TodoModel> =
 
 `Program.withYlmish` binds the loop to a `Y.Doc`:
 
+<!-- sample: quickstart-main -->
 ```fsharp
 /// Create a Program.withYlmish-wired Elmish program for a given Y.Doc. Each
 /// peer owns one counter binding — created here so update's Bump effect and
@@ -213,6 +218,7 @@ explicitly between steps — so every kind of concurrency is staged deliberately
 output below is reproducible byte for byte (clientIDs are pinned). Every step prints the
 peers' **Elmish models** — what a UI would render — never the docs directly.
 
+<!-- output: demo -->
 ```
 TodoCollaborative — two Elmish programs, one shared document, no server.
 
@@ -349,6 +355,9 @@ another's memory, only Yjs updates travelled.
 npm install    # restore .NET + npm dependencies
 npm test       # adaptify codegen → Fable compile → Mocha tests
 npm run demo   # build and run the transcript above
+npm run docs   # re-inject the doc code samples and demo transcript from source
 ```
+
+The code samples in this README and the guides are single-sourced from compiled code: each fenced block is injected from a marked region of `examples/` or `tests/` by [`doc/sync-samples.mjs`](doc/sync-samples.mjs), and CI fails if they drift.
 
 Design history lives in [doc/plans](doc/plans) — [0002-ylmish-redesign.md](doc/plans/0002-ylmish-redesign.md) is the executed redesign this library implements, including the validated-assumptions table pinning Yjs's concurrency semantics. Agent/contributor conventions are in [AGENTS.md](AGENTS.md).
