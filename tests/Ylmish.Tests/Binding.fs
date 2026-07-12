@@ -292,6 +292,51 @@ let tests = testList "Binding (encode direction)" [
         Expect.isFalse ((root doc).has "note") "Some→None deletes the key (absence, never null)"
     }
 
+    test "option inside a replaced keyed-map item: Some→None deletes the key on both peers" {
+        // Consumer-shaped: items are immutable records, so a one-field edit
+        // replaces the item's WHOLE encoding — the option's own transition
+        // callback never fires; the re-flush must reconcile the key itself.
+        let encodeOptItem ((title, due) : string * string option) : Encoded =
+            Encode.object [
+                "title", Encode.string (AVal.constant title)
+                "due", Encode.option Encode.string (AVal.constant due)
+            ]
+        let mkPeer () =
+            let doc = Y.Doc.Create ()
+            let items : cmap<string, string * string option> = cmap ()
+            doc, items, Binding.attach doc (Encode.object [ "todos", Encode.map encodeOptItem items ])
+        let d1, items1, a1 = mkPeer ()
+        let d2, items2, a2 = mkPeer ()
+        use _a1 = a1
+        use _a2 = a2
+        let itemMap (d : Y.Doc) k =
+            (d.getMap "todos" : Y.Map<obj>).get k |> Option.get |> unbox<Y.Map<obj>>
+
+        transact (fun () -> items1.[ "id-1" ] <- ("buy milk", None))
+        Expect.isFalse ((itemMap d1 "id-1").has "due") "a fresh item's None writes nothing"
+
+        // None→Some via wholesale item replacement creates the key.
+        transact (fun () -> items1.[ "id-1" ] <- ("buy milk", Some "friday"))
+        Expect.equal ((itemMap d1 "id-1").get "due" |> Option.map string) (Some "friday")
+            "None→Some via item replacement flushes the key"
+
+        sync d1 d2
+        // Peer 2 adopts the synced item into its model (the decode step's job).
+        transact (fun () -> items2.[ "id-1" ] <- ("buy milk", Some "friday"))
+
+        // Some→None via wholesale item replacement must DELETE the key.
+        transact (fun () -> items1.[ "id-1" ] <- ("buy milk", None))
+        Expect.isFalse ((itemMap d1 "id-1").has "due")
+            "Some→None via item replacement deletes the key locally"
+
+        sync d1 d2
+        for d in [ d1; d2 ] do
+            Expect.isFalse ((itemMap d "id-1").has "due")
+                "the deletion propagates — absence, never a stale value"
+            Expect.equal ((itemMap d "id-1").get "title" |> Option.map string) (Some "buy milk")
+                "the untouched field survives the replacement"
+    }
+
     test "atomic: any inner change re-stamps the subtree wholesale" {
         let doc = Y.Doc.Create ()
         let name = cval "nick"
