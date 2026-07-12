@@ -29,6 +29,11 @@ and [<ModelType>] Submodel = {
 and [<ModelType>] MapModel = {
     ItemsByKey : HashMap<string, Submodel>
 }
+/// Plan 0002 Step 3: proves `[<ModelType>]` handles an opaque library type —
+/// Adaptify must wrap Ylmish.Text as a plain changeable value (cval<Text>).
+and [<ModelType>] TextModel = {
+    Body : Ylmish.Text
+}
 
 module Model =
     let update msg model =

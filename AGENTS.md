@@ -2,7 +2,9 @@
 
 ## What this project is
 
-Ylmish bridges **Elmish** (F# MVU) ↔ **FSharp.Data.Adaptive** (incremental) ↔ **Yjs** (CRDT sync), compiled to JavaScript via **Fable**. See `README.md` for design and `doc/plans/0001-making-ylmish-functional.md` for the roadmap.
+Ylmish bridges **Elmish** (F# MVU) ↔ **FSharp.Data.Adaptive** (incremental) ↔ **Yjs** (CRDT sync), compiled to JavaScript via **Fable**. See `README.md` for design (quickstart, merge-semantics taxonomy, layer map) and `doc/guides/` for consumer guides.
+
+Plan statuses: `doc/plans/0002-ylmish-redesign.md` is the **executed** redesign the current library implements (Steps 0–11 all landed; its *Validated assumptions* table pins Yjs semantics and its per-step *Decisions & lessons* record why things are the way they are). `doc/plans/0001-making-ylmish-functional.md` is **superseded** by 0002.
 
 ## Build & test
 
@@ -14,14 +16,34 @@ npm run test+watch   # watch mode (Fable + Adaptify)
 
 Tests **must** run through Fable/Mocha (JavaScript). `dotnet test` will not work because the tests depend on the Yjs runtime.
 
+Gotchas:
+
+- Fresh environments ship without a .NET SDK; install the version `global.json` pins (via `dotnet-install.sh`) before `npm install`.
+- After changing **dependencies** (package versions, project references), `rm -rf build` — Fable's incremental cache can go stale and produce greens/reds that lie.
+- The Adaptify **CLI** (`dotnet tool`, 1.3.7) and the **Adaptify.Core package** (1.3.4, `Directory.Packages.props`) are deliberately skewed: 1.3.7's library does not compile under Fable 5. Don't "align" them.
+- `npm run demo` builds and runs `examples/TodoCollaborative/Demo.fs` — a deterministic nine-act narrative whose transcript is embedded in the README; if you change demo output, re-embed the transcript.
+
 ## Repository layout
 
 ```
 src/Fable.Yjs/       F# bindings for Yjs (generated + hand-tuned)
-src/Ylmish/          Core library: Adaptive.Codec, Y (Delta/Text/Array/Map), Program
+src/Ylmish/          Core library:
+  Text.fs              Ylmish.Text — mergeable text value (public)
+  Codec.fs             Ylmish.Codec — Encode/Decode, Value sub-language,
+                       CustomElement escape hatch (public)
+  Delta.fs             Ylmish.Internal.Delta — list-delta application (internal)
+  Binding.fs           Ylmish.Internal.Binding — encoded tree ↔ Y.Doc (internal)
+  Program.fs           Ylmish.Program.withYlmish — Elmish integration (public)
+examples/TodoCollaborative/  The demo app; regions of it are quoted verbatim by
+                             the README and doc/guides (markers name the doc)
 tests/Ylmish.Tests/  Fable.Mocha tests (compiled to JS and run with Mocha)
-  common/            Shared test helpers: Example model, Elmish test harness
-doc/plans/           Design plans and roadmap
+  common/            Shared test helpers: Example model, Elmish test dispatcher
+  Hedgehog.fs        In-repo, Fable-compatible property-testing shim (NOT the
+                     NuGet package — same API surface, fixed-seed PRNG)
+  Harness.fs         The differential harness (see Testing philosophy)
+  Stress.fs          Property stress: random schedules through the harness
+doc/guides/          Consumer guides: codec, text, custom-elements, recipes
+doc/plans/           Design plans (0002 = the executed redesign)
 .skills/             Agent skill definitions
 ```
 
@@ -48,29 +70,17 @@ Write **high-signal, robust tests** that catch real bugs without breaking on irr
 
 ### When to use Hedgehog (property-based testing)
 
-Use `Property.check` with `property { let! ... }` when a test can be expressed as "for all valid inputs, this invariant holds." Hedgehog is already a dependency and works under Fable.
+Use `Property.check` with `property { let! ... }` when a test can be expressed as "for all valid inputs, this invariant holds." The `Hedgehog` namespace here is the in-repo shim (`tests/Ylmish.Tests/Hedgehog.fs`) — same API as the real library, fully deterministic (fixed-seed PRNG, no shrinking), Fable 5 compatible. Existing exemplars: the codec round-trip and error-path properties in `Codec.fs`, the reference-implementation and replay properties in `Text.fs`, and the schedule properties in `Stress.fs`.
 
-**Codec round-trips** — the canonical use case. Any model encoded and then decoded should equal the original. Write generators for your model types and test `decode(encode(x)) = x`.
+### The differential harness (`Harness.fs`)
 
-```fsharp
-testCase "Thing codec round-trips" <| fun _ -> Property.check <| property {
-    let! thing = Example.Thing.gen
-    let actual =
-        thing
-        |> Example.AdaptiveThing
-        |> Example.Codec.Things.encode
-        |> Decode.force Example.Codec.Things.decode
-    Expect.equal actual thing ""
-}
-```
+The standing tool for CRDT-semantics claims. Three pieces:
 
-**Delta operations** — applying a random sequence of Yjs deltas to a `clist` and then reading it back should produce the expected content. Symmetric: applying random Adaptive deltas to a Yjs type and reading it back.
+- A **`Bridge`** pushes changes into a `Y.Doc` (`Apply`, receiving both the op and the pure post-op model) and reads a converged model back (`Read`). The system under test is a full `withYlmish` program behind a bridge; the **oracle** (`RawYjs.factory`) interprets each op as one primitive Yjs operation — the intended semantics by construction, no self-authored spec to be wrong about.
+- **`run`** replays a schedule (per-replica ops) under a delivery policy: `Immediate` (each change ships before the next op — no concurrency) or `Concurrent` (everything held, one exchange at the end — maximal concurrency). It pins the replicas' clientIDs, so every Yjs tiebreak is deterministic and a failing schedule replays identically.
+- **`differential`** runs SUT and oracle through the same schedule and compares full converged models, reporting anything the oracle kept that the SUT lost.
 
-**Bi-directional sync invariants** — after any interleaved sequence of edits from both the Adaptive side and the Yjs side, the two representations should agree. Generate random edit sequences and assert convergence.
-
-**Adaptive model update consistency** — after any sequence of model updates, `AVal.force model.Current` should equal the last update. The existing `basic updates work` test is an example.
-
-**Element tree conversions** — `toAdaptive(ofAdaptive(x))` and `ofAdaptive(toAdaptive(x))` should be identity (or equivalent) for valid element trees.
+`Stress.fs` drives ~100 random schedules per delivery policy through this machinery; extend the harness's op alphabet (and the oracle, op-for-op) rather than building a parallel rig. One subtlety the oracle must honour: Ylmish elides content-neutral writes (a register set to its current value emits nothing), so the oracle must too, or it enters LWW races the SUT never enters.
 
 ### When to prefer example-based tests
 

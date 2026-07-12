@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Counter.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Model.g.fs" />
     <Compile Include="Codec.fs" />

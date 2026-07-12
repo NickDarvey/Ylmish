@@ -22,11 +22,11 @@
 		<ProjectReference Include="../Fable.Yjs/Fable.Yjs.fsproj" />
 	</ItemGroup>
 	<ItemGroup>
-		<Compile Include="Disposables.fs" />
+		<Compile Include="AssemblyInfo.fs" />
 		<Compile Include="Text.fs" />
 		<Compile Include="Codec.fs" />
-		<Compile Include="Adaptive.Codec.fs" />
-		<Compile Include="Y.fs" />
+		<Compile Include="Delta.fs" />
+		<Compile Include="Binding.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 	<ItemGroup>

@@ -1,5 +1,5 @@
-//3fca5087-7243-cba1-a08e-f34761d10038
-//3fb1ef17-1c48-6314-c9df-c84836673833
+//84553d11-5857-9b93-c2e1-82c5a5ecf34e
+//a8f63ab3-e0f1-1177-06a0-59635fab01e0
 #nowarn "49" // upper case patterns
 #nowarn "66" // upcast is unncecessary
 #nowarn "1337" // internal types
@@ -82,4 +82,18 @@ type AdaptiveMapModel(value : MapModel) =
             _ItemsByKey_.Update(value.ItemsByKey)
     member __.Current = __adaptive
     member __.ItemsByKey = _ItemsByKey_ :> FSharp.Data.Adaptive.amap<Microsoft.FSharp.Core.string, AdaptiveSubmodel>
+[<System.Diagnostics.CodeAnalysis.SuppressMessage("NameConventions", "*")>]
+type AdaptiveTextModel(value : TextModel) =
+    let _Body_ = FSharp.Data.Adaptive.cval(value.Body)
+    let mutable __value = value
+    let __adaptive = FSharp.Data.Adaptive.AVal.custom((fun (token : FSharp.Data.Adaptive.AdaptiveToken) -> __value))
+    static member Create(value : TextModel) = AdaptiveTextModel(value)
+    static member Unpersist = Adaptify.Unpersist.create (fun (value : TextModel) -> AdaptiveTextModel(value)) (fun (adaptive : AdaptiveTextModel) (value : TextModel) -> adaptive.Update(value))
+    member __.Update(value : TextModel) =
+        if Microsoft.FSharp.Core.Operators.not((FSharp.Data.Adaptive.ShallowEqualityComparer<TextModel>.ShallowEquals(value, __value))) then
+            __value <- value
+            __adaptive.MarkOutdated()
+            _Body_.Value <- value.Body
+    member __.Current = __adaptive
+    member __.Body = _Body_ :> FSharp.Data.Adaptive.aval<Ylmish.Text>
 

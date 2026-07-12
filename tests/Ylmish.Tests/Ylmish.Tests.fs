@@ -3,18 +3,18 @@ module Ylmish.Tests
 open Ylmish
 
 let tests = [
-   Adaptive.Codec.tests
+   Tests.Text.tests
+   Tests.Codec.tests
    Adaptive.Assumptions.tests
-   Y.Delta.tests
-   Y.Text.tests
-   Y.Array.tests
-   Y.Map.tests
-   Y.Element.tests
-   Y.Doc.tests
+   Tests.Delta.tests
    Y.Assumptions.tests
    Harness.tests
+   Tests.Binding.tests
+   Tests.BindingDecode.tests
    NorthStar.tests
-   Program.tests
+   Tests.CustomElements.tests
+   Tests.Stress.tests
+   Tests.Program.tests
    TodoCollaborative.tests
 ]
 

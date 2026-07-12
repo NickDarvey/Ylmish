@@ -1,10 +1,15 @@
 module Ylmish.TodoCollaborative
 
+// Plan 0002, Step 7 — the example app over withYlmish v2, including issue
+// #83's acceptance at the example level: concurrent adds from two peers both
+// survive in both Elmish models. (Step 10 grew the example model to the demo
+// shape: keyed per-field todos, a collaborative note, a theme register, the
+// counter escape hatch, and an app-only draft.)
+
 open FSharp.Data.Adaptive
 open Yjs
 
 open Ylmish
-open Ylmish.Adaptive.Codec
 
 #if FABLE_COMPILER
 open Fable.Mocha
@@ -14,92 +19,82 @@ open Expecto
 
 open TodoCollaborative
 
+let private user msg = Ylmish.Program.Message.User msg
+
+let private syncBoth (a : Y.Doc) (b : Y.Doc) =
+    Main.sync a b
+    Main.sync b a
+
+let private titles (m : TodoModel) =
+    m.Todos |> HashMap.toList |> List.map (fun (_, t) -> t.Title) |> List.sort
+
 let tests = testList "TodoCollaborative" [
-    test "two-doc sync: docs converge after sync" {
-        // Create two independent Y.Doc instances (simulating two peers)
-        let doc1 = Y.Doc.Create ()
-        let doc2 = Y.Doc.Create ()
-
-        // Peer 1: materialize a todo model with one item
-        let model1 = { TodoModel.init with Items = IndexList.ofList [ "Buy milk" ] }
-        let amodel1 = AdaptiveTodoModel.Create model1
-        let encoded1 = Codec.encode amodel1
-        Y.Doc.materialize doc1 encoded1
-
-        // Sync doc1 → doc2
-        Main.sync doc1 doc2
-
-        // Peer 2 should now have the same state
-        let element2 = Y.Doc.dematerialize doc2
-        let decoded2 = Codec.decode model1 ([], element2) |> AVal.force
-        match decoded2 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Buy milk" ]) "Items should match after sync"
-            Expect.equal result.NewItem "" "NewItem should match after sync"
-        | Error errors ->
-            failwithf "Failed to decode doc2: %s" (Error.printAll errors)
-    }
-
-    test "two-doc sync: bidirectional sync converges" {
-        let doc1 = Y.Doc.Create ()
-        let doc2 = Y.Doc.Create ()
-
-        // Peer 1: materialize initial model
-        let model1 = { TodoModel.init with Items = IndexList.ofList [ "Task A" ]; NewItem = "draft" }
-        let amodel1 = AdaptiveTodoModel.Create model1
-        let encoded1 = Codec.encode amodel1
-        Y.Doc.materialize doc1 encoded1
-
-        // Sync doc1 → doc2
-        Main.sync doc1 doc2
-
-        // Peer 2: update the model on doc2
-        let model2 = { model1 with Items = IndexList.ofList [ "Task A"; "Task B" ]; NewItem = "" }
-        let amodel2 = AdaptiveTodoModel.Create model2
-        let encoded2 = Codec.encode amodel2
-        Y.Doc.materialize doc2 encoded2
-
-        // Sync doc2 → doc1
-        Main.sync doc2 doc1
-
-        // Both docs should now have converged to the same state
-        let element1 = Y.Doc.dematerialize doc1
-        let decoded1 = Codec.decode model2 ([], element1) |> AVal.force
-        match decoded1 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc1 after sync"
-            Expect.equal result.NewItem "" "NewItem should be empty after sync"
-        | Error errors ->
-            failwithf "Failed to decode doc1 after bidirectional sync: %s" (Error.printAll errors)
-
-        let element2 = Y.Doc.dematerialize doc2
-        let decoded2 = Codec.decode model2 ([], element2) |> AVal.force
-        match decoded2 with
-        | Ok result ->
-            Expect.equal result.Items (IndexList.ofList [ "Task A"; "Task B" ]) "Items should converge on doc2 after sync"
-            Expect.equal result.NewItem "" "NewItem should be empty on doc2"
-        | Error errors ->
-            failwithf "Failed to decode doc2 after bidirectional sync: %s" (Error.printAll errors)
-    }
-
-    test "Program.withYlmish wired with TodoCollaborative model" {
+    test "Program.withYlmish wired: a dispatched add reaches the model and the doc" {
         let doc = Y.Doc.Create ()
-        use dispatcher =
-            Main.makeProgram doc
-            |> Elmish.Program.test
+        use p = Elmish.Program.test (Main.makeProgram doc)
+        p.Dispatch (user (AddTodo ("id-1", "Buy eggs", 1.0)))
+        Expect.equal
+            (p.Model.Todos |> HashMap.tryFind "id-1" |> Option.map (fun t -> t.Title))
+            (Some "Buy eggs")
+            "model updated"
+        Expect.isTrue ((doc.getMap "todos" : Y.Map<obj>).has "id-1")
+            "the todo landed in the doc under its app-minted key"
+    }
 
-        // Dispatch AddItem via the User message wrapper
-        dispatcher.Dispatch (Ylmish.Program.Message.User (AddItem "Buy eggs"))
+    test "two programs converge after sync" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (Main.makeProgram d1)
+        use p2 = Elmish.Program.test (Main.makeProgram d2)
 
-        Expect.equal (dispatcher.Model.Items |> IndexList.toList) [ "Buy eggs" ] "Items should contain the added item"
+        p1.Dispatch (user (AddTodo ("id-a", "Task A", 1.0)))
+        syncBoth d1 d2
+        Expect.equal (titles p2.Model) [ "Task A" ] "p2 received the item"
 
-        // Verify the Y.Doc has the data by dematerializing and decoding
-        let element = Y.Doc.dematerialize doc
-        let decoded = Codec.decode dispatcher.Model ([], element) |> AVal.force
-        match decoded with
-        | Ok result ->
-            Expect.equal (result.Items |> IndexList.toList) [ "Buy eggs" ] "Y.Doc should contain the item after decode"
-        | Error errors ->
-            failwithf "Failed to decode Y.Doc: %s" (Error.printAll errors)
+        p2.Dispatch (user (AddTodo ("id-b", "Task B", 2.0)))
+        syncBoth d1 d2
+        Expect.equal p1.Model.Todos p2.Model.Todos "converged"
+        Expect.equal (titles p1.Model) [ "Task A"; "Task B" ] "both present"
+    }
+
+    // Quoted verbatim by doc/guides/recipes.md.
+    test "concurrent adds from both peers both survive (issue #83's class, at the example level)" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (Main.makeProgram d1)
+        use p2 = Elmish.Program.test (Main.makeProgram d2)
+
+        // Offline: both peers add concurrently, under their own unique keys.
+        p1.Dispatch (user (AddTodo ("id-1", "From peer 1", 1.0)))
+        p2.Dispatch (user (AddTodo ("id-2", "From peer 2", 2.0)))
+        syncBoth d1 d2
+
+        Expect.equal p1.Model.Todos p2.Model.Todos "models converge"
+        Expect.equal (titles p1.Model) [ "From peer 1"; "From peer 2" ]
+            "NEITHER add was lost — the exact failure mode the materialize path had"
+    }
+
+    test "concurrent edits to different fields of the same todo both stick (demo act 4)" {
+        // Regression for the Step 10 discovery: a one-field record edit
+        // re-flushes the whole keyed item, and an unconditional flush restamps
+        // the UNCHANGED fields too — entering LWW races the consumer never
+        // intended (here: B's restamped done=false clobbered A's done=true).
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        use p1 = Elmish.Program.test (Main.makeProgram d1)
+        use p2 = Elmish.Program.test (Main.makeProgram d2)
+
+        p1.Dispatch (user (AddTodo ("id-1", "buy milk", 1.0)))
+        syncBoth d1 d2
+
+        // Offline: A ticks it done while B renames it.
+        p1.Dispatch (user (SetDone ("id-1", true)))
+        p2.Dispatch (user (Rename ("id-1", "buy oat milk")))
+        syncBoth d1 d2
+
+        let todo = p1.Model.Todos |> HashMap.tryFind "id-1" |> Option.get
+        Expect.equal todo.Title "buy oat milk" "B's rename stuck"
+        Expect.isTrue todo.Done "and A's tick stuck too — per-field merge inside a keyed item"
+        Expect.equal p1.Model.Todos p2.Model.Todos "converged"
     }
 ]

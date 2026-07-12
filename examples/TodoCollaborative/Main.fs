@@ -4,17 +4,21 @@ open Elmish
 open Yjs
 
 open Ylmish
-open Ylmish.Adaptive.Codec
 
-/// Create a Program.withYlmish-wired Elmish program for a given Y.Doc.
+// Quoted verbatim by README.md (quickstart).
+/// Create a Program.withYlmish-wired Elmish program for a given Y.Doc. Each
+/// peer owns one counter binding — created here so update's Bump effect and
+/// the codec share the instance.
 let makeProgram (doc : Y.Doc) =
-    Program.mkSimple (fun () -> TodoModel.init) TodoModel.update TodoModel.view
+    let counter = GrowOnlyCounter ()
+    Program.mkProgram (fun () -> TodoModel.init, Cmd.none) (TodoModel.update counter) TodoModel.view
     |> Program.withYlmish {
+        Doc = doc
         Create = AdaptiveTodoModel.Create
         Update = fun a b -> a.Update b
-        Encode = Codec.encode
+        Encode = Codec.encode counter
         Decode = Codec.decode
-        Doc = doc
+        OnError = Program.OnError.log
     }
 
 /// Sync updates from one Y.Doc to another (simulating a network round-trip).
