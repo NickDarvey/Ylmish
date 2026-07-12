@@ -5,7 +5,7 @@ module TodoCollaborative.Demo
 //
 // Two complete `withYlmish` programs run in this one process, each over its
 // own Y.Doc. There is no server and no network: "offline" simply means sync
-// has not been called yet, and every act prints the peers' ELMISH models —
+// has not been called yet, and every step prints the peers' ELMISH models —
 // what a UI would render — never the docs directly.
 //
 // ClientIDs are pinned (A=1, B=2) so Yjs's concurrency tiebreaks always
@@ -52,9 +52,9 @@ let private show (p : Peer) =
         printfn "  %s |   %s %s — \"%s\"  (%s, order %g)"
             p.Name (if t.Done then "[x]" else "[ ]") t.Title (Text.toString t.Note) id t.Order)
 
-let private act (n : int) (title : string) =
+let private step (n : int) (title : string) =
     printfn ""
-    printfn "Act %d — %s" n title
+    printfn "Step %d — %s" n title
 
 let private say (line : string) = printfn "  %s" line
 
@@ -73,13 +73,13 @@ let private run () =
     let a = Peer ("A", 1.0)
     let b = Peer ("B", 2.0)
 
-    act 1 "an empty doc decodes to your init state"
+    step 1 "an empty doc decodes to your init state"
     say "Both peers start against empty docs. Nothing is written at startup:"
     say "init is what an empty doc decodes to, not something to persist."
     show a
     show b
 
-    act 2 "concurrent edits to the same todo's note interleave"
+    step 2 "concurrent edits to the same todo's note interleave"
     say "A creates the first todo, writes its note, and syncs."
     a.Do (AddTodo ("a-1", "buy milk", 1.0))
     a.Do (EditNote ("a-1", Text.edit "hello"))
@@ -95,7 +95,7 @@ let private run () =
     show a
     show b
 
-    act 3 "offline creation is safe under app-minted keys"
+    step 3 "offline creation is safe under app-minted keys"
     say "Still offline, each peer creates a todo. The ids are the app's own"
     say "(anything creatable offline needs a unique key — that's the rule)."
     a.Do (AddTodo ("a-2", "water plants", 3.0))
@@ -106,7 +106,7 @@ let private run () =
     show a
     show b
 
-    act 4 "same todo, different fields: per-field merge"
+    step 4 "same todo, different fields: per-field merge"
     say "Concurrently, A ticks 'buy milk' done while B renames it."
     a.Do (SetDone ("a-1", true))
     b.Do (Rename ("a-1", "buy oat milk"))
@@ -115,7 +115,7 @@ let private run () =
     show a
     show b
 
-    act 5 "same register, concurrent writes: an honest clobber"
+    step 5 "same register, concurrent writes: an honest clobber"
     say "Both flip the theme at once. A register is last-writer-wins: one value"
     say "survives, deterministically (clientID tiebreak) — NOT 'whoever was later'."
     a.Do (SetTheme "dark")
@@ -124,7 +124,7 @@ let private run () =
     show a
     show b
 
-    act 6 "delete beats concurrent edits inside"
+    step 6 "delete beats concurrent edits inside"
     say "A deletes 'walk dog' while B concurrently ticks it done."
     a.Do (RemoveTodo "b-1")
     b.Do (SetDone ("b-1", true))
@@ -133,7 +133,7 @@ let private run () =
     show a
     show b
 
-    act 7 "reordering is data, not structure"
+    step 7 "reordering is data, not structure"
     say "Concurrently: A moves 'water plants' to the top (order 0.5) while B"
     say "pushes 'buy oat milk' to the bottom (order 4). Order is a fractional"
     say "index: a reorder writes one number, so reorders cannot duplicate items."
@@ -144,7 +144,7 @@ let private run () =
     show a
     show b
 
-    act 8 "the escape hatch: a merge no built-in provides"
+    step 8 "the escape hatch: a merge no built-in provides"
     say "Hits is a consumer-authored counter over a raw Y.Array (see Counter.fs)."
     say "Offline, A bumps twice and B bumps once — optimistically:"
     a.Do Bump
@@ -157,8 +157,8 @@ let private run () =
     show a
     show b
 
-    act 9 "app-only state never syncs"
-    say "A's draft has said \"eggs too?\" since act 3 — B never saw it, because"
+    step 9 "app-only state never syncs"
+    say "A's draft has said \"eggs too?\" since step 3 — B never saw it, because"
     say "the codec never mentions Draft. It is not in the doc either:"
     show a
     show b

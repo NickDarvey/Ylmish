@@ -71,10 +71,10 @@ let tests = testList "TodoCollaborative" [
 
         Expect.equal p1.Model.Todos p2.Model.Todos "models converge"
         Expect.equal (titles p1.Model) [ "From peer 1"; "From peer 2" ]
-            "NEITHER add was lost — the exact failure mode the materialize path had"
+            "NEITHER add was lost — the failure mode issue #83 reported"
     }
 
-    test "concurrent edits to the same todo's note interleave (demo act 2)" {
+    test "concurrent edits to the same todo's note interleave" {
         // The text-inside-a-replaced-map-item path: an EditNote replaces the
         // whole Todo record, so the note's changes travel through the item
         // re-flush — which must carry the adopted Y.Text forward as SPLICES
@@ -102,7 +102,7 @@ let tests = testList "TodoCollaborative" [
         Expect.equal (note p2) (note p1) "converged"
     }
 
-    test "concurrent edits to different fields of the same todo both stick (demo act 4)" {
+    test "concurrent edits to different fields of the same todo both stick" {
         // Regression for the Step 10 discovery: a one-field record edit
         // re-flushes the whole keyed item, and an unconditional flush restamps
         // the UNCHANGED fields too — entering LWW races the consumer never

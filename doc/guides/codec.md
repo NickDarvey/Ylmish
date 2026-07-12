@@ -78,8 +78,8 @@ Things to notice:
 environment. That is how app-only state survives remote updates: the demo
 model's `Draft` field is mentioned by neither `encode` nor `decode`, so a
 remote `Set` rebuilds the model with `{ model with ... }` — carrying `Draft`
-through untouched, and never writing it to the doc (the demo's act 9 shows
-this end to end).
+through untouched, and never writing it to the doc (the demo shows this end
+to end).
 
 The same shape gives you **decode-empty = init** for free: `withYlmish` never
 writes at startup, it *decodes* the doc with your init model in the
@@ -111,8 +111,8 @@ error**, not a runtime surprise
 ([`tests/Ylmish.Tests/Codec.fs`](../../tests/Ylmish.Tests/Codec.fs)):
 
 ```fsharp
-// The L1 restriction is TYPE-LEVEL, so there is no runtime test for it; this
-// is the should-not-compile record:
+// The lists-hold-values restriction is TYPE-LEVEL, so there is no runtime
+// test for it; this is the should-not-compile record:
 //
 //     Encode.list Encode.text texts      // ✗ Encode.text : aval<Text> -> Encoded
 //                                        //   is not a Value.Encoder<'a>
@@ -194,4 +194,4 @@ test "item errors accumulate, each with its index" {
 The binding only touches keys your encoder mentions. A doc key written by a
 newer schema, an older schema, or another app entirely survives a whole
 session untouched — that is what makes rolling migrations possible at all
-(pinned as U15; see the migration recipe in [recipes.md](recipes.md)).
+(see the migration recipe in [recipes.md](recipes.md)).

@@ -21,7 +21,7 @@ Gotchas:
 - Fresh environments ship without a .NET SDK; install the version `global.json` pins (via `dotnet-install.sh`) before `npm install`.
 - After changing **dependencies** (package versions, project references), `rm -rf build` — Fable's incremental cache can go stale and produce greens/reds that lie.
 - The Adaptify **CLI** (`dotnet tool`, 1.3.7) and the **Adaptify.Core package** (1.3.4, `Directory.Packages.props`) are deliberately skewed: 1.3.7's library does not compile under Fable 5. Don't "align" them.
-- `npm run demo` builds and runs `examples/TodoCollaborative/Demo.fs` — a deterministic nine-act narrative whose transcript is embedded in the README; if you change demo output, re-embed the transcript.
+- `npm run demo` builds and runs `examples/TodoCollaborative/Demo.fs` — a deterministic nine-step narrative whose transcript is embedded in the README; if you change demo output, re-embed the transcript.
 
 ## Repository layout
 

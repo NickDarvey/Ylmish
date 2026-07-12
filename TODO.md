@@ -1,19 +1,5 @@
 # TODO
 
-1. **Rewrite the README's Quickstart with less faff.**
-
-   The Background sections are plain and direct; the Quickstart narrates —
-   bold signposting, "That's the whole integration…" asides, selling each
-   snippet. Trim it to the same register: show the code, say what it does,
-   move on.
-
-1. **Cut the running commentary of history from README.md and doc/guides/.**
-
-   References to demo "acts", assumption ids (`U3`, `U15`, `L8`), plan-step
-   numbers and "the materialize path" are development-diary vocabulary. The
-   docs should describe the library as it is; history belongs in
-   `doc/plans/0002-ylmish-redesign.md`.
-
 1. **Replace the copy-pasted doc examples with literate/executable ones.**
 
    Samples currently exist twice: compiled in `examples/`/`tests/` and quoted

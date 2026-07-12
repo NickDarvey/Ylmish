@@ -124,7 +124,7 @@ let tests = testList "NorthStar" [
         syncBoth d1 d2
 
         Expect.equal (Text.toString p1.Model.Body) "oh, hello world"
-            "both peers' edits survive, interleaved (U3) — the #83 headline"
+            "both peers' edits survive, interleaved — the issue #83 headline"
         Expect.equal (Text.toString p2.Model.Body) (Text.toString p1.Model.Body)
             "both models converge")
 

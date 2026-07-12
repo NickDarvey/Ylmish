@@ -6,8 +6,8 @@ module Ylmish.Tests.Codec
 // runtime (Steps 5/6) replaces the snapshot with live doc state; these tests
 // pin the schema semantics either way.
 //
-// The L1 restriction is TYPE-LEVEL, so there is no runtime test for it; this
-// is the should-not-compile record:
+// The lists-hold-values restriction is TYPE-LEVEL, so there is no runtime
+// test for it; this is the should-not-compile record:
 //
 //     Encode.list Encode.text texts      // ✗ Encode.text : aval<Text> -> Encoded
 //                                        //   is not a Value.Encoder<'a>

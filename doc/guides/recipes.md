@@ -31,7 +31,7 @@ test "concurrent adds from both peers both survive (issue #83's class, at the ex
 
     Expect.equal p1.Model.Todos p2.Model.Todos "models converge"
     Expect.equal (titles p1.Model) [ "From peer 1"; "From peer 2" ]
-        "NEITHER add was lost — the exact failure mode the materialize path had"
+        "NEITHER add was lost — the failure mode issue #83 reported"
 }
 ```
 
@@ -47,7 +47,7 @@ Why not move items in a list? A structural "move" is delete-here + insert-there,
 and two peers moving the same item concurrently can duplicate it (each peer's
 delete pairs with the *other's* insert). A fractional index cannot duplicate
 anything: a reorder is one register write, and concurrent reorders just race
-deterministically. The demo's act 7 stages this live.
+deterministically. The demo stages this live.
 
 The shape, from the demo model
 ([`examples/TodoCollaborative/Model.fs`](../../examples/TodoCollaborative/Model.fs)):
@@ -78,7 +78,7 @@ combinators, no framework:
   **reads new-or-old, preferring new**.
 - **v1 keeps working untouched** — and because the binding never deletes keys
   it doesn't mention, v1 clients cannot destroy the new key they don't
-  understand (pinned as U15).
+  understand.
 
 From the compatibility test
 ([`tests/Ylmish.Tests/Program.fs`](../../tests/Ylmish.Tests/Program.fs)):
@@ -120,5 +120,5 @@ editing the field simply stops maintaining it.
 Anything the codec doesn't mention stays local: keep UI state (filters,
 selections, half-typed drafts) in the model, out of the codec, and use
 `Decode.ask` + `{ model with ... }` so remote updates carry it through. The
-walkthrough is in [codec.md](codec.md); the demo's act 9 shows a draft that
-never syncs and never appears in the doc.
+walkthrough is in [codec.md](codec.md); the demo shows a draft that never
+syncs and never appears in the doc.

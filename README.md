@@ -14,9 +14,9 @@ Your model stays a plain immutable record. Your `update` stays pure. You write a
 
 ## Quickstart
 
-The snippets below are verbatim from the working example in [`examples/TodoCollaborative`](examples/TodoCollaborative) (every code sample in these docs is compiled — each is an excerpt of code that lives in `examples/` or `tests/`).
+The snippets below are from the working example in [`examples/TodoCollaborative`](examples/TodoCollaborative); every code sample in these docs is an excerpt of compiled code in `examples/` or `tests/`.
 
-**1. Model.** Plain records; the only Ylmish type anywhere in them is the todo's `Text` note. Field types are chosen for the merge you want (see the table below).
+The model is a plain immutable record. Each field's type picks its merge behaviour (see the table below); the only Ylmish type here is the note's `Text`.
 
 ```fsharp
 /// One todo. A record of independent registers plus a collaborative note:
@@ -43,9 +43,9 @@ type TodoModel = {
 }
 ```
 
-(`[<ModelType>]` is [Adaptify](https://github.com/krauthaufen/Adaptify)'s attribute: it generates the incremental `AdaptiveTodoModel` companion that lets Ylmish observe *deltas* between successive models.)
+`[<ModelType>]` is [Adaptify](https://github.com/krauthaufen/Adaptify)'s attribute. It generates the incremental `AdaptiveTodoModel` companion Ylmish uses to observe deltas between successive models.
 
-**2. Codec.** One word per field is the merge choice — including inside each keyed item. `Draft` is absent — app-only state never reaches the doc.
+The codec names the fields that sync and picks one combinator per field — including inside each keyed item. `Draft` is not mentioned, so it never syncs.
 
 ```fsharp
 let private todo (t : Todo) : Encoded =
@@ -79,9 +79,9 @@ let decode : Decoder<TodoModel, TodoModel> =
     }
 ```
 
-`Decode.ask` hands you the current model, which is how app-only fields survive remote updates — and why an empty doc decodes to your init state through the same code path as any other doc (`withYlmish` writes nothing at startup). See [doc/guides/codec.md](doc/guides/codec.md).
+`Decode.ask` returns the current model, so app-only fields survive remote updates; an empty doc decodes to your init state through the same code path (`withYlmish` writes nothing at startup). See [doc/guides/codec.md](doc/guides/codec.md).
 
-**3. Wire it.**
+`Program.withYlmish` binds the loop to a `Y.Doc`:
 
 ```fsharp
 /// Create a Program.withYlmish-wired Elmish program for a given Y.Doc. Each
@@ -100,7 +100,7 @@ let makeProgram (doc : Y.Doc) =
     }
 ```
 
-That's the whole integration: local Elmish updates become one origin-tagged Y transaction each (text as splices, keyed items per key, registers as sets); each remote transaction becomes exactly one `Set` message carrying the re-decoded model; your own writes never echo back. Sync the `Y.Doc` however you like — y-websocket, WebRTC, or explicitly, as the demo does.
+Each local update becomes one origin-tagged Y transaction (text as splices, keyed items per key, registers as sets); each remote transaction becomes one `Set` message carrying the re-decoded model; your own writes never echo back. Syncing the `Y.Doc` is up to you — y-websocket, WebRTC, or explicit, as the demo does.
 
 ## The model's type is the merge choice
 
@@ -119,10 +119,10 @@ That's the whole integration: local Elmish updates become one origin-tagged Y tr
 
 CRDTs make choices, and Ylmish would rather you read them here than discover them in production. Each is demonstrated live in the [demo](#demo):
 
-- **Last-writer-wins is a deterministic tiebreak, not a clock.** When two peers write the same register concurrently, one wins by Yjs's clientID tiebreak — "last" does not mean "most recent". (Act 5.)
-- **Anything creatable offline needs a unique key.** If two offline peers create the *same-keyed* nested container and sync, one creation wins wholesale. Model entities in `Encode.map` under app-minted ids and the situation cannot arise. (Act 3, and [the recipe](doc/guides/recipes.md).)
-- **Delete beats concurrent edits inside.** Removing a keyed item wins over a peer's simultaneous edit within it; the edit cannot resurrect the item. (Act 6.)
-- **Structural moves can duplicate — so order is data, not structure.** A list "move" is delete+insert and two concurrent moves of the same item can duplicate it; use a fractional `Order` field instead — a reorder is one register write. (Act 7.)
+- **Last-writer-wins is a deterministic tiebreak, not a clock.** When two peers write the same register concurrently, one wins by Yjs's clientID tiebreak — "last" does not mean "most recent".
+- **Anything creatable offline needs a unique key.** If two offline peers create the *same-keyed* nested container and sync, one creation wins wholesale. Model entities in `Encode.map` under app-minted ids and the situation cannot arise ([the recipe](doc/guides/recipes.md)).
+- **Delete beats concurrent edits inside.** Removing a keyed item wins over a peer's simultaneous edit within it; the edit cannot resurrect the item.
+- **Structural moves can duplicate — so order is data, not structure.** A list "move" is delete+insert and two concurrent moves of the same item can duplicate it; use a fractional `Order` field instead — a reorder is one register write.
 - **Only content changes write.** Re-setting a field to its current value emits nothing; you cannot "touch" a field to win LWW.
 
 ## Layers and dependencies
@@ -135,7 +135,7 @@ public   ┌──────────────────────�
          │ Ylmish.Codec.CustomElement    escape hatch (Yjs verbatim)  │
          ├────────────────────────────────────────────────────────────┤
 internal │ Ylmish.Internal.Binding       encoded tree ↔ Y.Doc         │
-         │ Ylmish.Internal.Y             attach/delta plumbing        │
+         │ Ylmish.Internal.Delta         list-delta application       │
          └────────────────────────────────────────────────────────────┘
 ```
 
@@ -209,20 +209,20 @@ If we have this decoupling, we need an explicit description of how our app schem
 
 `npm run demo` runs [`examples/TodoCollaborative`](examples/TodoCollaborative): two complete
 `withYlmish` programs in one process, each over its own `Y.Doc`, with sync performed
-explicitly between acts — so every kind of concurrency is staged deliberately and the
-output below is reproducible byte for byte (clientIDs are pinned). Every act prints the
+explicitly between steps — so every kind of concurrency is staged deliberately and the
+output below is reproducible byte for byte (clientIDs are pinned). Every step prints the
 peers' **Elmish models** — what a UI would render — never the docs directly.
 
 ```
 TodoCollaborative — two Elmish programs, one shared document, no server.
 
-Act 1 — an empty doc decodes to your init state
+Step 1 — an empty doc decodes to your init state
   Both peers start against empty docs. Nothing is written at startup:
   init is what an empty doc decodes to, not something to persist.
   A | theme light | hits 0 | draft ""
   B | theme light | hits 0 | draft ""
 
-Act 2 — concurrent edits to the same todo's note interleave
+Step 2 — concurrent edits to the same todo's note interleave
   A creates the first todo, writes its note, and syncs.
   ~ sync ~
   Offline, A appends to that note while B prepends to the same note.
@@ -238,7 +238,7 @@ Act 2 — concurrent edits to the same todo's note interleave
   B | theme light | hits 0 | draft ""
   B |   [ ] buy milk — "oh, hello world"  (a-1, order 1)
 
-Act 3 — offline creation is safe under app-minted keys
+Step 3 — offline creation is safe under app-minted keys
   Still offline, each peer creates a todo. The ids are the app's own
   (anything creatable offline needs a unique key — that's the rule).
   ~ sync ~
@@ -252,7 +252,7 @@ Act 3 — offline creation is safe under app-minted keys
   B |   [ ] walk dog — ""  (b-1, order 2)
   B |   [ ] water plants — ""  (a-2, order 3)
 
-Act 4 — same todo, different fields: per-field merge
+Step 4 — same todo, different fields: per-field merge
   Concurrently, A ticks 'buy milk' done while B renames it.
   ~ sync ~
   after sync: both stick — a todo is a record of independent registers.
@@ -265,7 +265,7 @@ Act 4 — same todo, different fields: per-field merge
   B |   [ ] walk dog — ""  (b-1, order 2)
   B |   [ ] water plants — ""  (a-2, order 3)
 
-Act 5 — same register, concurrent writes: an honest clobber
+Step 5 — same register, concurrent writes: an honest clobber
   Both flip the theme at once. A register is last-writer-wins: one value
   survives, deterministically (clientID tiebreak) — NOT 'whoever was later'.
   ~ sync ~
@@ -278,7 +278,7 @@ Act 5 — same register, concurrent writes: an honest clobber
   B |   [ ] walk dog — ""  (b-1, order 2)
   B |   [ ] water plants — ""  (a-2, order 3)
 
-Act 6 — delete beats concurrent edits inside
+Step 6 — delete beats concurrent edits inside
   A deletes 'walk dog' while B concurrently ticks it done.
   ~ sync ~
   after sync: the todo is gone on both — ticking it could not resurrect it.
@@ -289,7 +289,7 @@ Act 6 — delete beats concurrent edits inside
   B |   [x] buy oat milk — "oh, hello world"  (a-1, order 1)
   B |   [ ] water plants — ""  (a-2, order 3)
 
-Act 7 — reordering is data, not structure
+Step 7 — reordering is data, not structure
   Concurrently: A moves 'water plants' to the top (order 0.5) while B
   pushes 'buy oat milk' to the bottom (order 4). Order is a fractional
   index: a reorder writes one number, so reorders cannot duplicate items.
@@ -302,7 +302,7 @@ Act 7 — reordering is data, not structure
   B |   [ ] water plants — ""  (a-2, order 0.5)
   B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
 
-Act 8 — the escape hatch: a merge no built-in provides
+Step 8 — the escape hatch: a merge no built-in provides
   Hits is a consumer-authored counter over a raw Y.Array (see Counter.fs).
   Offline, A bumps twice and B bumps once — optimistically:
   A | theme sepia | hits 2 | draft "eggs too?"
@@ -320,8 +320,8 @@ Act 8 — the escape hatch: a merge no built-in provides
   B |   [ ] water plants — ""  (a-2, order 0.5)
   B |   [x] buy oat milk — "oh, hello world"  (a-1, order 4)
 
-Act 9 — app-only state never syncs
-  A's draft has said "eggs too?" since act 3 — B never saw it, because
+Step 9 — app-only state never syncs
+  A's draft has said "eggs too?" since step 3 — B never saw it, because
   the codec never mentions Draft. It is not in the doc either:
   A | theme sepia | hits 3 | draft "eggs too?"
   A |   [ ] water plants — ""  (a-2, order 0.5)
