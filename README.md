@@ -358,6 +358,6 @@ npm run demo   # build and run the transcript above
 npm run docs   # re-inject the doc code samples and demo transcript from source
 ```
 
-The code samples in this README and the guides are single-sourced from compiled code: each fenced block is injected from a marked region of `examples/` or `tests/` by [`doc/sync-samples.mjs`](doc/sync-samples.mjs), and CI fails if they drift.
+The code samples in this README and the guides are single-sourced from compiled code: each fenced block is injected from a marked region of `examples/` or `tests/` by [`doc/sync-samples.fsx`](doc/sync-samples.fsx), and CI fails if they drift.
 
 Design history lives in [doc/plans](doc/plans) — [0002-ylmish-redesign.md](doc/plans/0002-ylmish-redesign.md) is the executed redesign this library implements, including the validated-assumptions table pinning Yjs's concurrency semantics. Agent/contributor conventions are in [AGENTS.md](AGENTS.md).

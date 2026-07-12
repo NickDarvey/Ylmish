@@ -20,8 +20,8 @@
     "test": "npm run adaptify && npm run mocha",
     "demo:build": "dotnet fable examples/TodoCollaborative/TodoCollaborative.fsproj -o build/examples/TodoCollaborative --sourceMaps",
     "demo": "npm run demo:build && node build/examples/TodoCollaborative/Demo.js",
-    "docs": "node doc/sync-samples.mjs",
-    "docs:check": "node doc/sync-samples.mjs --check"
+    "docs": "dotnet fsi doc/sync-samples.fsx",
+    "docs:check": "dotnet fsi doc/sync-samples.fsx --check"
   },
   "keywords": [],
   "author": "",

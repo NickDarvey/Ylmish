@@ -37,7 +37,7 @@ src/Ylmish/          Core library:
   Program.fs           Ylmish.Program.withYlmish — Elmish integration (public)
 examples/TodoCollaborative/  The demo app; marked sample regions of it are
                              injected into the README and doc/guides by
-                             doc/sync-samples.mjs (npm run docs)
+                             doc/sync-samples.fsx (npm run docs)
 tests/Ylmish.Tests/  Fable.Mocha tests (compiled to JS and run with Mocha)
   common/            Shared test helpers: Example model, Elmish test dispatcher
   Hedgehog.fs        In-repo, Fable-compatible property-testing shim (NOT the
