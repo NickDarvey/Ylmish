@@ -198,7 +198,7 @@ let tests = testList "Program (withYlmish v2)" [
             let enc = Encode.object [ "title", Encode.string title ]
             let att = Binding.attach doc enc
             title, enc, att
-        // mkV2 and decodeV2 are quoted verbatim by doc/guides/recipes.md.
+        // sample:begin migration-dual-key
         let mkV2 (doc : Y.Doc) =
             let heading = cval ""
             let enc =
@@ -219,6 +219,7 @@ let tests = testList "Program (withYlmish v2)" [
                     | None, Some t -> t
                     | None, None -> ""
             }
+        // sample:end migration-dual-key
         let decodeV1 : Decoder<string, string> =
             Decode.object {
                 let! t = Decode.object.optional "title" Decode.string

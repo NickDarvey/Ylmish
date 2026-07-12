@@ -17,6 +17,7 @@ whose fields each pick a combinator, and a `Decode.object` computation
 expression that mirrors it. The demo app's codec, entire
 ([`examples/TodoCollaborative/Codec.fs`](../../examples/TodoCollaborative/Codec.fs)):
 
+<!-- sample: codec -->
 ```fsharp
 /// Per-field encoding of one todo: three independent registers plus a
 /// collaborative note under the item's key, so concurrent edits to different
@@ -78,8 +79,8 @@ Things to notice:
 environment. That is how app-only state survives remote updates: the demo
 model's `Draft` field is mentioned by neither `encode` nor `decode`, so a
 remote `Set` rebuilds the model with `{ model with ... }` — carrying `Draft`
-through untouched, and never writing it to the doc (the demo's act 9 shows
-this end to end).
+through untouched, and never writing it to the doc (the demo shows this end
+to end).
 
 The same shape gives you **decode-empty = init** for free: `withYlmish` never
 writes at startup, it *decodes* the doc with your init model in the
@@ -110,9 +111,10 @@ domain types riding them. There is no injection from `Encoded` into
 error**, not a runtime surprise
 ([`tests/Ylmish.Tests/Codec.fs`](../../tests/Ylmish.Tests/Codec.fs)):
 
+<!-- sample: lists-hold-values -->
 ```fsharp
-// The L1 restriction is TYPE-LEVEL, so there is no runtime test for it; this
-// is the should-not-compile record:
+// The lists-hold-values restriction is TYPE-LEVEL, so there is no runtime
+// test for it; this is the should-not-compile record:
 //
 //     Encode.list Encode.text texts      // ✗ Encode.text : aval<Text> -> Encoded
 //                                        //   is not a Value.Encoder<'a>
@@ -129,6 +131,7 @@ per-item field merges live. See [recipes.md](recipes.md).
 A domain type rides a primitive via `contramap`/`map`
 ([`tests/Ylmish.Tests/Codec.fs`](../../tests/Ylmish.Tests/Codec.fs)):
 
+<!-- sample: value-contramap -->
 ```fsharp
 type TodoId = TodoId of string
 
@@ -145,6 +148,7 @@ module TodoId =
 where `Note : Text option`
 ([`tests/Ylmish.Tests/NorthStar.fs`](../../tests/Ylmish.Tests/NorthStar.fs)):
 
+<!-- sample: option-shape -->
 ```fsharp
 module Codec =
     let encode (am : AdaptiveModel) : Encoded =
@@ -178,6 +182,7 @@ Decoding accumulates every failure rather than stopping at the first, and each
 error carries the path to the offending element, innermost-first
 ([`tests/Ylmish.Tests/Codec.fs`](../../tests/Ylmish.Tests/Codec.fs)):
 
+<!-- sample: errors-accumulate -->
 ```fsharp
 test "item errors accumulate, each with its index" {
     let e = Encode.list Value.Encode.string (AList.ofList [ "x"; "y" ])
@@ -194,4 +199,4 @@ test "item errors accumulate, each with its index" {
 The binding only touches keys your encoder mentions. A doc key written by a
 newer schema, an older schema, or another app entirely survives a whole
 session untouched — that is what makes rolling migrations possible at all
-(pinned as U15; see the migration recipe in [recipes.md](recipes.md)).
+(see the migration recipe in [recipes.md](recipes.md)).

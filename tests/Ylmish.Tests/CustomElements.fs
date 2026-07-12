@@ -54,10 +54,9 @@ type GrowOnlyCounter () =
 // something that wants the real thing (a CodeMirror/Monaco binding). The
 // editor writes to it directly; the model receives the merged content through
 // the ordinary decode path.
-//
-// Quoted verbatim by doc/guides/custom-elements.md.
 // =============================================================================
 
+// sample:begin editor-surface
 type EditorSurface () =
     let mutable text : Y.Text option = None
     /// The live Y.Text — what you would hand to the editor component.
@@ -70,6 +69,7 @@ type EditorSurface () =
             match text with
             | Some t -> box (t.toString ())
             | None -> box ""
+// sample:end editor-surface
 
 // =============================================================================
 // Wiring (test-side): a model with a counter, an editor draft, and a register.

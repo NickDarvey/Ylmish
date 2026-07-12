@@ -40,6 +40,7 @@ decode path, and your `Value` is re-read.
 The demo's grow-only counter, entire
 ([`examples/TodoCollaborative/Counter.fs`](../../examples/TodoCollaborative/Counter.fs)):
 
+<!-- sample: counter -->
 ```fsharp
 /// A grow-only counter over a Y.Array of ticks. Concurrent increments from
 /// different peers BOTH survive (array inserts merge), so the merged value is
@@ -76,6 +77,7 @@ the full codec in [codec.md](codec.md)) — and drive it from `update` with an
 optimistic increment plus an effect
 ([`examples/TodoCollaborative/Model.fs`](../../examples/TodoCollaborative/Model.fs)):
 
+<!-- sample: counter-bump -->
 ```fsharp
 | Bump ->
     // Optimistic local increment; the effect pushes a tick through the
@@ -86,8 +88,8 @@ optimistic increment plus an effect
 
 The optimistic increment keeps the UI immediate; because `Bump ()` transacts
 under the captured origin, the local write does not bounce back, and the
-summed count arrives whenever a *remote* transaction does. The demo's act 8
-shows two peers bumping 2 + 1 offline and both converging on 3.
+summed count arrives whenever a *remote* transaction does. The demo shows two
+peers bumping 2 + 1 offline and both converging on 3.
 
 ## Handing a live `Y.Text` to an editor
 
@@ -97,6 +99,7 @@ content through the ordinary decode path — the editor and the Elmish program
 stay consistent without talking to each other
 ([`tests/Ylmish.Tests/CustomElements.fs`](../../tests/Ylmish.Tests/CustomElements.fs)):
 
+<!-- sample: editor-surface -->
 ```fsharp
 type EditorSurface () =
     let mutable text : Y.Text option = None
@@ -124,8 +127,8 @@ decoded field like any peer's.
 - **Never cache Yjs objects across docs, and never integrate your own.** The
   `Get*` accessors adopt what is already in the doc or create it exactly once;
   re-integrating an already-integrated Y type corrupts the doc silently
-  (pinned as U5 — repeated `Get*` calls return the same instance so the safe
-  thing is also the easy thing).
+  (repeated `Get*` calls return the same instance, so the safe thing is also
+  the easy thing).
 - **`Value` should be cheap and current.** It is read on every decode of your
   program's model.
 - **`Connect`'s disposable** is your teardown seam (detach editor bindings,

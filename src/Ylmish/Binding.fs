@@ -277,6 +277,14 @@ let rec private flush (doc : Y.Doc) (origin : obj) (parent : EnsureMap) (key : s
             if not (List.isEmpty items) then yarr.push (Array.ofList items)
     | EncOption (isSome, inner) ->
         if AVal.force isSome then flush doc origin parent key path inner
+        else
+            // Item-replacement re-flush: the rebuilt encoding's transition
+            // callback can never fire (the whole Encoded was replaced), so the
+            // key must be reconciled here — None is an absent key, same as the
+            // live Some→None transition. Guarded so a fresh item's None stays
+            // a non-write.
+            let pm = parent ()
+            if pm.has key then pm.delete key
     | EncAtomic inner ->
         match Element.ofEncoded inner with
         | Some el -> (parent ()).set (key, plainOfElement el) |> ignore

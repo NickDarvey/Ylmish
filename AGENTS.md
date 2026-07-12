@@ -21,7 +21,8 @@ Gotchas:
 - Fresh environments ship without a .NET SDK; install the version `global.json` pins (via `dotnet-install.sh`) before `npm install`.
 - After changing **dependencies** (package versions, project references), `rm -rf build` — Fable's incremental cache can go stale and produce greens/reds that lie.
 - The Adaptify **CLI** (`dotnet tool`, 1.3.7) and the **Adaptify.Core package** (1.3.4, `Directory.Packages.props`) are deliberately skewed: 1.3.7's library does not compile under Fable 5. Don't "align" them.
-- `npm run demo` builds and runs `examples/TodoCollaborative/Demo.fs` — a deterministic nine-act narrative whose transcript is embedded in the README; if you change demo output, re-embed the transcript.
+- `npm run demo` builds and runs `examples/TodoCollaborative/Demo.fs` — a deterministic nine-step narrative whose transcript is embedded in the README.
+- Doc code samples are **single-sourced**: regions of compiled code marked `// sample:begin <name>` … `// sample:end <name>` are injected into the fenced blocks tagged `<!-- sample: <name> -->` in `README.md`/`doc/guides/` (the demo transcript likewise, via `<!-- output: demo -->`). After changing a marked region or demo output, run `npm run docs`; CI fails on drift (`npm run docs:check`). Never edit the tagged blocks by hand.
 
 ## Repository layout
 
@@ -34,8 +35,9 @@ src/Ylmish/          Core library:
   Delta.fs             Ylmish.Internal.Delta — list-delta application (internal)
   Binding.fs           Ylmish.Internal.Binding — encoded tree ↔ Y.Doc (internal)
   Program.fs           Ylmish.Program.withYlmish — Elmish integration (public)
-examples/TodoCollaborative/  The demo app; regions of it are quoted verbatim by
-                             the README and doc/guides (markers name the doc)
+examples/TodoCollaborative/  The demo app; marked sample regions of it are
+                             injected into the README and doc/guides by
+                             doc/sync-samples.fsx (npm run docs)
 tests/Ylmish.Tests/  Fable.Mocha tests (compiled to JS and run with Mocha)
   common/            Shared test helpers: Example model, Elmish test dispatcher
   Hedgehog.fs        In-repo, Fable-compatible property-testing shim (NOT the
@@ -54,7 +56,7 @@ doc/plans/           Design plans (0002 = the executed redesign)
 - **Adaptify codegen**: models decorated with `[<ModelType>]` get `Adaptive*` wrappers auto-generated into `*.g.fs` files. Don't edit `*.g.fs` by hand.
 - **Central package management**: NuGet versions live in `Directory.Packages.props`. Don't put `Version=` in `.fsproj` files.
 - **Lock files**: both `packages.lock.json` (NuGet) and `package-lock.json` (npm) are committed. Update them when changing dependencies.
-- **CI**: GitHub Actions (`.github/workflows/build.yml`). Runs `npm install && npm test` on ubuntu-latest.
+- **CI**: GitHub Actions. `build.yml` runs `npm install && npm test` plus `npm run docs:check` on ubuntu-latest; `publish.yml` publishes a beta prerelease of Fable.Yjs and Ylmish to NuGet on every push to master (GitVersion `X.Y.Z-beta.N`, trusted publishing via OIDC).
 
 ## Testing philosophy
 

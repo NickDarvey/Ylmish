@@ -1,15 +1,15 @@
 namespace TodoCollaborative
 
-// A consumer-authored binding through Ylmish's escape hatch (plan 0002 act 8;
-// quoted by doc/guides/custom-elements.md). Note the opens: Yjs and
-// Ylmish.Codec only — writing a custom merge strategy needs neither Ylmish's
-// internals nor FSharp.Data.Adaptive.
+// A consumer-authored binding through Ylmish's escape hatch. Note the opens:
+// Yjs and Ylmish.Codec only — writing a custom merge strategy needs neither
+// Ylmish's internals nor FSharp.Data.Adaptive.
 
 open System
 
 open Yjs
 open Ylmish.Codec
 
+// sample:begin counter
 /// A grow-only counter over a Y.Array of ticks. Concurrent increments from
 /// different peers BOTH survive (array inserts merge), so the merged value is
 /// their SUM — a merge no built-in encoding provides.
@@ -37,3 +37,4 @@ type GrowOnlyCounter () =
             match ticks with
             | Some arr -> box ((arr.toArray ()).Count)
             | None -> box 0
+// sample:end counter

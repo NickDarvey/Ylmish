@@ -3,18 +3,18 @@ module TodoCollaborative.Codec
 // The schema, decoupled from the model: one word per field is the merge
 // choice. Draft appears in neither direction — app-only state never reaches
 // the doc (it survives remote updates through `Decode.ask`).
-//
-// Quoted verbatim by README.md (quickstart) and doc/guides/codec.md.
 
 open FSharp.Data.Adaptive
 
 open Ylmish
 open Ylmish.Codec
 
+// sample:begin codec
 /// Per-field encoding of one todo: three independent registers plus a
 /// collaborative note under the item's key, so concurrent edits to different
 /// fields of the same todo both stick (only fields whose content changed are
 /// written) and concurrent edits to the same note interleave.
+// sample:begin quickstart-encode
 let private todo (t : Todo) : Encoded =
     Encode.object [
         "title", Encode.string (AVal.constant t.Title)
@@ -29,6 +29,7 @@ let encode (counter : GrowOnlyCounter) (amodel : AdaptiveTodoModel) : Encoded =
         "theme", Encode.string amodel.Theme
         "hits", Encode.custom counter
     ]
+// sample:end quickstart-encode
 
 let private decodeTodo : Decoder<TodoModel, Todo> =
     Decode.object {
@@ -39,6 +40,7 @@ let private decodeTodo : Decoder<TodoModel, Todo> =
         return { Title = title; Done = isDone; Order = order; Note = defaultArg note Text.empty }
     }
 
+// sample:begin quickstart-decode
 let decode : Decoder<TodoModel, TodoModel> =
     Decode.object {
         let! model = Decode.ask
@@ -51,3 +53,5 @@ let decode : Decoder<TodoModel, TodoModel> =
                 Theme = defaultArg theme model.Theme
                 Hits = hits }
     }
+// sample:end quickstart-decode
+// sample:end codec

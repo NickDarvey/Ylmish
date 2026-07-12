@@ -60,8 +60,8 @@ type AdaptiveModel (m : Model) =
     static member Create (m : Model) = AdaptiveModel m
 
 // --- The codec: one word per field is the merge choice; Filter is absent.
-// Quoted verbatim by doc/guides/codec.md (the Encode.option shape).
 
+// sample:begin option-shape
 module Codec =
     let encode (am : AdaptiveModel) : Encoded =
         Encode.object [
@@ -82,6 +82,7 @@ module Codec =
                     Note = note
                     Todos = defaultArg todos HashMap.empty }
         }
+// sample:end option-shape
 
 // --- Wiring: two independent programs over two docs, synced explicitly.
 
@@ -106,7 +107,7 @@ let tests = testList "NorthStar" [
 
     // Issue #83's acceptance: concurrent edits to the same text field converge
     // to an interleaved result IN THE ELMISH MODELS, not just the docs.
-    // Quoted verbatim by doc/guides/text.md.
+    // sample:begin text-interleave
     testCase "concurrent Text edits converge interleaved across two withYlmish programs" (fun () ->
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()
@@ -124,9 +125,10 @@ let tests = testList "NorthStar" [
         syncBoth d1 d2
 
         Expect.equal (Text.toString p1.Model.Body) "oh, hello world"
-            "both peers' edits survive, interleaved (U3) — the #83 headline"
+            "both peers' edits survive, interleaved — the issue #83 headline"
         Expect.equal (Text.toString p2.Model.Body) (Text.toString p1.Model.Body)
             "both models converge")
+    // sample:end text-interleave
 
     // The accepted-limitation rule, demonstrated positively: offline creation
     // is safe because todos are keyed by app-minted unique ids (Encode.map).

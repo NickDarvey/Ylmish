@@ -45,3 +45,6 @@ jobs:
 
     - name: Build and test
       run: npm test
+
+    - name: Check doc samples
+      run: npm run docs:check

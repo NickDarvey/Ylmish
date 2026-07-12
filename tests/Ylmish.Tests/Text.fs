@@ -95,7 +95,7 @@ let tests = testList "Text" [
             }
         }
 
-        // Quoted verbatim by doc/guides/text.md.
+        // sample:begin text-clamping
         test "bounds are clamped, not thrown" {
             let t = Text.ofString "abc"
             Expect.equal (Text.insert -5 "x" t |> Text.toString) "xabc" "negative insert clamps to 0"
@@ -104,6 +104,7 @@ let tests = testList "Text" [
             Expect.equal (Text.remove -1 1 t |> Text.toString) "bc" "negative remove clamps to 0"
             Expect.equal (Text.replace 2 99 "Z" t |> Text.toString) "abZ" "replace clamps count"
         }
+        // sample:end text-clamping
     ]
 
     testList "equality is by content only" [

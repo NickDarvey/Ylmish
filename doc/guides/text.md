@@ -30,6 +30,7 @@ issue #83 — two full `withYlmish` programs, offline concurrent edits to the
 same field, converging in both **Elmish models**
 ([`tests/Ylmish.Tests/NorthStar.fs`](../../tests/Ylmish.Tests/NorthStar.fs)):
 
+<!-- sample: text-interleave -->
 ```fsharp
 testCase "concurrent Text edits converge interleaved across two withYlmish programs" (fun () ->
     let d1 = Y.Doc.Create ()
@@ -48,7 +49,7 @@ testCase "concurrent Text edits converge interleaved across two withYlmish progr
     syncBoth d1 d2
 
     Expect.equal (Text.toString p1.Model.Body) "oh, hello world"
-        "both peers' edits survive, interleaved (U3) — the #83 headline"
+        "both peers' edits survive, interleaved — the issue #83 headline"
     Expect.equal (Text.toString p2.Model.Body) (Text.toString p1.Model.Body)
         "both models converge")
 ```
@@ -67,6 +68,7 @@ An out-of-range edit inside an Elmish `update` must not crash the loop, so
 positions clamp into range — a contract pinned by test, not an accident
 ([`tests/Ylmish.Tests/Text.fs`](../../tests/Ylmish.Tests/Text.fs)):
 
+<!-- sample: text-clamping -->
 ```fsharp
 test "bounds are clamped, not thrown" {
     let t = Text.ofString "abc"

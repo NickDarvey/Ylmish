@@ -5,7 +5,7 @@ open Yjs
 
 open Ylmish
 
-// Quoted verbatim by README.md (quickstart).
+// sample:begin quickstart-main
 /// Create a Program.withYlmish-wired Elmish program for a given Y.Doc. Each
 /// peer owns one counter binding — created here so update's Bump effect and
 /// the codec share the instance.
@@ -20,6 +20,7 @@ let makeProgram (doc : Y.Doc) =
         Decode = Codec.decode
         OnError = Program.OnError.log
     }
+// sample:end quickstart-main
 
 /// Sync updates from one Y.Doc to another (simulating a network round-trip).
 let sync (src : Y.Doc) (dst : Y.Doc) =
