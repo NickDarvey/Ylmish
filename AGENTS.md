@@ -56,7 +56,7 @@ doc/plans/           Design plans (0002 = the executed redesign)
 - **Adaptify codegen**: models decorated with `[<ModelType>]` get `Adaptive*` wrappers auto-generated into `*.g.fs` files. Don't edit `*.g.fs` by hand.
 - **Central package management**: NuGet versions live in `Directory.Packages.props`. Don't put `Version=` in `.fsproj` files.
 - **Lock files**: both `packages.lock.json` (NuGet) and `package-lock.json` (npm) are committed. Update them when changing dependencies.
-- **CI**: GitHub Actions (`.github/workflows/build.yml`). Runs `npm install && npm test` on ubuntu-latest.
+- **CI**: GitHub Actions. `build.yml` runs `npm install && npm test` plus `npm run docs:check` on ubuntu-latest; `publish.yml` publishes a beta prerelease of Fable.Yjs and Ylmish to NuGet on every push to master (GitVersion `X.Y.Z-beta.N`, trusted publishing via OIDC).
 
 ## Testing philosophy
 

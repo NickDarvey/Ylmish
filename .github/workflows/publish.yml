@@ -1,8 +1,11 @@
 name: publish
 
-# Publishing to NuGet is disabled. The automatic push-to-master trigger has been
-# replaced with manual-only dispatch so this workflow never publishes on its own.
+# Every push to master publishes a beta prerelease (X.Y.Z-beta.N, per
+# GitVersion.yml's ContinuousDeployment mode) of Fable.Yjs and Ylmish to
+# NuGet via trusted publishing (OIDC). Cut a stable release by tagging.
 on:
+  push:
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
