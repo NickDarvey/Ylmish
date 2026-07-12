@@ -14,10 +14,12 @@
    `None` via a normal item edit, and assert the key disappears from the item's
    `Y.Map` on both peers.
 
-1. **Rewrite the README's Quickstart in the Background sections' writing style.**
+1. **Rewrite the README's Quickstart with less faff.**
 
-   The Background sections state problems and reason to a design; the Quickstart
-   currently reads like feature narration. Bring them to one voice.
+   The Background sections are plain and direct; the Quickstart narrates —
+   bold signposting, "That's the whole integration…" asides, selling each
+   snippet. Trim it to the same register: show the code, say what it does,
+   move on.
 
 1. **Cut the running commentary of history from README.md and doc/guides/.**
 
