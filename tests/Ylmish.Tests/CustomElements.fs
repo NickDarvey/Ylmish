@@ -72,15 +72,35 @@ type EditorSurface () =
 // sample:end editor-surface
 
 // =============================================================================
+// CONSUMER CODE — a rich-text surface: hands the live, integrated Y.XmlFragment
+// to a structured editor (a y-prosemirror binding). The editor mutates the
+// fragment directly; the model receives the merged structure through decode.
+// The observable Value here is the child count — a stand-in for "the document".
+// =============================================================================
+
+type XmlEditorSurface () =
+    let mutable fragment : Y.XmlFragment option = None
+    /// The live Y.XmlFragment — what you would hand to y-prosemirror.
+    member _.Fragment = Option.get fragment
+    interface CustomElement with
+        member _.Connect ctx =
+            fragment <- Some (ctx.GetXmlFragment ())
+            { new IDisposable with member _.Dispose () = () }
+        member _.Value =
+            match fragment with
+            | Some f -> box ((f.toArray ()).Count)
+            | None -> box 0
+
+// =============================================================================
 // Wiring (test-side): a model with a counter, an editor draft, and a register.
 // =============================================================================
 
 open FSharp.Data.Adaptive   // test-side only: the hand-written adaptive model
 
-type Model = { Hits : int; Draft : string; Note : string }
+type Model = { Hits : int; Draft : string; Note : string; Body : int }
 
 module Model =
-    let init = { Hits = 0; Draft = ""; Note = "" }
+    let init = { Hits = 0; Draft = ""; Note = ""; Body = 0 }
 
 type Msg =
     | Bump
@@ -95,6 +115,7 @@ type private Peer = {
     Doc : Y.Doc
     Counter : GrowOnlyCounter
     Editor : EditorSurface
+    Body : XmlEditorSurface
     Dispatcher : Elmish.Program.ElmishDispatcher<Model, Ylmish.Program.Message<Model, Msg>>
 }
 
@@ -102,6 +123,7 @@ let private mkPeer () =
     let doc = Y.Doc.Create ()
     let counter = GrowOnlyCounter ()
     let editor = EditorSurface ()
+    let body = XmlEditorSurface ()
     let update msg (m : Model) =
         match msg with
         | Bump -> { m with Hits = m.Hits + 1 }, Elmish.Cmd.ofEffect (fun _ -> counter.Bump ())
@@ -110,6 +132,7 @@ let private mkPeer () =
         Encode.object [
             "hits", Encode.custom counter
             "draft", Encode.custom editor
+            "body", Encode.custom body
             "note", Encode.string am.Note
         ]
     let decode : Decoder<Model, Model> =
@@ -117,8 +140,9 @@ let private mkPeer () =
             let! model = Decode.ask
             let! hits = Decode.object.required "hits" Decode.custom
             let! draft = Decode.object.required "draft" Decode.custom
+            let! bodyCount = Decode.object.required "body" Decode.custom
             let! note = Decode.object.optional "note" Decode.string
-            return { model with Hits = hits; Draft = draft; Note = defaultArg note model.Note }
+            return { model with Hits = hits; Draft = draft; Body = bodyCount; Note = defaultArg note model.Note }
         }
     let program =
         Elmish.Program.mkProgram (fun () -> Model.init, Elmish.Cmd.none) update (fun _ _ -> ())
@@ -133,6 +157,7 @@ let private mkPeer () =
     { Doc = doc
       Counter = counter
       Editor = editor
+      Body = body
       Dispatcher = Elmish.Program.test program }
 
 let private user msg = Ylmish.Program.Message.User msg
@@ -140,6 +165,10 @@ let private user msg = Ylmish.Program.Message.User msg
 let private syncBoth (a : Y.Doc) (b : Y.Doc) =
     Y.applyUpdate (b, Y.encodeStateAsUpdate a, box "test-remote")
     Y.applyUpdate (a, Y.encodeStateAsUpdate b, box "test-remote")
+
+/// Append one element child to a fragment — a y-prosemirror stand-in.
+let private pushChild (f : Y.XmlFragment) (name : string) =
+    f.push [| Fable.Core.U2.Case1 (Y.XmlElement.Create name) |]
 
 let tests = testList "CustomElement (the escape hatch, end-to-end)" [
 
@@ -183,6 +212,53 @@ let tests = testList "CustomElement (the escape hatch, end-to-end)" [
         syncBoth p1.Doc p2.Doc
         Expect.equal p1.Dispatcher.Model.Draft "oh, hello world" "interleaved (U3)"
         Expect.equal p2.Dispatcher.Model.Draft p1.Dispatcher.Model.Draft "converged"
+    }
+
+    test "the xml editor scenario: external edits to the handed-out Y.XmlFragment flow into the model and merge" {
+        let p1 = mkPeer ()
+        let p2 = mkPeer ()
+        use _d1 = p1.Dispatcher
+        use _d2 = p2.Dispatcher
+
+        // The "editor" (a y-prosemirror stand-in) writes DIRECTLY to the live
+        // Y.XmlFragment, knowing nothing of Ylmish.
+        pushChild p1.Body.Fragment "paragraph"
+        Expect.equal p1.Dispatcher.Model.Body 1
+            "the editor's own insert flowed into the model through the ordinary decode path"
+
+        syncBoth p1.Doc p2.Doc
+        Expect.equal p2.Dispatcher.Model.Body 1 "and reached the peer's model"
+
+        // Concurrent inserts from both editors both survive (fragment inserts
+        // merge like array inserts, U8) — a structural merge no register gives.
+        pushChild p1.Body.Fragment "heading"
+        pushChild p2.Body.Fragment "list"
+        syncBoth p1.Doc p2.Doc
+        Expect.equal p1.Dispatcher.Model.Body 3 "both concurrent inserts kept, not last-writer-wins"
+        Expect.equal p2.Dispatcher.Model.Body p1.Dispatcher.Model.Body "and both models converge"
+    }
+
+    test "a nested custom anchors its Y.XmlFragment in the parent map (ensureXmlFragment)" {
+        let doc = Y.Doc.Create ()
+        let mutable frag : Y.XmlFragment option = None
+        let bodyEl =
+            { new CustomElement with
+                member _.Connect ctx =
+                    frag <- Some (ctx.GetXmlFragment ())
+                    { new IDisposable with member _.Dispose () = () }
+                member _.Value = box 0 }
+        // "body" is a custom nested inside the "draft" object — this routes the
+        // BindContext through attachCustom (the nested Get* site).
+        use _att =
+            Ylmish.Internal.Binding.attach doc
+                (Encode.object [ "draft", Encode.object [ "body", Encode.custom bodyEl ] ])
+        pushChild (Option.get frag) "paragraph"
+        // The very fragment the editor mutated lives at draft.body in the doc.
+        let draft : Y.Map<obj> = doc.getMap "draft"
+        match draft.get "body" with
+        | Some v -> Expect.equal ((unbox<Y.XmlFragment> v).toArray().Count) 1
+                        "the edited fragment is anchored under draft.body"
+        | None -> failwith "expected a Y.XmlFragment under draft.body"
     }
 
     test "BindContext never double-integrates: repeated Get* return the one instance (U5)" {
