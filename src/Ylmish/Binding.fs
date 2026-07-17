@@ -50,12 +50,16 @@ let private jsYArray : obj = obj ()
 [<Fable.Core.Import("Map", "yjs")>]
 let private jsYMap : obj = obj ()
 
+[<Fable.Core.Import("XmlFragment", "yjs")>]
+let private jsYXmlFragment : obj = obj ()
+
 [<Fable.Core.Emit("$0 instanceof $1")>]
 let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
 
 let private isYText (v : obj) = jsInstanceOf v jsYText
 let private isYMap (v : obj) = jsInstanceOf v jsYMap
 let private isYArray (v : obj) = jsInstanceOf v jsYArray
+let private isYXmlFragment (v : obj) = jsInstanceOf v jsYXmlFragment
 
 let private plainObject (fields : (string * obj) list) : obj =
     Fable.Core.JsInterop.createObj fields
@@ -66,6 +70,7 @@ let private plainArray (items : obj list) : obj =
 let private isYText (v : obj) = v.GetType().Name.StartsWith "YText"
 let private isYMap (v : obj) = v.GetType().Name.StartsWith "YMap"
 let private isYArray (v : obj) = v.GetType().Name.StartsWith "YArray"
+let private isYXmlFragment (v : obj) = v.GetType().Name.StartsWith "YXmlFragment"
 
 let private plainObject (fields : (string * obj) list) : obj =
     box (dict fields)
@@ -91,6 +96,7 @@ let private drift path expectedKind (found : obj) =
     let foundKind =
         if isYText found then "a Y.Text"
         elif isYArray found then "a Y.Array"
+        elif isYXmlFragment found then "a Y.XmlFragment"
         elif isYMap found then "a Y.Map"
         else "a plain value"
     raise (SchemaDrift (UnexpectedKind (path, sprintf "the doc holds %s where the schema expects %s — schema drift" foundKind expectedKind)))
@@ -127,6 +133,17 @@ let private ensureArray (parent : EnsureMap) (key : string) (path : Path) : unit
             let a : Y.Array<obj> = Y.Array.Create ()
             p.set (key, box a) |> ignore
             a
+
+let private ensureXmlFragment (parent : EnsureMap) (key : string) (path : Path) : unit -> Y.XmlFragment =
+    fun () ->
+        let p = parent ()
+        match p.get key with
+        | Some v when isYXmlFragment v -> unbox<Y.XmlFragment> v
+        | Some v -> drift path "an xml fragment" v
+        | None ->
+            let f : Y.XmlFragment = Y.XmlFragment.Create ()
+            p.set (key, box f) |> ignore
+            f
 
 // -----------------------------------------------------------------------------
 // Text: apply drained intents as precise splices.
@@ -473,6 +490,7 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
         { GetText = fun () -> ensureText parent key path () |> fst
           GetMap = fun () -> ensureChildMap parent key path ()
           GetArray = fun () -> ensureArray parent key path ()
+          GetXmlFragment = fun () -> ensureXmlFragment parent key path ()
           Origin = attachment.Origin }
     attachment.Add (custom.Connect ctx)
 
@@ -511,6 +529,7 @@ let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
                     { GetText = fun () -> doc.getText k
                       GetMap = fun () -> doc.getMap k
                       GetArray = fun () -> doc.getArray k
+                      GetXmlFragment = fun () -> doc.getXmlFragment k
                       Origin = attachment.Origin }
                 attachment.Add (custom.Connect ctx)
             | EncValue _ | EncOption _ | EncAtomic _ ->

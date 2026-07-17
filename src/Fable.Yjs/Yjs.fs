@@ -2023,6 +2023,7 @@ module Y =
     type Text = Types.YText.YText
     type Map<'a> = Types.YMap.YMap<'a>
     type Array<'a> = Types.YArray.YArray<'a>
+    type XmlFragment = Types.YXmlFragment.YXmlFragment
     type AbstractType = Types.AbstractType.AbstractType<obj>
     type Transaction = Utils.Transaction.Transaction
     

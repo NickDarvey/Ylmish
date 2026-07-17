@@ -22,7 +22,7 @@ A `CustomElement` has two members:
 
 - **`Connect : BindContext -> IDisposable`** — called once when the runtime
   attaches your program to the doc. The `BindContext` gives you
-  `GetText ()` / `GetMap ()` / `GetArray ()` — get-or-adopt accessors that
+  `GetText ()` / `GetMap ()` / `GetArray ()` / `GetXmlFragment ()` — get-or-adopt accessors that
   always return the **one** integrated instance (calling twice returns the
   same object, so you cannot corrupt the doc by re-integrating) — and
   `Origin`, the token your writes must be transacted under.

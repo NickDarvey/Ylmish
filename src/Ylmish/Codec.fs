@@ -115,6 +115,9 @@ type BindContext =
     { GetText : unit -> Y.Text
       GetMap : unit -> Y.Map<obj>
       GetArray : unit -> Y.Array<obj>
+      /// Get-or-create this element's slot as a Y.XmlFragment — the anchor an
+      /// XML editor binding (e.g. y-prosemirror) owns and mutates directly.
+      GetXmlFragment : unit -> Y.XmlFragment
       /// The origin token local writes must be transacted under — echo
       /// suppression (U6), and the seam Y.UndoManager integration would use.
       Origin : obj }
