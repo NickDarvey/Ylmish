@@ -155,6 +155,53 @@ let tests = testList "Program (withYlmish v2)" [
         Expect.isFalse ((d2.getMap () : Y.Map<obj>).has "local") "app-only state never synced"
     }
 
+    // The test above pins "app-only state survived the remote Set (ask)" in the settled
+    // case: every dispatch was processed before the remote transaction arrived. This is the
+    // same property when they overlap — a message dispatched but NOT YET PROCESSED when the
+    // remote transaction lands. Elmish's ring buffer makes that ordinary: anything
+    // dispatched from inside the dispatch loop (a setState callback, a subscription, an
+    // async continuation) enqueues rather than running.
+    test "a message dispatched before a remote transaction arrives is not undone by the Set" {
+        let remote = Y.Doc.Create ()
+        use rp = Elmish.Program.test (makeProgram remote)
+        rp.Dispatch (user (SetName "from a peer"))
+
+        let doc = Y.Doc.Create ()
+        let mutable latest = Model.init
+        let mutable send = ignore
+        let mutable armed = true
+        Elmish.Program.mkProgram (fun () -> Model.init, Elmish.Cmd.none) update (fun _ _ -> ())
+        |> Ylmish.Program.withYlmish {
+            Doc = doc
+            Create = AdaptiveModel
+            Update = fun (am : AdaptiveModel) m -> am.Update m
+            Encode = encode
+            Decode = decode
+            OnError = Ylmish.Program.OnError.log
+           }
+        |> Elmish.Program.withSetState (fun m dispatch ->
+            latest <- m
+            send <- dispatch
+            // Armed on the render caused by the FIRST SetLocal, so the doc subscription is
+            // already attached (Elmish attaches subscriptions after init).
+            if armed && m.Local = "one" then
+                armed <- false
+                // Inside the dispatch loop, so this ENQUEUES rather than running.
+                dispatch (user (SetLocal "two"))
+                // ...and the remote transaction lands while it is still queued. Yjs
+                // notifies synchronously, so the fold and the queued message overlap —
+                // which is the whole test. The fold must be decided against a model that
+                // includes SetLocal "two", not against whatever was current at the moment
+                // the transaction arrived.
+                sync remote doc)
+        |> Elmish.Program.run
+        send (user (SetLocal "one"))
+
+        Expect.equal latest.Name "from a peer" "the encoded field arrived"
+        Expect.equal latest.Local "two"
+            "a remote transaction must not roll back a message that was still queued when it arrived"
+    }
+
     test "a decode failure goes to OnError and the model is kept; the loop survives" {
         let d1 = Y.Doc.Create ()
         let d2 = Y.Doc.Create ()

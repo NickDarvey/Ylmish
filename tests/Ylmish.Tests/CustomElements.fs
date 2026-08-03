@@ -116,7 +116,7 @@ type private Peer = {
     Counter : GrowOnlyCounter
     Editor : EditorSurface
     Body : XmlEditorSurface
-    Dispatcher : Elmish.Program.ElmishDispatcher<Model, Ylmish.Program.Message<Model, Msg>>
+    Dispatcher : Elmish.Program.ElmishDispatcher<Model, Ylmish.Program.Message<Msg>>
 }
 
 let private mkPeer () =

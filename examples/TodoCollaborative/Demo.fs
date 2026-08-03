@@ -26,7 +26,7 @@ type private Peer (name : string, clientId : float) =
     let doc = Y.Doc.Create ()
     do doc.clientID <- clientId
     let mutable model = TodoModel.init
-    let mutable dispatch : Program.Message<TodoModel, Msg> -> unit = ignore
+    let mutable dispatch : Program.Message<Msg> -> unit = ignore
     do
         Main.makeProgram doc
         |> Elmish.Program.withSetState (fun m d ->
