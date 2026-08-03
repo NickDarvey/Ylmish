@@ -186,19 +186,20 @@ let tests = testList "Program (withYlmish v2)" [
             // already attached (Elmish attaches subscriptions after init).
             if armed && m.Local = "one" then
                 armed <- false
-                // Inside the dispatch loop: this ENQUEUES.
+                // Inside the dispatch loop, so this ENQUEUES rather than running.
                 dispatch (user (SetLocal "two"))
-                // ...and the remote transaction lands now. Yjs notifies synchronously, so
-                // the subscription decodes against `currentModel` — still the model as of
-                // the last PROCESSED message, because SetLocal "two" is only queued — and
-                // dispatches `Set` carrying it, behind the queued message.
+                // ...and the remote transaction lands while it is still queued. Yjs
+                // notifies synchronously, so the fold and the queued message overlap —
+                // which is the whole test. The fold must be decided against a model that
+                // includes SetLocal "two", not against whatever was current at the moment
+                // the transaction arrived.
                 sync remote doc)
         |> Elmish.Program.run
         send (user (SetLocal "one"))
 
         Expect.equal latest.Name "from a peer" "the encoded field arrived"
         Expect.equal latest.Local "two"
-            "the app-only field is not rolled back by a Set decoded before the message ran"
+            "a remote transaction must not roll back a message that was still queued when it arrived"
     }
 
     test "a decode failure goes to OnError and the model is kept; the loop survives" {
