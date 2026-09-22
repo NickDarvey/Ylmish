@@ -254,3 +254,93 @@ let tests = testList "Binding (decode direction)" [
             "changeable values demand a transaction — the reference branch crashed on exactly this"
     }
 ]
+
+// --- Y types the codec has no Element case for --------------------------------
+// A structural read classifies a live Y value by runtime kind. Anything outside
+// Text/Map/Array used to fall into the plain-object arm and be walked field by
+// field through its internals (`_item`, `_start`, `parent`, `doc`, …), which are
+// cyclic — so the read never returned. These pin that such a value is skipped.
+
+let unrepresentable = testList "Y types the codec cannot represent" [
+
+    test "Decode.run skips an undeclared root type it cannot represent" {
+        let doc = Y.Doc.Create ()
+        // The codec's own root, plus the sibling root a y-prosemirror editor is
+        // normally anchored to — which no decoder here asks for.
+        Y.transact (doc, (fun _ ->
+            (doc.getText "title").insert (0, "groceries")
+            (doc.getXmlFragment "body").push [| Fable.Core.U2.Case1 (Y.XmlElement.Create "paragraph") |]), box "app")
+
+        let decoder =
+            Decode.object {
+                let! title = Decode.object.optional "title" Decode.text
+                let! body = Decode.object.optional "body" Decode.text
+                return (title |> Option.map Text.toString), (body |> Option.map Text.toString)
+            }
+
+        match Decode.run () decoder doc with
+        | Ok (title, body) ->
+            Expect.equal title (Some "groceries") "the declared root decodes"
+            Expect.equal body None "the fragment is absent, not walked into its cyclic internals"
+        | Error e -> failwithf "decode failed: %A" e
+    }
+
+    test "Binding.read: a fragment in a slot the schema types as text is a decoder error, not a crash" {
+        let doc = Y.Doc.Create ()
+        let encoded = Encode.object [ "draft", Encode.object [ "body", Encode.text (cval Text.empty) ] ]
+        // A peer speaking a different schema put an XmlFragment where this
+        // encoding says text.
+        Y.transact (doc, (fun _ ->
+            let m : Y.Map<obj> = doc.getMap "draft"
+            let f = Y.XmlFragment.Create ()
+            m.set ("body", box f) |> ignore
+            f.push [| Fable.Core.U2.Case1 (Y.XmlElement.Create "paragraph") |]), box "v99-client")
+
+        let decoder =
+            Decode.object {
+                return! Decode.object.required "draft" (Decode.object {
+                    return! Decode.object.required "body" Decode.text
+                })
+            }
+
+        match Decode.runElement () decoder (Binding.read doc encoded) with
+        | Error [ MissingProperty path ] ->
+            Expect.equal path [ ObjectKey "body"; ObjectKey "draft" ] "the failure names the slot's path"
+        | r -> failwithf "expected a path-tracked decoder error, got %A" r
+    }
+
+    test "Encode.atomic still round-trips through a live doc read" {
+        let profile = cval ("", false)
+        let encoded =
+            Encode.object [
+                "profile", Encode.atomic (Encode.object [
+                    "name", Encode.string (profile |> AVal.map fst)
+                    "admin", Encode.bool (profile |> AVal.map snd)
+                ])
+            ]
+        let d1 = Y.Doc.Create ()
+        let _att = Binding.attach d1 encoded
+        transact (fun () -> profile.Value <- ("nick", true))
+        let d2 = Y.Doc.Create ()
+        sync d1 d2
+
+        let decoder =
+            Decode.object {
+                return! Decode.object.required "profile" (Decode.atomic (Decode.object {
+                    let! name = Decode.object.required "name" Decode.string
+                    let! admin = Decode.object.required "admin" Decode.bool
+                    return name, admin
+                }))
+            }
+
+        match Decode.runElement () decoder (Binding.read d2 encoded) with
+        | Ok v -> Expect.equal v ("nick", true) "the plain object Encode.atomic wrote reads back as an atomic"
+        | Error e -> failwithf "decode failed: %A" e
+    }
+
+    test "an empty doc still decodes to the decoder's empty" {
+        match Decode.run Model.init decode (Y.Doc.Create ()) with
+        | Ok m -> Expect.equal m Model.init "nothing in the doc, nothing claimed"
+        | Error e -> failwithf "decode failed: %A" e
+    }
+]

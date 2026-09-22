@@ -11,6 +11,7 @@ let tests = [
    Harness.tests
    Tests.Binding.tests
    Tests.BindingDecode.tests
+   Tests.BindingDecode.unrepresentable
    NorthStar.tests
    Tests.CustomElements.tests
    Tests.Stress.tests

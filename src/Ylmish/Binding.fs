@@ -50,16 +50,12 @@ let private jsYArray : obj = obj ()
 [<Fable.Core.Import("Map", "yjs")>]
 let private jsYMap : obj = obj ()
 
-[<Fable.Core.Import("XmlFragment", "yjs")>]
-let private jsYXmlFragment : obj = obj ()
-
 [<Fable.Core.Emit("$0 instanceof $1")>]
 let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
 
 let private isYText (v : obj) = jsInstanceOf v jsYText
 let private isYMap (v : obj) = jsInstanceOf v jsYMap
 let private isYArray (v : obj) = jsInstanceOf v jsYArray
-let private isYXmlFragment (v : obj) = jsInstanceOf v jsYXmlFragment
 
 let private plainObject (fields : (string * obj) list) : obj =
     Fable.Core.JsInterop.createObj fields
@@ -70,7 +66,6 @@ let private plainArray (items : obj list) : obj =
 let private isYText (v : obj) = v.GetType().Name.StartsWith "YText"
 let private isYMap (v : obj) = v.GetType().Name.StartsWith "YMap"
 let private isYArray (v : obj) = v.GetType().Name.StartsWith "YArray"
-let private isYXmlFragment (v : obj) = v.GetType().Name.StartsWith "YXmlFragment"
 
 let private plainObject (fields : (string * obj) list) : obj =
     box (dict fields)
@@ -96,7 +91,7 @@ let private drift path expectedKind (found : obj) =
     let foundKind =
         if isYText found then "a Y.Text"
         elif isYArray found then "a Y.Array"
-        elif isYXmlFragment found then "a Y.XmlFragment"
+        elif Interop.isYXmlFragment found then "a Y.XmlFragment"
         elif isYMap found then "a Y.Map"
         else "a plain value"
     raise (SchemaDrift (UnexpectedKind (path, sprintf "the doc holds %s where the schema expects %s — schema drift" foundKind expectedKind)))
@@ -138,7 +133,7 @@ let private ensureXmlFragment (parent : EnsureMap) (key : string) (path : Path) 
     fun () ->
         let p = parent ()
         match p.get key with
-        | Some v when isYXmlFragment v -> unbox<Y.XmlFragment> v
+        | Some v when Interop.isYXmlFragment v -> unbox<Y.XmlFragment> v
         | Some v -> drift path "an xml fragment" v
         | None ->
             let f : Y.XmlFragment = Y.XmlFragment.Create ()
@@ -575,6 +570,9 @@ let subscribe (doc : Y.Doc) (ownOrigin : obj) (handler : unit -> unit) : IDispos
 /// the LAYOUT (which named root types exist, argless-map slots for leaves) and
 /// which positions are custom elements; the VALUES are read structurally, so a
 /// kind mismatch surfaces as a decoder error with its path, not a crash here.
+/// A slot holding a Y type the structural reader has no Element case for reads
+/// as absent, so it lands on the decoder as a MissingProperty for that slot
+/// rather than walking the value's cyclic internals.
 let read (doc : Y.Doc) (encoded : Encoded) : Element =
     let structural (v : obj) : Element option = ElementOfY.ofYValue v
 
