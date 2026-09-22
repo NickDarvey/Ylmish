@@ -217,14 +217,31 @@ module internal Interop =
     [<Fable.Core.Import("Map", "yjs")>]
     let private jsYMap : obj = obj ()
 
+    [<Fable.Core.Import("XmlFragment", "yjs")>]
+    let private jsYXmlFragment : obj = obj ()
+
     [<Fable.Core.Emit("$0 instanceof $1")>]
     let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
 
     let isYText (v : obj) = jsInstanceOf v jsYText
     let isYMap (v : obj) = jsInstanceOf v jsYMap
     let isYArray (v : obj) = jsInstanceOf v jsYArray
+    /// Y.XmlElement extends Y.XmlFragment, so this covers both; the rest of the
+    /// XML family rides the detectors above (Y.XmlText extends Y.Text,
+    /// Y.XmlHook extends Y.Map). The binding layer shares this one — a second
+    /// copy is a second thing to keep in step.
+    let isYXmlFragment (v : obj) = jsInstanceOf v jsYXmlFragment
 
-    [<Fable.Core.Emit("typeof $0 === 'object' && $0 !== null && !Array.isArray($0)")>]
+    /// ONLY the plain objects `Encode.atomic` round-trips: the binding layer
+    /// builds them with `createObj` and a synced doc decodes them back as `{}`,
+    /// so both sides sit directly on `Object.prototype`. Testing the prototype
+    /// rather than `typeof` keeps a Y type the codec has no case for from being
+    /// mistaken for data and walked field by field into its cyclic internals —
+    /// which is what the next Y type added upstream would otherwise do, with
+    /// nobody editing this file. `getPrototypeOf` rather than
+    /// `$0.constructor === Object` because atomic data may carry a
+    /// `constructor` key of its own, and that key would answer for it.
+    [<Fable.Core.Emit("typeof $0 === 'object' && $0 !== null && Object.getPrototypeOf($0) === Object.prototype")>]
     let isPlainObject (_v : obj) : bool = false
 
     [<Fable.Core.Emit("Array.isArray($0)")>]
@@ -242,6 +259,7 @@ module internal Interop =
     let isYText (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YText"
     let isYMap (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YMap"
     let isYArray (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YArray"
+    let isYXmlFragment (v : obj) = not (isNull v) && v.GetType().Name.StartsWith "YXmlFragment"
     let isPlainObject (v : obj) = v :? System.Collections.Generic.IDictionary<string, obj>
     let isPlainArray (v : obj) = v :? (obj[])
     let plainObjectKeys (v : obj) : string[] =
@@ -287,6 +305,16 @@ module internal ElementOfY =
                 |> Seq.choose objToPrim
                 |> Seq.toList
             Some (ElList ps)
+        elif isYXmlFragment v then
+            // A live Y type this tree has no case for. Answering "not
+            // representable" is the whole point: falling through to the plain
+            // arms below would walk it field by field through its internals
+            // (`_item`, `_start`, `parent`, `doc`, …), which are cyclic, so the
+            // read would never return. Schema-directed readers reach an
+            // XmlFragment through `Encode.custom`; `Decode.run` cannot see one
+            // at all, and skipping it is what lets a doc carry sibling roots
+            // the codec never named.
+            None
         elif isPlainArray v then
             // Plain arrays only arise inside atomic subtrees.
             plainToElement v
@@ -499,6 +527,9 @@ module Decode =
     /// (named root types + the argless root map). Total: errors are
     /// path-tracked values, not exceptions. Custom elements need the schema
     /// and are only decodable through the runtime (`withYlmish`), not here.
+    /// Roots holding a Y type this tree has no case for (Y.XmlFragment and
+    /// Y.XmlElement — a y-prosemirror anchor, say) are skipped, so a doc may
+    /// carry siblings the codec never named.
     let run (model : 'model) (decoder : Decoder<'model, 'r>) (doc : Y.Doc) : Result<'r, Error list> =
         runElement model decoder (ElementOfY.ofDoc doc)
 
