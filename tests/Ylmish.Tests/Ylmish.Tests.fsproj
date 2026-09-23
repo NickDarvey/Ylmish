@@ -13,6 +13,7 @@
     <Compile Include="Adaptive.Assumptions.fs" />
     <Compile Include="Delta.fs" />
     <Compile Include="Y.Assumptions.fs" />
+    <Compile Include="FableYjs.fs" />
     <Compile Include="Harness.fs" />
     <Compile Include="Binding.fs" />
     <Compile Include="Binding.Decode.fs" />
