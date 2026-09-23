@@ -537,21 +537,10 @@ let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
 // Step 6 — the decode direction.
 // -----------------------------------------------------------------------------
 
-#if FABLE_COMPILER
 // The doc's 'update' event fires exactly once per transaction THAT CHANGED
 // SOMETHING (afterTransaction fires for no-ops too, and its changedParentTypes
 // is empty for remotely-created types with no local observers — verified
 // empirically), and it hands the transaction origin directly.
-[<Fable.Core.Emit("$0.on('update', $1)")>]
-let private onUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
-
-[<Fable.Core.Emit("$0.off('update', $1)")>]
-let private offUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
-#else
-let private onUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit =
-    failwith "the binding runtime runs under Fable only"
-let private offUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
-#endif
 
 /// Invoke `handler` exactly once per content-changing transaction that was NOT
 /// tagged with `ownOrigin` — i.e. every remote apply and every foreign local
@@ -559,12 +548,12 @@ let private offUpdate (_doc : Y.Doc) (_f : Action<obj, obj>) : unit = ()
 /// transaction spanning many types = one invocation (U14).
 let subscribe (doc : Y.Doc) (ownOrigin : obj) (handler : unit -> unit) : IDisposable =
     let f =
-        Action<obj, obj> (fun _update origin ->
+        Y.UpdateHandler (fun _update origin _ _ ->
             let own = not (isNull origin) && Object.ReferenceEquals (origin, ownOrigin)
             if not own then handler ())
-    onUpdate doc f
+    doc.onUpdate f
     { new IDisposable with
-        member _.Dispose () = offUpdate doc f }
+        member _.Dispose () = doc.offUpdate f }
 
 /// Schema-directed read of the doc into an Element tree: the Encoded tells us
 /// the LAYOUT (which named root types exist, argless-map slots for leaves) and

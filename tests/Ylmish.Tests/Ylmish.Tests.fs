@@ -8,6 +8,7 @@ let tests = [
    Adaptive.Assumptions.tests
    Tests.Delta.tests
    Y.Assumptions.tests
+   Tests.FableYjs.tests
    Harness.tests
    Tests.Binding.tests
    Tests.BindingDecode.tests

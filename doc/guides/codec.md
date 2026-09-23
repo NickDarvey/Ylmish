@@ -194,6 +194,41 @@ test "item errors accumulate, each with its index" {
 }
 ```
 
+## Skipping what does not decode
+
+A doc is written by peers you do not control, on builds you did not ship, so
+one malformed entry should not make the whole document undecodable. By
+default it does: `Decode.map` and `Decode.list` fail if any item fails.
+`Decode.attempt` turns a decoder's failure into `None` instead, so a
+collection can keep what decodes and drop the rest:
+
+<!-- sample: attempt-skips -->
+```fsharp
+test "a map with bad entries keeps exactly the entries that decode" {
+    Property.check <| property {
+        let! entries = genEntries
+        let e = Encode.map encodeEntry (AMap.ofList entries)
+        let decoded =
+            decodeVia () (Decode.map (Decode.attempt Decode.int)) e
+            |> ok
+            |> HashMap.choose (fun _ v -> v)
+        Expect.equal decoded (goodOnes entries) "the good entries, keyed as written, and nothing else"
+    }
+}
+```
+
+`Decode.result` is the same with the reasons kept — `Result<'a, Error list>`
+per entry, each error carrying the path it would have failed at — for a
+consumer that wants to log or count what it skipped. For lists, whose items are
+Value-sub-language primitives, the pair is `Value.Decode.attempt` /
+`Value.Decode.result`: `Decode.list (Value.Decode.attempt d)`, then
+`IndexList.choose id`.
+
+`attempt` never answers for absence. Under `Decode.object.optional`, the two
+layers stay distinct: `optional "k" (Decode.attempt d)` is `'a option option` —
+`None` for a missing key, `Some None` for a present value that did not decode,
+`Some (Some v)` for one that did.
+
 ## Unknown keys are never yours to delete
 
 The binding only touches keys your encoder mentions. A doc key written by a

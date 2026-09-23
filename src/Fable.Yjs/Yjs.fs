@@ -1,3 +1,5 @@
+// Originally ts2fable output, hand-maintained since: there is no regeneration
+// step, so edit this file directly.
 module rec Yjs
 
 #nowarn "1182"
@@ -1289,7 +1291,29 @@ module Utils =
             /// Converts the entire document into a js object, recursively traversing each yjs type
             /// Doesn't log types that have not been defined (using ydoc.getType(..)).
             abstract toJSON: unit -> DocToJSONReturn
-            abstract on: eventName: string * f: (ResizeArray<obj option> -> obj option) -> unit
+            // Hand-maintained from here: there is no regeneration step for this
+            // file. Doc events are bound one per event name, because each event
+            // calls its handler with a different argument list — a single
+            // string-keyed `on` cannot type them.
+            /// <summary>Subscribe to the doc's <c>'update'</c> event: fires once per
+            /// transaction that changed content, local or remote, with the encoded
+            /// update (V1 format — what <c>Y.applyUpdate</c> takes) and the
+            /// transaction's origin.</summary>
+            /// <remarks>Keep the handler: <c>offUpdate</c> removes a listener only
+            /// when handed the very same <c>UpdateHandler</c> instance.</remarks>
+            [<Emit "$0.on('update', $1)">] abstract onUpdate: handler: UpdateHandler -> unit
+            /// Unsubscribe a handler added by `onUpdate`. Must be the same
+            /// `UpdateHandler` instance — an equal-looking new one is a different
+            /// function and removes nothing.
+            [<Emit "$0.off('update', $1)">] abstract offUpdate: handler: UpdateHandler -> unit
+
+        /// Handler for `Doc.onUpdate`. Yjs calls it as
+        /// `(update, origin, doc, transaction)`; `origin` is whatever the writing
+        /// transaction was tagged with (`doc.transact(f, origin)`,
+        /// `Y.applyUpdate(doc, update, origin)`), or null. A delegate rather than an
+        /// F# function so that the value passed to `onUpdate` is the JS function
+        /// Yjs holds, and `offUpdate` can hand the same reference back.
+        type UpdateHandler = delegate of update: Uint8Array * origin: obj * doc: Doc * transaction: Transaction -> unit
 
         type [<AllowNullLiteral>] DocToJSONReturn =
             [<Emit "$0[$1]{{=$2}}">] abstract Item: x: string -> obj option with get, set
@@ -2026,6 +2050,7 @@ module Y =
     type XmlFragment = Types.YXmlFragment.YXmlFragment
     type AbstractType = Types.AbstractType.AbstractType<obj>
     type Transaction = Utils.Transaction.Transaction
+    type UpdateHandler = Utils.Doc.UpdateHandler
     
     type Delta<'insert> = Utils.YEvent.Delta<'insert>
     
