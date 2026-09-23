@@ -21,6 +21,7 @@
     <PropertyGroup>
       <NpmDependencies>
         <NpmPackage Name="yjs" Version="gte 13.5.35 lt 14" ResolutionStrategy="Max" />
+        <NpmPackage Name="lib0" Version="gte 0.2.0 lt 0.3" ResolutionStrategy="Max" />
       </NpmDependencies>
     </PropertyGroup>
     <ItemGroup>

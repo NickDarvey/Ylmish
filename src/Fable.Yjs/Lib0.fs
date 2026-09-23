@@ -1,5 +1,9 @@
 // ts2fable 0.7.1
+// Hand-maintained since: there is no regeneration step. Most modules stay
+// commented out; a module is live only where something needs it.
 module rec Lib0
+#nowarn "1182"
+
 open System
 open Fable.Core
 open Fable.Core.JS
@@ -126,17 +130,17 @@ type Symbol = obj
 //         abstract subs: Set<(obj option -> obj option -> obj option)> with get, set
 //         abstract bc: obj option with get, set
 
-// module Buffer =
+/// lib0/buffer. Hand-written rather than restored from the ts2fable block this
+/// replaced, keeping only the members with a caller: base64 is how a Yjs
+/// update (`Y.encodeStateAsUpdate`, `Doc.onUpdate`) travels over a text wire.
+module Buffer =
+    /// Base64-encode bytes (standard alphabet, padded).
+    [<ImportMember("lib0/buffer")>]
+    let toBase64 (bytes: Uint8Array) : string = jsNative
 
-//     type [<AllowNullLiteral>] IExports =
-//         abstract createUint8ArrayFromLen: len: float -> Uint8Array
-//         abstract createUint8ArrayViewFromArrayBuffer: buffer: ArrayBuffer * byteOffset: float * length: float -> Uint8Array
-//         abstract createUint8ArrayFromArrayBuffer: buffer: ArrayBuffer -> Uint8Array
-//         abstract toBase64: bytes: Uint8Array -> string
-//         abstract fromBase64: s: string -> Uint8Array
-//         abstract copyUint8Array: uint8Array: Uint8Array -> Uint8Array
-//         abstract encodeAny: data: obj option -> Uint8Array
-//         abstract decodeAny: buf: Uint8Array -> obj option
+    /// Decode a base64 string produced by `toBase64`.
+    [<ImportMember("lib0/buffer")>]
+    let fromBase64 (s: string) : Uint8Array = jsNative
 
 // // module Buffer_test =
 // //     module T = __testing_js

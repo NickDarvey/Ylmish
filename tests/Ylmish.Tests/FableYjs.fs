@@ -44,4 +44,15 @@ let tests = testList "Fable.Yjs bindings" [
             Expect.equal calls 1 "only the write before offUpdate was delivered"
         }
     ]
+
+    testList "Lib0.Buffer" [
+        test "an update survives a base64 round-trip and still applies" {
+            let a : Doc = Y.Doc.Create ()
+            (a.getText "t").insert (0, "héllo ✓")
+            let wire : string = Lib0.Buffer.toBase64 (Y.encodeStateAsUpdate a)
+            let b : Doc = Y.Doc.Create ()
+            Y.applyUpdate (b, Lib0.Buffer.fromBase64 wire)
+            Expect.equal ((b.getText "t").toString ()) "héllo ✓" "the peer reads what was written"
+        }
+    ]
 ]
