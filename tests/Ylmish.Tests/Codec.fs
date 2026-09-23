@@ -183,6 +183,99 @@ let tests = testList "Codec (v2)" [
         }
     ]
 
+    testList "tolerant decoding (attempt / result)" [
+        // Each entry either holds an int (decodes) or a string (does not).
+        // Keys are positional so they are unique.
+        let genEntries =
+            Gen.list (Range.linear 0 12) (gen {
+                let! good = Gen.int32 (Range.linear 0 1)
+                let! n = Gen.int32 (Range.linear -1000 1000)
+                return if good = 1 then Choice1Of2 n else Choice2Of2 (string n)
+            })
+            |> Gen.map (List.mapi (fun i v -> sprintf "k%d" i, v))
+        let encodeEntry = function
+            | Choice1Of2 (n : int) -> Encode.int (AVal.constant n)
+            | Choice2Of2 (s : string) -> Encode.string (AVal.constant s)
+        let goodOnes entries =
+            entries |> List.choose (fun (k, v) -> match v with Choice1Of2 n -> Some (k, n) | _ -> None) |> HashMap.ofList
+
+        // sample:begin attempt-skips
+        test "a map with bad entries keeps exactly the entries that decode" {
+            Property.check <| property {
+                let! entries = genEntries
+                let e = Encode.map encodeEntry (AMap.ofList entries)
+                let decoded =
+                    decodeVia () (Decode.map (Decode.attempt Decode.int)) e
+                    |> ok
+                    |> HashMap.choose (fun _ v -> v)
+                Expect.equal decoded (goodOnes entries) "the good entries, keyed as written, and nothing else"
+            }
+        }
+        // sample:end attempt-skips
+
+        test "result reports each skipped entry with its key in the path" {
+            Property.check <| property {
+                let! entries = genEntries
+                let e = Encode.map encodeEntry (AMap.ofList entries)
+                let failed =
+                    decodeVia () (Decode.map (Decode.result Decode.int)) e
+                    |> ok
+                    |> HashMap.toList
+                    |> List.choose (fun (k, r) ->
+                        match r with
+                        | Error [ UnexpectedValue (path, _) ] -> Some (k, path)
+                        | Error errs -> failwithf "unexpected errors %A" errs
+                        | Ok _ -> None)
+                    |> List.sort
+                let expected =
+                    entries
+                    |> List.choose (fun (k, v) -> match v with Choice2Of2 _ -> Some (k, [ MapKey k ]) | _ -> None)
+                    |> List.sort
+                Expect.equal failed expected "every bad entry, with the path it would have failed at"
+            }
+        }
+
+        test "attempt over a decoder that succeeds changes nothing" {
+            Property.check <| property {
+                let! ns = Gen.list (Range.linear 0 12) (Gen.int32 (Range.linear -1000 1000))
+                let e = Encode.map (fun (n : int) -> Encode.int (AVal.constant n)) (AMap.ofList (ns |> List.mapi (fun i n -> sprintf "k%d" i, n)))
+                let plain = decodeVia () (Decode.map Decode.int) e |> ok
+                let tolerant = decodeVia () (Decode.map (Decode.attempt Decode.int)) e |> ok |> HashMap.choose (fun _ v -> v)
+                Expect.equal tolerant plain "same entries as the strict decode"
+            }
+        }
+
+        test "under optional, absent stays absent and present-but-bad is Some None" {
+            let d = Decode.object { return! Decode.object.optional "k" (Decode.attempt Decode.int) }
+            Expect.equal (decodeVia () d (Encode.object []) |> ok) None
+                "a missing key is optional's None, not attempt's"
+            Expect.equal (decodeVia () d (Encode.object [ "k", Encode.string (AVal.constant "x") ]) |> ok) (Some None)
+                "a present key that does not decode"
+            Expect.equal (decodeVia () d (Encode.object [ "k", Encode.int (AVal.constant 3) ]) |> ok) (Some (Some 3))
+                "a present key that decodes"
+        }
+
+        test "a list with bad items keeps exactly the items that decode, in order" {
+            Property.check <| property {
+                // Integral floats decode as ints; n + 0.5 does not.
+                let! items =
+                    Gen.list (Range.linear 0 12) (gen {
+                        let! good = Gen.int32 (Range.linear 0 1)
+                        let! n = Gen.int32 (Range.linear -1000 1000)
+                        return if good = 1 then float n else float n + 0.5
+                    })
+                let e = Encode.list Value.Encode.float (AList.ofList items)
+                let decoded =
+                    decodeVia () (Decode.list (Value.Decode.attempt Value.Decode.int)) e
+                    |> ok
+                    |> IndexList.choose id
+                    |> IndexList.toList
+                let expected = items |> List.filter (fun f -> f = floor f) |> List.map int
+                Expect.equal decoded expected "the integral items, in their original order"
+            }
+        }
+    ]
+
     testList "text (4d)" [
         test "text round-trips content and decodes intent-free" {
             let t = Text.ofString "hello" |> Text.insert 5 "!"

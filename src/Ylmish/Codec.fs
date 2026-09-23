@@ -85,6 +85,18 @@ module Value =
         let map (f : 'a -> 'b) (VDecoder d : Decoder<'a>) : Decoder<'b> =
             VDecoder (d >> Result.map f)
 
+        /// Run a decoder and hand back its outcome, rather than failing the
+        /// decode around it. With `Decode.list`, the per-item outcomes of a
+        /// list: `Decode.list (Value.Decode.result d)`.
+        let result (VDecoder d : Decoder<'a>) : Decoder<Result<'a, string>> =
+            VDecoder (d >> Ok)
+
+        /// `result` without the reason: `None` is "this item did not decode".
+        /// `Decode.list (Value.Decode.attempt d)` then `IndexList.choose id`
+        /// keeps the items that decoded.
+        let attempt (VDecoder d : Decoder<'a>) : Decoder<'a option> =
+            VDecoder (d >> Result.toOption >> Ok)
+
 // -----------------------------------------------------------------------------
 // Errors — path-tracked, so a decode failure names where it happened.
 // -----------------------------------------------------------------------------
@@ -473,7 +485,9 @@ module Decode =
     [<GeneralizableValue>]
     let bool<'model> : Decoder<'model, bool> = value Value.Decode.bool
 
-    /// Accumulates errors across items rather than stopping at the first.
+    /// Accumulates errors across items rather than stopping at the first; one
+    /// failing entry fails the map. To skip bad entries instead, decode them
+    /// through `attempt` (or `result`, to keep the reasons).
     let map (decodeItem : Decoder<'model, 'i>) : Decoder<'model, HashMap<string, 'i>> =
         let (Decoder item) = decodeItem
         Decoder (fun model path el ->
@@ -488,7 +502,9 @@ module Decode =
                 if List.isEmpty errs then Ok oks else Error errs
             | el -> Error [ UnexpectedKind (path, sprintf "expected a map but found %s" (Element.kind el)) ])
 
-    /// Accumulates errors across items rather than stopping at the first.
+    /// Accumulates errors across items rather than stopping at the first; one
+    /// failing item fails the list. To skip bad items instead, decode them
+    /// through `Value.Decode.attempt` (or `Value.Decode.result`).
     let list (Value.VDecoder d : Value.Decoder<'a>) : Decoder<'model, IndexList<'a>> =
         Decoder (fun _ path el ->
             match el with
@@ -522,6 +538,28 @@ module Decode =
             match el with
             | ElCustom c -> Ok (unbox<'a> c.Value)
             | el -> Error [ UnexpectedKind (path, sprintf "expected a custom element but found %s" (Element.kind el)) ])
+
+    /// Run a decoder and hand back its outcome — the value, or the path-tracked
+    /// errors it would have failed with — rather than failing the decode around
+    /// it. The tolerant-collection primitive: `Decode.map (Decode.result d)`
+    /// decodes every entry and reports which ones failed and why, where plain
+    /// `Decode.map d` fails the whole map on one bad entry. A decoder that
+    /// succeeds is unchanged under it.
+    let result (Decoder d : Decoder<'model, 'a>) : Decoder<'model, Result<'a, Error list>> =
+        Decoder (fun model path el -> Ok (d model path el))
+
+    /// `result` without the reasons: `None` is "this did not decode", never
+    /// "this was absent". `Decode.map (Decode.attempt d)` then
+    /// `HashMap.choose (fun _ v -> v)` keeps the entries that decoded.
+    ///
+    /// Under `optional` the two layers stay distinct:
+    /// `Decode.object.optional "k" (Decode.attempt d)` is `'a option option` —
+    /// `None` = absent, `Some None` = present but did not decode, `Some (Some
+    /// v)` = decoded. Absence is still `optional`'s to answer; `attempt` only
+    /// sees a key that is there.
+    let attempt (decoder : Decoder<'model, 'a>) : Decoder<'model, 'a option> =
+        let (Decoder d) = result decoder
+        Decoder (fun model path el -> d model path el |> Result.map Result.toOption)
 
     /// Run a decoder against the doc's current state via a structural read
     /// (named root types + the argless root map). Total: errors are
