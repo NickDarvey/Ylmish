@@ -36,37 +36,16 @@ open Ylmish.Codec
 
 exception SchemaDrift of Error
 
-// -----------------------------------------------------------------------------
-// Runtime type tests on Y values (mirrors Y.fs's approach).
-// -----------------------------------------------------------------------------
+// Runtime type tests on Y values are `Interop`'s (Codec.fs), which are
+// Fable.Yjs's `tryOf`s — one test per kind, whoever is asking.
 
 #if FABLE_COMPILER
-[<Fable.Core.Import("Text", "yjs")>]
-let private jsYText : obj = obj ()
-
-[<Fable.Core.Import("Array", "yjs")>]
-let private jsYArray : obj = obj ()
-
-[<Fable.Core.Import("Map", "yjs")>]
-let private jsYMap : obj = obj ()
-
-[<Fable.Core.Emit("$0 instanceof $1")>]
-let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
-
-let private isYText (v : obj) = jsInstanceOf v jsYText
-let private isYMap (v : obj) = jsInstanceOf v jsYMap
-let private isYArray (v : obj) = jsInstanceOf v jsYArray
-
 let private plainObject (fields : (string * obj) list) : obj =
     Fable.Core.JsInterop.createObj fields
 
 let private plainArray (items : obj list) : obj =
     box (List.toArray items)
 #else
-let private isYText (v : obj) = v.GetType().Name.StartsWith "YText"
-let private isYMap (v : obj) = v.GetType().Name.StartsWith "YMap"
-let private isYArray (v : obj) = v.GetType().Name.StartsWith "YArray"
-
 let private plainObject (fields : (string * obj) list) : obj =
     box (dict fields)
 
@@ -89,10 +68,10 @@ type private EnsureMap = unit -> Y.Map<obj>
 
 let private drift path expectedKind (found : obj) =
     let foundKind =
-        if isYText found then "a Y.Text"
-        elif isYArray found then "a Y.Array"
+        if Interop.isYText found then "a Y.Text"
+        elif Interop.isYArray found then "a Y.Array"
         elif Interop.isYXmlFragment found then "a Y.XmlFragment"
-        elif isYMap found then "a Y.Map"
+        elif Interop.isYMap found then "a Y.Map"
         else "a plain value"
     raise (SchemaDrift (UnexpectedKind (path, sprintf "the doc holds %s where the schema expects %s — schema drift" foundKind expectedKind)))
 
@@ -100,7 +79,7 @@ let private ensureChildMap (parent : EnsureMap) (key : string) (path : Path) : E
     fun () ->
         let p = parent ()
         match p.get key with
-        | Some v when isYMap v -> unbox<Y.Map<obj>> v
+        | Some v when Interop.isYMap v -> unbox<Y.Map<obj>> v
         | Some v -> drift path "a map" v
         | None ->
             let m : Y.Map<obj> = Y.Map.Create ()
@@ -111,7 +90,7 @@ let private ensureText (parent : EnsureMap) (key : string) (path : Path) : unit 
     fun () ->
         let p = parent ()
         match p.get key with
-        | Some v when isYText v -> unbox<Y.Text> v, false
+        | Some v when Interop.isYText v -> unbox<Y.Text> v, false
         | Some v -> drift path "a text" v
         | None ->
             let t = Y.Text.Create ()
@@ -122,7 +101,7 @@ let private ensureArray (parent : EnsureMap) (key : string) (path : Path) : unit
     fun () ->
         let p = parent ()
         match p.get key with
-        | Some v when isYArray v -> unbox<Y.Array<obj>> v
+        | Some v when Interop.isYArray v -> unbox<Y.Array<obj>> v
         | Some v -> drift path "a list" v
         | None ->
             let a : Y.Array<obj> = Y.Array.Create ()

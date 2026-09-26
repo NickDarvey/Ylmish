@@ -220,29 +220,17 @@ module internal Element =
 
 module internal Interop =
 #if FABLE_COMPILER
-    [<Fable.Core.Import("Text", "yjs")>]
-    let private jsYText : obj = obj ()
-
-    [<Fable.Core.Import("Array", "yjs")>]
-    let private jsYArray : obj = obj ()
-
-    [<Fable.Core.Import("Map", "yjs")>]
-    let private jsYMap : obj = obj ()
-
-    [<Fable.Core.Import("XmlFragment", "yjs")>]
-    let private jsYXmlFragment : obj = obj ()
-
-    [<Fable.Core.Emit("$0 instanceof $1")>]
-    let private jsInstanceOf (_x : obj) (_ctor : obj) : bool = false
-
-    let isYText (v : obj) = jsInstanceOf v jsYText
-    let isYMap (v : obj) = jsInstanceOf v jsYMap
-    let isYArray (v : obj) = jsInstanceOf v jsYArray
+    // The kind tests are Fable.Yjs's (`Y.Text.tryOf` and siblings), so the
+    // binding a consumer narrows a value with and the one this library reads
+    // the doc with are the same code. The binding layer shares these — a
+    // second copy is a second thing to keep in step.
+    let isYText (v : obj) = Option.isSome (Y.Text.tryOf v)
+    let isYMap (v : obj) = Option.isSome (Y.Map.tryOf v)
+    let isYArray (v : obj) = Option.isSome (Y.Array.tryOf v)
     /// Y.XmlElement extends Y.XmlFragment, so this covers both; the rest of the
     /// XML family rides the detectors above (Y.XmlText extends Y.Text,
-    /// Y.XmlHook extends Y.Map). The binding layer shares this one — a second
-    /// copy is a second thing to keep in step.
-    let isYXmlFragment (v : obj) = jsInstanceOf v jsYXmlFragment
+    /// Y.XmlHook extends Y.Map).
+    let isYXmlFragment (v : obj) = Option.isSome (Y.XmlFragment.tryOf v)
 
     /// ONLY the plain objects `Encode.atomic` round-trips: the binding layer
     /// builds them with `createObj` and a synced doc decodes them back as `{}`,

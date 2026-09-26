@@ -2067,11 +2067,49 @@ module Y =
         let Delete del = jsOptions<Delta<_>> (fun o -> o.delete <- Some del)
         let Retain ret = jsOptions<Delta<_>> (fun o -> o.retain <- Some ret)
 
+    // The classes a value is tested against. Imported here rather than read off `type Y`'s
+    // statics because those are typed as their static interfaces, not as the constructor
+    // `instanceof` needs.
+    [<Import("Text", "yjs")>]
+    let private textClass : obj = jsNative
+    [<Import("Map", "yjs")>]
+    let private mapClass : obj = jsNative
+    [<Import("Array", "yjs")>]
+    let private arrayClass : obj = jsNative
+    [<Import("XmlFragment", "yjs")>]
+    let private xmlFragmentClass : obj = jsNative
+
+    /// The checked narrowing every `tryOf` below is: `instanceof` against the Yjs class, then
+    /// the cast that test has just justified. The alternative is `unbox`, which asserts and
+    /// never looks: a `Y.Map` unboxed as a `Y.Text` is not one, and nothing says so until a
+    /// method on it is missing somewhere else entirely.
+    let private narrow<'T> (cls : obj) (value : obj) : 'T option =
+        if JsInterop.jsInstanceof value cls then Some (unbox<'T> value) else None
+
     module Text =
         type Event = Types.YText.YTextEvent
 
+        /// The value as a `Y.Text` when it is one — a `Y.XmlText` included, since it extends
+        /// `Y.Text` — and `None` for anything else, `null` among them.
+        let tryOf (value : obj) : Text option = narrow textClass value
+
+    module Map =
+        /// The value as a `Y.Map` when it is one — a `Y.XmlHook` included, since it extends
+        /// `Y.Map` — and `None` for anything else, `null` among them. The entries stay `obj`:
+        /// what a map holds is known only by testing each one in turn.
+        let tryOf (value : obj) : Map<obj> option = narrow mapClass value
+
     module Array =
         type Event<'a> = Types.YArray.YArrayEvent<'a>
+
+        /// The value as a `Y.Array` when it is one, and `None` for anything else, `null`
+        /// among them. The elements stay `obj`, for the reason `Map.tryOf`'s entries do.
+        let tryOf (value : obj) : Array<obj> option = narrow arrayClass value
+
+    module XmlFragment =
+        /// The value as a `Y.XmlFragment` when it is one — a `Y.XmlElement` included, since
+        /// it extends `Y.XmlFragment` — and `None` for anything else, `null` among them.
+        let tryOf (value : obj) : XmlFragment option = narrow xmlFragmentClass value
 
 
     
