@@ -45,6 +45,51 @@ let tests = testList "Fable.Yjs bindings" [
         }
     ]
 
+    // What a doc hands back is `obj` until something looks. Each `tryOf` must
+    // answer for its own class (subclasses included, which is what `instanceof`
+    // means) and refuse everything else — a sibling Y type, a plain value, and
+    // `null`, the three shapes a garbled shared doc actually holds.
+    testList "tryOf" [
+        test "Text.tryOf answers a Y.Text as itself" {
+            let text = Y.Text.Create "t"
+            Expect.isTrue (Y.Text.tryOf (box text) |> Option.exists (fun t -> obj.ReferenceEquals (t, text))) "the same text"
+        }
+        test "Text.tryOf answers a Y.XmlText, which extends Y.Text" {
+            Expect.isSome (Y.Text.tryOf (box (Y.XmlText.Create ()))) "a subclass is a Y.Text"
+        }
+        test "Text.tryOf refuses a Y.Map" {
+            Expect.isNone (Y.Text.tryOf (box (Y.Map.Create () : Y.Map<obj>))) "a map is not text"
+        }
+        test "Text.tryOf refuses a plain string" {
+            Expect.isNone (Y.Text.tryOf (box "t")) "a string is not a Y.Text"
+        }
+        test "Text.tryOf refuses null" {
+            Expect.isNone (Y.Text.tryOf null) "null is nothing"
+        }
+        test "Map.tryOf answers a Y.Map as itself" {
+            let map : Y.Map<obj> = Y.Map.Create ()
+            Expect.isTrue (Y.Map.tryOf (box map) |> Option.exists (fun m -> obj.ReferenceEquals (m, map))) "the same map"
+        }
+        test "Map.tryOf refuses a Y.Text" {
+            Expect.isNone (Y.Map.tryOf (box (Y.Text.Create ()))) "text is not a map"
+        }
+        test "Map.tryOf refuses a plain object" {
+            Expect.isNone (Y.Map.tryOf (Fable.Core.JsInterop.createObj [ "k", box 1. ])) "a plain object is not a Y.Map"
+        }
+        test "Array.tryOf answers a Y.Array" {
+            Expect.isSome (Y.Array.tryOf (box (Y.Array.Create () : Y.Array<obj>))) "an array"
+        }
+        test "Array.tryOf refuses a Y.Map" {
+            Expect.isNone (Y.Array.tryOf (box (Y.Map.Create () : Y.Map<obj>))) "a map is not an array"
+        }
+        test "XmlFragment.tryOf answers a Y.XmlElement, which extends Y.XmlFragment" {
+            Expect.isSome (Y.XmlFragment.tryOf (box (Y.XmlElement.Create "p"))) "a subclass is a fragment"
+        }
+        test "XmlFragment.tryOf refuses a Y.Text" {
+            Expect.isNone (Y.XmlFragment.tryOf (box (Y.Text.Create ()))) "text is not a fragment"
+        }
+    ]
+
     testList "Lib0.Buffer" [
         test "an update survives a base64 round-trip and still applies" {
             let a : Doc = Y.Doc.Create ()
