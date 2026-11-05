@@ -105,7 +105,7 @@ let makeProgram (doc : Y.Doc) =
     }
 ```
 
-Each local update becomes one origin-tagged Y transaction (text as splices, keyed items per key, registers as sets); each remote transaction becomes one `Set` signal, which the update loop answers by re-decoding against the model it holds at that moment; your own writes never echo back. Syncing the `Y.Doc` is up to you — y-websocket, WebRTC, or explicit, as the demo does.
+Each local update becomes one origin-tagged Y transaction (text as splices, keyed items per key, registers as sets); each remote transaction that changes something your codec binds becomes one `Set` signal (writes to other top-level roots in the same doc, such as an editor's own fragment, produce none), which the update loop answers by re-decoding against the model it holds at that moment; your own writes never echo back. Syncing the `Y.Doc` is up to you — y-websocket, WebRTC, or explicit, as the demo does.
 
 ## The model's type is the merge choice
 

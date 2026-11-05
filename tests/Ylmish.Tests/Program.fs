@@ -9,8 +9,9 @@ module Ylmish.Tests.Program
 //     = init);
 //   - one Elmish update = one origin-tagged Y transaction, however many
 //     fields changed (the write-side U14);
-//   - each remote transaction dispatches exactly one Set, and own writes
-//     never echo;
+//   - each foreign transaction that changes a bound root dispatches exactly
+//     one Set, one that changes only unbound roots (an editor's own fragment)
+//     dispatches none, and own writes never echo;
 //   - decode failures and schema drift go to OnError and the loop survives;
 //   - the dual-key migration recipe works with plain codec combinators, and
 //     mixed-schema clients never destroy each other's representation (U15).
@@ -153,6 +154,35 @@ let tests = testList "Program (withYlmish v2)" [
         Expect.equal (Text.toString p2.Model.Body) "hi" "remote text arrived"
         Expect.equal p2.Model.Local "only-here" "app-only state survived the remote Set (ask)"
         Expect.isFalse ((d2.getMap () : Y.Map<obj>).has "local") "app-only state never synced"
+    }
+
+    test "Set only for transactions that change something the codec binds" {
+        let d1 = Y.Doc.Create ()
+        let d2 = Y.Doc.Create ()
+        let sets = ref 0
+        use p1 = Elmish.Program.test (makeProgram d1)
+        use p2 = Elmish.Program.test (makeProgram d2 |> Ylmish.Harness.countingSets sets)
+        let paragraph () = Fable.Core.U2.Case1 (Y.XmlElement.Create "paragraph")
+
+        // A peer's editor types into its own fragment, synced to us: no Set.
+        Y.transact (d1, (fun _ -> (d1.getXmlFragment "composer").push [| paragraph () |]), box "y-prosemirror")
+        sync d1 d2
+        Expect.equal sets.Value 0 "a remote keystroke into an unbound root does not re-decode"
+
+        // Our own editor types locally under a foreign origin: no Set.
+        Y.transact (d2, (fun _ -> (d2.getXmlFragment "composer").push [| paragraph () |]), box "y-prosemirror")
+        Expect.equal sets.Value 0 "a local keystroke into an unbound root does not re-decode"
+
+        // A bound change does, once — even shipped alongside noise.
+        Y.transact (d1, (fun _ -> (d1.getXmlFragment "composer").push [| paragraph () |]), box "y-prosemirror")
+        p1.Dispatch (user (Multi ("named", Text.edit "body")))
+        sync d1 d2
+        Expect.equal sets.Value 1 "one delivery touching bound roots (and an unbound one) = one Set"
+        Expect.equal p2.Model.Name "named" "and it decoded"
+
+        // Our own writes never echo.
+        p2.Dispatch (user (SetName "mine"))
+        Expect.equal sets.Value 1 "own writes are still suppressed"
     }
 
     // The test above pins "app-only state survived the remote Set (ask)" in the settled

@@ -6,12 +6,18 @@ module Ylmish.Tests.Stress
 // program on each replica (Elmish loop, suppression window, decode → Set —
 // the whole stack, not just the binding).
 //
+// The op alphabet includes `Noise`: writes by a foreign local writer into a
+// top-level root the codec does not bind (an editor's own fragment).
+//
 // Invariants, per schedule (L2):
 //   1. the replicas converge to equal Elmish models;
 //   2. the converged state matches the raw-Yjs oracle — full-model equality,
 //      exact because `Harness.run` pins clientIDs so SUT and oracle share
 //      every concurrency tiebreak;
 //   3. nothing the oracle preserves was lost;
+//   3a. each replica received exactly as many `Set`s as the oracle has
+//      foreign transactions touching its bound roots — noise never signals,
+//      and a delivery mixing noise with bound changes signals once;
 //   4. (Immediate only) with no concurrency window the converged state equals
 //      the plain sequential fold of the schedule — `applyOp` is the spec.
 //
@@ -63,6 +69,7 @@ let private update (Apply op) (m : SutModel) =
         | SpliceBody (at, removed, inserted) ->
             { m with Body = Text.replace at removed inserted m.Body }
         | SetNote value -> { m with Note = value }
+        | Noise _ -> m   // never dispatched: the bridge writes noise straight to the doc
     m, Elmish.Cmd.none
 
 type private AdaptiveModel (m : SutModel) =
@@ -101,6 +108,7 @@ let private decode : Decoder<SutModel, SutModel> =
 /// op as a user message; Read is the live Elmish model.
 let private sutFactory : BridgeFactory =
     fun doc ->
+        let sets = ref 0
         let program =
             Elmish.Program.mkProgram (fun () -> SutModel.init, Elmish.Cmd.none) update (fun _ _ -> ())
             |> Ylmish.Program.withYlmish {
@@ -111,10 +119,15 @@ let private sutFactory : BridgeFactory =
                 Decode = decode
                 OnError = Ylmish.Program.OnError.log
             }
+            |> countingSets sets
         let dispatcher = Elmish.Program.test program
         { Name = "withYlmish"
           Doc = doc
-          Apply = fun op _ -> dispatcher.Dispatch (Ylmish.Program.Message.User (Apply op))
+          Signals = fun () -> sets.Value
+          Apply = fun op _ ->
+            match op with
+            | Noise text -> writeNoise doc text
+            | op -> dispatcher.Dispatch (Ylmish.Program.Message.User (Apply op))
           Read = fun () ->
             let m = dispatcher.Model
             { Items = [ for id, title in HashMap.toList m.Todos -> { Id = id; Text = title } ]
@@ -135,7 +148,7 @@ let private genId = gen {
 let private genSmallString = Gen.string (Range.linear 0 5) Gen.alphaNum
 
 let private genOp = gen {
-    let! kind = Gen.int32 (Range.linear 0 9)
+    let! kind = Gen.int32 (Range.linear 0 11)
     if kind <= 2 then
         let! id = genId
         let! title = genSmallString
@@ -152,9 +165,12 @@ let private genOp = gen {
         let! removed = Gen.int32 (Range.linear 0 6)
         let! inserted = genSmallString
         return SpliceBody (at, removed, inserted)
-    else
+    elif kind = 9 then
         let! value = genSmallString
         return SetNote value
+    else
+        let! text = genSmallString
+        return Noise text
 }
 
 let private genSchedule =
@@ -179,11 +195,14 @@ let private checkSchedule (delivery : Delivery) (ops : ReplicaOp list) =
     if not (Set.isEmpty d.Lost) then
         failwith
             $"ids LOST under %A{delivery}: %A{d.Lost}\nschedule: %A{ops}"
+    if not d.SignalsMatch then
+        failwith
+            $"Set count does not follow the bound-root transactions under %A{delivery}.\nschedule: %A{ops}\nsut Sets per replica:    %A{d.Sut.Signals}\noracle signals per replica: %A{d.Oracle.Signals}"
     d
 
 let tests = testList "Stress (plan 0002 Step 9)" [
 
-    test "100 random schedules, Concurrent delivery: converge, match the oracle, lose nothing" {
+    test "100 random schedules, Concurrent delivery: converge, match the oracle, lose nothing, Set only on bound changes" {
         Property.check <| property {
             let! ops = genSchedule
             let _ = checkSchedule Concurrent ops

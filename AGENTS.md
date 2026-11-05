@@ -78,9 +78,9 @@ Use `Property.check` with `property { let! ... }` when a test can be expressed a
 
 The standing tool for CRDT-semantics claims. Three pieces:
 
-- A **`Bridge`** pushes changes into a `Y.Doc` (`Apply`, receiving both the op and the pure post-op model) and reads a converged model back (`Read`). The system under test is a full `withYlmish` program behind a bridge; the **oracle** (`RawYjs.factory`) interprets each op as one primitive Yjs operation — the intended semantics by construction, no self-authored spec to be wrong about.
+- A **`Bridge`** pushes changes into a `Y.Doc` (`Apply`, receiving both the op and the pure post-op model) and reads a converged model back (`Read`), and counts the decode signals it received (`Signals` — withYlmish's `Set`s; the oracle's deep observers on its own roots). The system under test is a full `withYlmish` program behind a bridge; the **oracle** (`RawYjs.factory`) interprets each op as one primitive Yjs operation — the intended semantics by construction, no self-authored spec to be wrong about.
 - **`run`** replays a schedule (per-replica ops) under a delivery policy: `Immediate` (each change ships before the next op — no concurrency) or `Concurrent` (everything held, one exchange at the end — maximal concurrency). It pins the replicas' clientIDs, so every Yjs tiebreak is deterministic and a failing schedule replays identically.
-- **`differential`** runs SUT and oracle through the same schedule and compares full converged models, reporting anything the oracle kept that the SUT lost.
+- **`differential`** runs SUT and oracle through the same schedule and compares full converged models, reporting anything the oracle kept that the SUT lost, and whether each replica's signal count matches the oracle's. The `Noise` op writes to a top-level root neither side binds (an editor's own fragment): it must move neither models nor signal counts.
 
 `Stress.fs` drives ~100 random schedules per delivery policy through this machinery; extend the harness's op alphabet (and the oracle, op-for-op) rather than building a parallel rig. One subtlety the oracle must honour: Ylmish elides content-neutral writes (a register set to its current value emits nothing), so the oracle must too, or it enters LWW races the SUT never enters.
 

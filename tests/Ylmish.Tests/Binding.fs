@@ -384,9 +384,12 @@ let tests = testList "Binding (encode direction)" [
                     Encode.object [
                         "items", Encode.map (fun (id : string) -> Encode.string (AVal.constant id)) items
                     ]
-                let _att = Binding.attach doc encoded
+                let att = Binding.attach doc encoded
+                let mutable signals = 0
+                let _s = Binding.subscribeBound doc att.Origin encoded (fun () -> signals <- signals + 1)
                 { Name = "binding"
                   Doc = doc
+                  Signals = fun () -> signals
                   Apply = fun _ m ->
                     transact (fun () ->
                         items.Value <- HashMap.ofList [ for i in m.Items -> i.Id, i.Text ])
