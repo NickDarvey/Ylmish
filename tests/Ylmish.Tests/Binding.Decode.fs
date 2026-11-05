@@ -420,6 +420,21 @@ let boundRoots = testList "Binding.subscribeBound (bound roots only)" [
         Expect.equal count.Value 1 "and it still signalled"
     }
 
+    // An 'update' listener registered before the signal's can type the
+    // peer-created root first. Yjs then swaps the placeholder in `doc.share`
+    // for a new Y.Map, so the type the transaction recorded no longer resolves
+    // to any name. Unresolvable must count as bound, or the edit is lost.
+    test "a bound root another listener typed first, unresolvable by then, still signals" {
+        let peer = Y.Doc.Create ()
+        let doc = Y.Doc.Create ()
+        doc.onUpdate (Y.UpdateHandler (fun _ _ _ _ -> (doc.getMap "map" : Y.Map<obj>) |> ignore))
+        let mutable count = 0
+        use _s = Binding.subscribeBound doc (box (obj ())) everyKind (fun () -> count <- count + 1)
+        remote peer (fun () -> (peer.getMap "map" : Y.Map<obj>).set ("id-1", box "t") |> ignore)
+        sync peer doc
+        Expect.equal count 1 "an unresolvable root counts as bound: exactly one signal"
+    }
+
     test "a change nested deep inside a bound root signals once" {
         let peer = Y.Doc.Create ()
         let doc, count, sub = mkReceiver ()

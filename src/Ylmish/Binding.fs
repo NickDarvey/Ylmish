@@ -468,6 +468,12 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
           Origin = attachment.Origin }
     attachment.Add (custom.Connect ctx)
 
+/// The name of the argless root map: Yjs names a root "" when `doc.getMap ()`
+/// is called without a name. `attach` writes top-level registers, options and
+/// atomics there, `read` reads them back, and `boundRoots` always includes it.
+[<Literal>]
+let private RootMapName = ""
+
 /// Attach an encoded tree to a doc. The top level must be an object.
 ///
 /// LAYOUT (the wire format): top-level REGISTERS (and options/atomics/customs)
@@ -481,7 +487,7 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
 /// nested record's FIRST write remains the accepted U2a residual race.
 let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
     let attachment = Attachment (box (obj ()), ref false, ResizeArray ())
-    let rootMap : EnsureMap = fun () -> doc.getMap ()
+    let rootMap : EnsureMap = fun () -> doc.getMap RootMapName
     match encoded with
     | EncObject props ->
         for (k, child) in props do
@@ -537,7 +543,7 @@ let boundRoots (encoded : Encoded) : Set<string> =
             | EncObject _ | EncMap _ | EncList _ | EncText _ | EncCustom _ -> Some k
             | EncValue _ | EncOption _ | EncAtomic _ -> None)
         |> Set.ofList
-        |> Set.add ""
+        |> Set.add RootMapName
     | _ ->
         raise (SchemaDrift (UnexpectedKind ([], "the top-level encoding must be Encode.object")))
 
@@ -563,7 +569,10 @@ let private rootOf (_t : obj) : obj =
 /// The name a changed type's root is shared under, or None when it cannot be
 /// resolved. By NAME, not identity: a root a peer created arrives here as a
 /// placeholder AbstractType until something calls `doc.getMap`/`getText` on
-/// it, but its `doc.share` entry already carries the name.
+/// it, but its `doc.share` entry already carries the name. That call swaps
+/// the placeholder in `doc.share` for a new instance, so a placeholder typed
+/// after the transaction recorded it (by an 'update' listener registered
+/// before ours, say) no longer resolves: None.
 let private rootName (t : obj) : string option =
     let root = rootOf t
     if isNull root then None
@@ -639,7 +648,7 @@ let read (doc : Y.Doc) (encoded : Encoded) : Element =
 
     match encoded with
     | EncObject props ->
-        let rootMap : Y.Map<obj> = doc.getMap ()
+        let rootMap : Y.Map<obj> = doc.getMap RootMapName
         let mutable fields = HashMap.empty
         for (k, child) in props do
             let el =
