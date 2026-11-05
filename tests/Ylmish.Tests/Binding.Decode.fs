@@ -344,3 +344,163 @@ let unrepresentable = testList "Y types the codec cannot represent" [
         | Error e -> failwithf "decode failed: %A" e
     }
 ]
+
+// --- Bound roots: a signal only for transactions that change what read reads ----
+// The same Y.Doc carries roots the codec never binds — an editor's own
+// Y.XmlFragment, typically, written on every keystroke. `subscribeBound`
+// signals only for transactions that change a root in the codec's layout:
+// "" (top-level registers, options, atomics) plus each top-level container or
+// custom's named root. The receiving doc in these tests never instantiates
+// anything locally, so every bound root arrives as a peer-created placeholder
+// — the case `changedParentTypes` cannot see.
+
+let private noopCustom =
+    { new CustomElement with
+        member _.Connect _ = { new IDisposable with member _.Dispose () = () }
+        member _.Value = box 0 }
+
+/// One top-level prop of every kind the codec has, nesting under "obj".
+let private everyKind : Encoded =
+    Encode.object [
+        "reg", Encode.string (AVal.constant "")
+        "opt", Encode.option Encode.text (AVal.constant None)
+        "atom", Encode.atomic (Encode.object [ "a", Encode.int (AVal.constant 0) ])
+        "obj", Encode.object [ "inner", Encode.object [ "deep", Encode.text (AVal.constant Text.empty) ] ]
+        "map", Encode.map (fun (s : string) -> Encode.string (AVal.constant s)) AMap.empty
+        "list", Encode.list Value.Encode.string AList.empty
+        "text", Encode.text (AVal.constant Text.empty)
+        "custom", Encode.custom noopCustom
+    ]
+
+/// A fresh receiver that has instantiated nothing, counting `subscribeBound`
+/// signals for `everyKind`.
+let private mkReceiver () =
+    let doc = Y.Doc.Create ()
+    let count = ref 0
+    let sub = Binding.subscribeBound doc (box (obj ())) everyKind (fun () -> count.Value <- count.Value + 1)
+    doc, count, sub
+
+let private remote (src : Y.Doc) (f : unit -> unit) =
+    Y.transact (src, (fun _ -> f ()), box "peer")
+
+let private paragraph () = Fable.Core.U2.Case1 (Y.XmlElement.Create "paragraph")
+
+let boundRoots = testList "Binding.subscribeBound (bound roots only)" [
+
+    // Every place the codec's layout puts state, written by a remote peer into
+    // a doc that never instantiated it: one transaction, one signal.
+    let cases : (string * (Y.Doc -> unit)) list = [
+        "a top-level register (argless root map)", fun d -> (d.getMap () : Y.Map<obj>).set ("reg", box "x") |> ignore
+        "a top-level option (argless root map)", fun d -> (d.getMap () : Y.Map<obj>).set ("opt", box (Y.Text.Create ())) |> ignore
+        "a top-level atomic (argless root map)", fun d -> (d.getMap () : Y.Map<obj>).set ("atom", box 1) |> ignore
+        "a top-level object", fun d -> (d.getMap "obj" : Y.Map<obj>).set ("k", box 1) |> ignore
+        "a top-level keyed map", fun d -> (d.getMap "map" : Y.Map<obj>).set ("id-1", box "t") |> ignore
+        "a top-level list", fun d -> (d.getArray "list" : Y.Array<obj>).push [| box "x" |]
+        "a top-level text", fun d -> (d.getText "text" : Y.Text).insert (0, "x")
+        "a top-level custom (an XML fragment)", fun d -> (d.getXmlFragment "custom").push [| paragraph () |]
+    ]
+    for (label, write) in cases do
+        test $"a remote write to {label} the receiver never instantiated: one signal" {
+            let peer = Y.Doc.Create ()
+            let doc, count, sub = mkReceiver ()
+            use _ = sub
+            remote peer (fun () -> write peer)
+            sync peer doc
+            Expect.equal count.Value 1 "a bound root changed: exactly one signal"
+        }
+
+    test "the remote-created root really is a placeholder here — matched by name, not type" {
+        let peer = Y.Doc.Create ()
+        let doc, count, sub = mkReceiver ()
+        use _ = sub
+        Expect.isEmpty (Interop.shareKeys doc |> Array.toList) "the receiver instantiated nothing"
+        remote peer (fun () -> (peer.getMap "map" : Y.Map<obj>).set ("id-1", box "t") |> ignore)
+        sync peer doc
+        Expect.isNone (Y.Map.tryOf (doc.share.get "map")) "the root arrived as a placeholder, not a Y.Map"
+        Expect.equal count.Value 1 "and it still signalled"
+    }
+
+    // An 'update' listener registered before the signal's can type the
+    // peer-created root first. Yjs then swaps the placeholder in `doc.share`
+    // for a new Y.Map, so the type the transaction recorded no longer resolves
+    // to any name. Unresolvable must count as bound, or the edit is lost.
+    test "a bound root another listener typed first, unresolvable by then, still signals" {
+        let peer = Y.Doc.Create ()
+        let doc = Y.Doc.Create ()
+        doc.onUpdate (Y.UpdateHandler (fun _ _ _ _ -> (doc.getMap "map" : Y.Map<obj>) |> ignore))
+        let mutable count = 0
+        use _s = Binding.subscribeBound doc (box (obj ())) everyKind (fun () -> count <- count + 1)
+        remote peer (fun () -> (peer.getMap "map" : Y.Map<obj>).set ("id-1", box "t") |> ignore)
+        sync peer doc
+        Expect.equal count 1 "an unresolvable root counts as bound: exactly one signal"
+    }
+
+    test "a change nested deep inside a bound root signals once" {
+        let peer = Y.Doc.Create ()
+        let doc, count, sub = mkReceiver ()
+        use _ = sub
+        let deep : Y.Text = Y.Text.Create ()
+        remote peer (fun () ->
+            let inner : Y.Map<obj> = Y.Map.Create ()
+            (peer.getMap "obj" : Y.Map<obj>).set ("inner", box inner) |> ignore
+            inner.set ("deep", box deep) |> ignore)
+        sync peer doc
+        Expect.equal count.Value 1 "creating the nested structure: one signal"
+
+        // Now ONLY the deep text changes: the transaction's changed set holds
+        // just that Y.Text, two levels below its root.
+        remote peer (fun () -> deep.insert (0, "hi"))
+        sync peer doc
+        Expect.equal count.Value 2 "a deep-only edit walks up to its bound root: one more signal"
+    }
+
+    test "a remote write only to roots the codec does not bind: no signal" {
+        let peer = Y.Doc.Create ()
+        let doc, count, sub = mkReceiver ()
+        use _ = sub
+        remote peer (fun () ->
+            (peer.getXmlFragment "draft").push [| paragraph () |]
+            (peer.getText "elsewhere").insert (0, "typing")
+            (peer.getMap "unbound" : Y.Map<obj>).set ("k", box 1) |> ignore)
+        sync peer doc
+        Expect.equal count.Value 0 "an editor's own roots are invisible to the codec's signal"
+
+        // ...nested changes under an unbound root too.
+        remote peer (fun () ->
+            let m : Y.Map<obj> = Y.Map.Create ()
+            (peer.getMap "unbound" : Y.Map<obj>).set ("nested", box m) |> ignore
+            m.set ("x", box 1) |> ignore)
+        sync peer doc
+        Expect.equal count.Value 0 "however deep"
+    }
+
+    test "a local foreign write only to an unbound root: no signal" {
+        let doc, count, sub = mkReceiver ()
+        use _ = sub
+        Y.transact (doc, (fun _ -> (doc.getXmlFragment "draft").push [| paragraph () |]), box "y-prosemirror")
+        Expect.equal count.Value 0 "the editor typing into its own fragment does not signal"
+    }
+
+    test "one transaction touching unbound AND several bound roots: exactly one signal (U14)" {
+        let peer = Y.Doc.Create ()
+        let doc, count, sub = mkReceiver ()
+        use _ = sub
+        remote peer (fun () ->
+            (peer.getXmlFragment "draft").push [| paragraph () |]
+            (peer.getMap () : Y.Map<obj>).set ("reg", box "x") |> ignore
+            (peer.getText "text" : Y.Text).insert (0, "x")
+            (peer.getMap "map" : Y.Map<obj>).set ("id-1", box "t") |> ignore)
+        sync peer doc
+        Expect.equal count.Value 1 "one transaction, one signal, however many roots it spans"
+    }
+
+    test "own-origin writes to bound roots still never signal (U6)" {
+        let doc = Y.Doc.Create ()
+        let own = box (obj ())
+        let mutable count = 0
+        use _s = Binding.subscribeBound doc own everyKind (fun () -> count <- count + 1)
+        Y.transact (doc, (fun _ -> (doc.getMap () : Y.Map<obj>).set ("reg", box "x") |> ignore), own)
+        Y.transact (doc, (fun _ -> (doc.getText "text" : Y.Text).insert (0, "x")), own)
+        Expect.equal count 0 "echo suppression is unchanged"
+    }
+]

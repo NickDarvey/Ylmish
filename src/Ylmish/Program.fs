@@ -4,8 +4,9 @@ module Ylmish.Program
 // Plan 0002, Step 7 — withYlmish on the binding runtime. The v1
 // materialize-per-update implementation is gone: local changes flow to the
 // doc as origin-tagged deltas via Ylmish.Internal.Binding (Step 5), and
-// remote transactions surface as exactly one `Set` signal each via the decode
-// direction (Step 6), decoded in `update` against the live model.
+// foreign transactions that touch a bound root surface as exactly one `Set`
+// signal each via the decode direction (Step 6), decoded in `update` against
+// the live model.
 
 open System
 
@@ -18,8 +19,8 @@ open Ylmish.Internal
 
 /// The binding's own message, alongside the consumer's.
 ///
-/// `Set` is a SIGNAL, not a value: it says "a remote transaction landed", and `update`
-/// does the decoding against the model Elmish hands it. Carrying the decoded model here
+/// `Set` is a SIGNAL, not a value: it says "a foreign transaction changed something the
+/// codec binds", and `update` does the decoding against the model Elmish hands it. Carrying the decoded model here
 /// would settle the fold at OBSERVER time and apply it at PROCESSING time, so any message
 /// dispatched in between — ordinary, given Elmish's ring buffer — would be silently
 /// undone.
@@ -58,9 +59,13 @@ type Options<'model, 'amodel> = {
 /// - **Local updates** flow to the doc as one origin-tagged Y transaction per
 ///   Elmish update (however many fields changed), as deltas: text as splices,
 ///   keyed items per key, lists as index operations, registers as LWW sets.
-/// - **Remote transactions** each produce exactly one `Set` signal, which
-///   `update` answers by re-decoding against the model Elmish holds at that
-///   moment; your own writes never echo back.
+/// - **Remote transactions** (and local writes by anything else sharing the
+///   doc) produce exactly one `Set` signal each when they change something
+///   your codec binds, however many roots they span; `update` answers it by
+///   re-decoding against the model Elmish holds at that moment. A transaction
+///   that changes only top-level roots outside the codec's layout — an
+///   editor's own Y.XmlFragment, say — produces none. Your own writes never
+///   echo back.
 let withYlmish
     (options : Options<'model, 'amodel>)
     (program : Program<'arg, 'model, 'msg, 'view>)
@@ -130,9 +135,12 @@ let withYlmish
             userSubscribe model |> Sub.map "ylmish" User
             [ [ "ylmish-doc" ], fun dispatch ->
                 match attached with
-                | Some (_, _, att) ->
+                | Some (_, encoded, att) ->
                     // Signal only — `update` decodes, against the model it is handed.
-                    Binding.subscribe options.Doc att.Origin (fun () -> dispatch Set)
+                    // Only for transactions that touch a root the codec binds: other
+                    // roots in the same doc (an editor's own fragment) cannot change
+                    // what `update` would decode.
+                    Binding.subscribeBound options.Doc att.Origin encoded (fun () -> dispatch Set)
                 | None ->
                     { new IDisposable with member _.Dispose () = () } ]
         ]

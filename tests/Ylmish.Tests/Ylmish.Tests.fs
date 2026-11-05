@@ -13,6 +13,7 @@ let tests = [
    Tests.Binding.tests
    Tests.BindingDecode.tests
    Tests.BindingDecode.unrepresentable
+   Tests.BindingDecode.boundRoots
    NorthStar.tests
    Tests.CustomElements.tests
    Tests.Stress.tests

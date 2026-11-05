@@ -124,6 +124,10 @@ decoded field like any peer's.
 
 - **Transact your own writes under `ctx.Origin`.** Untagged writes echo back
   into your program as spurious remote updates.
+- **Derive `Value` from your own slot only.** The program re-decodes only
+  when a transaction changes a root the codec binds — your element's slot
+  among them, but no other top-level root. A `Value` computed from some root
+  outside the codec's layout would go stale when only that root changes.
 - **Never cache Yjs objects across docs, and never integrate your own.** The
   `Get*` accessors adopt what is already in the doc or create it exactly once;
   re-integrating an already-integrated Y type corrupts the doc silently

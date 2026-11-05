@@ -468,6 +468,12 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
           Origin = attachment.Origin }
     attachment.Add (custom.Connect ctx)
 
+/// The name of the argless root map: Yjs names a root "" when `doc.getMap ()`
+/// is called without a name. `attach` writes top-level registers, options and
+/// atomics there, `read` reads them back, and `boundRoots` always includes it.
+[<Literal>]
+let private RootMapName = ""
+
 /// Attach an encoded tree to a doc. The top level must be an object.
 ///
 /// LAYOUT (the wire format): top-level REGISTERS (and options/atomics/customs)
@@ -481,7 +487,7 @@ and private attachCustom (attachment : Attachment) (parent : EnsureMap) (key : s
 /// nested record's FIRST write remains the accepted U2a residual race.
 let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
     let attachment = Attachment (box (obj ()), ref false, ResizeArray ())
-    let rootMap : EnsureMap = fun () -> doc.getMap ()
+    let rootMap : EnsureMap = fun () -> doc.getMap RootMapName
     match encoded with
     | EncObject props ->
         for (k, child) in props do
@@ -521,18 +527,92 @@ let attach (doc : Y.Doc) (encoded : Encoded) : Attachment =
 // is empty for remotely-created types with no local observers — verified
 // empirically), and it hands the transaction origin directly.
 
+/// The names of the top-level Yjs roots an encoding binds — the read side of
+/// `attach`'s LAYOUT: "" (the argless root map, home of top-level registers,
+/// options, atomics and customs-by-slot) plus the name of every top-level
+/// container (object, keyed map, list, text) and top-level custom, each of
+/// which anchors to a named root. Nothing `read` consults lies outside this
+/// set (a custom's BindContext reaches only its own slot), so a transaction
+/// that changes no root in it cannot change what `read` returns.
+let boundRoots (encoded : Encoded) : Set<string> =
+    match encoded with
+    | EncObject props ->
+        props
+        |> List.choose (fun (k, child) ->
+            match child with
+            | EncObject _ | EncMap _ | EncList _ | EncText _ | EncCustom _ -> Some k
+            | EncValue _ | EncOption _ | EncAtomic _ -> None)
+        |> Set.ofList
+        |> Set.add RootMapName
+    | _ ->
+        raise (SchemaDrift (UnexpectedKind ([], "the top-level encoding must be Encode.object")))
+
+#if FABLE_COMPILER
+/// The types a transaction changed — `transaction.changed`'s keys. Unlike
+/// `changedParentTypes`, it is populated whether or not anything observes the
+/// type, so it covers roots a peer created that this doc never instantiated.
+[<Fable.Core.Emit("Array.from($0.changed.keys())")>]
+let private changedTypes (_t : Y.Transaction) : obj[] = [||]
+
+/// The root a (possibly nested) type hangs off: follow `_item.parent` up until
+/// a type with no `_item`. Null when the chain breaks (an unintegrated parent
+/// ID) — the caller treats that as "may be bound".
+[<Fable.Core.Emit("(t => { while (t != null && t._item != null) { const p = t._item.parent; t = (p != null && typeof p === 'object' && 'doc' in p) ? p : null } return t })($0)")>]
+let private rootOf (_t : obj) : obj = null
+#else
+let private changedTypes (_t : Y.Transaction) : obj[] =
+    failwith "transaction inspection runs under Fable only"
+let private rootOf (_t : obj) : obj =
+    failwith "transaction inspection runs under Fable only"
+#endif
+
+/// The name a changed type's root is shared under, or None when it cannot be
+/// resolved. By NAME, not identity: a root a peer created arrives here as a
+/// placeholder AbstractType until something calls `doc.getMap`/`getText` on
+/// it, but its `doc.share` entry already carries the name. That call swaps
+/// the placeholder in `doc.share` for a new instance, so a placeholder typed
+/// after the transaction recorded it (by an 'update' listener registered
+/// before ours, say) no longer resolves: None.
+let private rootName (t : obj) : string option =
+    let root = rootOf t
+    if isNull root then None
+    else
+        try Some (Y.findRootTypeKey (unbox root))
+        with _ -> None
+
+/// Whether a transaction changed anything under one of `roots`. Unresolvable
+/// types count as touching (conservative: a spurious signal costs a re-decode,
+/// a missed one loses a remote edit).
+let touchesRoots (roots : Set<string>) (transaction : Y.Transaction) : bool =
+    changedTypes transaction
+    |> Array.exists (fun t ->
+        match rootName t with
+        | Some name -> Set.contains name roots
+        | None -> true)
+
 /// Invoke `handler` exactly once per content-changing transaction that was NOT
-/// tagged with `ownOrigin` — i.e. every remote apply and every foreign local
-/// write, with this attachment's own echoes filtered out (U6). One remote
-/// transaction spanning many types = one invocation (U14).
-let subscribe (doc : Y.Doc) (ownOrigin : obj) (handler : unit -> unit) : IDisposable =
+/// tagged with `ownOrigin` and that `relevant` accepts — i.e. every remote
+/// apply and every foreign local write, with this attachment's own echoes
+/// filtered out (U6). One transaction spanning many types = one invocation
+/// (U14).
+let subscribeWhere (doc : Y.Doc) (ownOrigin : obj) (relevant : Y.Transaction -> bool) (handler : unit -> unit) : IDisposable =
     let f =
-        Y.UpdateHandler (fun _update origin _ _ ->
+        Y.UpdateHandler (fun _update origin _ transaction ->
             let own = not (isNull origin) && Object.ReferenceEquals (origin, ownOrigin)
-            if not own then handler ())
+            if not own && relevant transaction then handler ())
     doc.onUpdate f
     { new IDisposable with
         member _.Dispose () = doc.offUpdate f }
+
+/// `subscribeWhere` for every foreign transaction, whatever it touched.
+let subscribe (doc : Y.Doc) (ownOrigin : obj) (handler : unit -> unit) : IDisposable =
+    subscribeWhere doc ownOrigin (fun _ -> true) handler
+
+/// `subscribeWhere` for the foreign transactions that change something
+/// `encoded` binds (`boundRoots`). Writes to other top-level roots in the same
+/// doc — an editor's own Y.XmlFragment, say — are invisible to it.
+let subscribeBound (doc : Y.Doc) (ownOrigin : obj) (encoded : Encoded) (handler : unit -> unit) : IDisposable =
+    subscribeWhere doc ownOrigin (touchesRoots (boundRoots encoded)) handler
 
 /// Schema-directed read of the doc into an Element tree: the Encoded tells us
 /// the LAYOUT (which named root types exist, argless-map slots for leaves) and
@@ -568,7 +648,7 @@ let read (doc : Y.Doc) (encoded : Encoded) : Element =
 
     match encoded with
     | EncObject props ->
-        let rootMap : Y.Map<obj> = doc.getMap ()
+        let rootMap : Y.Map<obj> = doc.getMap RootMapName
         let mutable fields = HashMap.empty
         for (k, child) in props do
             let el =
